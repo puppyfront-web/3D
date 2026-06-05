@@ -22,6 +22,7 @@ from app.models import (
     RetrievalLog,
     Role,
     SOPWorkflow,
+    Skill,
     TechnicalRule,
     User,
     VisualStyle,
@@ -30,9 +31,19 @@ from app.db.base import Base
 
 
 async def create_tables() -> None:
-    """Create all tables (used during development)."""
+    """Create all tables and pgvector indexes (used during development)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Create HNSW index for vector similarity search (PostgreSQL only)
+        try:
+            await conn.execute(
+                __import__("sqlalchemy").text(
+                    "CREATE INDEX IF NOT EXISTS idx_chunks_embedding "
+                    "ON document_chunks USING hnsw (embedding vector_cosine_ops)"
+                )
+            )
+        except Exception:
+            pass  # Not PostgreSQL or pgvector not available
 
 
 async def seed_database() -> None:
@@ -743,6 +754,222 @@ Generate a detailed visual prompt that includes:
             updated_at=now,
         )
         session.add(fb1)
+        await session.flush()
+
+        # --- Skills (built-in skill definitions) ---
+        skills_data = [
+            {
+                "skill_id": "company_analysis",
+                "name": "企业解析",
+                "description": "分析企业行业、品牌、受众、视觉偏好，生成企业画像",
+                "category": "analysis",
+                "manifest_json": {
+                    "skill_id": "company_analysis",
+                    "name": "企业解析",
+                    "required_services": ["llm.generate_json", "knowledge.retrieve"],
+                    "permissions": ["read_knowledge", "write_project_output"],
+                },
+                "input_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "company_id": {"type": "string"},
+                        "additional_context": {"type": "string"},
+                    },
+                    "required": ["company_id"],
+                },
+                "output_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "company_profile": {"type": "object"},
+                        "missing_info": {"type": "array"},
+                    },
+                },
+                "required_services_json": ["llm.generate_json", "knowledge.retrieve"],
+                "permissions_json": ["read_knowledge", "write_project_output"],
+                "visibility": "internal",
+                "version": "1.0.0",
+            },
+            {
+                "skill_id": "case_retrieval",
+                "name": "案例检索",
+                "description": "基于项目需求检索匹配的案例库",
+                "category": "retrieval",
+                "manifest_json": {
+                    "skill_id": "case_retrieval",
+                    "name": "案例检索",
+                    "required_services": ["knowledge.retrieve"],
+                    "permissions": ["read_knowledge"],
+                },
+                "input_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "industry": {"type": "string"},
+                        "top_k": {"type": "integer"},
+                    },
+                    "required": ["query"],
+                },
+                "output_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "cases": {"type": "array"},
+                    },
+                },
+                "required_services_json": ["knowledge.retrieve"],
+                "permissions_json": ["read_knowledge"],
+                "visibility": "internal",
+                "version": "1.0.0",
+            },
+            {
+                "skill_id": "proposal_generation",
+                "name": "策划案生成",
+                "description": "根据企业画像、项目需求和案例库生成策划案初稿",
+                "category": "proposal",
+                "manifest_json": {
+                    "skill_id": "proposal_generation",
+                    "name": "策划案生成",
+                    "required_services": ["llm.generate", "knowledge.context_pack", "export.docx"],
+                    "permissions": ["read_knowledge", "write_project_output"],
+                },
+                "input_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {"type": "string"},
+                        "template_id": {"type": "string"},
+                        "sop_workflow_id": {"type": "string"},
+                    },
+                    "required": ["project_id"],
+                },
+                "output_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "proposal_sections": {"type": "array"},
+                        "citations": {"type": "array"},
+                        "missing_info": {"type": "array"},
+                    },
+                },
+                "required_services_json": ["llm.generate", "knowledge.context_pack", "export.docx"],
+                "permissions_json": ["read_knowledge", "write_project_output"],
+                "visibility": "internal",
+                "version": "1.0.0",
+            },
+            {
+                "skill_id": "visual_prompt",
+                "name": "视觉 Prompt 生成",
+                "description": "生成视觉策略、正向/负向 Prompt 和构图建议",
+                "category": "visual",
+                "manifest_json": {
+                    "skill_id": "visual_prompt",
+                    "name": "视觉 Prompt 生成",
+                    "required_services": ["llm.generate_json"],
+                    "permissions": ["read_knowledge", "write_project_output"],
+                },
+                "input_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {"type": "string"},
+                        "style_preferences": {"type": "string"},
+                        "visual_style_id": {"type": "string"},
+                    },
+                    "required": ["project_id"],
+                },
+                "output_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "visual_strategy": {"type": "object"},
+                        "positive_prompt": {"type": "string"},
+                        "negative_prompt": {"type": "string"},
+                    },
+                },
+                "required_services_json": ["llm.generate_json"],
+                "permissions_json": ["read_knowledge", "write_project_output"],
+                "visibility": "internal",
+                "version": "1.0.0",
+            },
+            {
+                "skill_id": "image_generation",
+                "name": "图片生成",
+                "description": "根据 Prompt 调用图片生成服务",
+                "category": "visual",
+                "manifest_json": {
+                    "skill_id": "image_generation",
+                    "name": "图片生成",
+                    "required_services": ["image.generate"],
+                    "permissions": ["write_project_output"],
+                },
+                "input_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string"},
+                        "negative_prompt": {"type": "string"},
+                        "width": {"type": "integer"},
+                        "height": {"type": "integer"},
+                    },
+                    "required": ["prompt"],
+                },
+                "output_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "image_url": {"type": "string"},
+                        "metadata": {"type": "object"},
+                    },
+                },
+                "required_services_json": ["image.generate"],
+                "permissions_json": ["write_project_output"],
+                "visibility": "internal",
+                "version": "1.0.0",
+            },
+            {
+                "skill_id": "export",
+                "name": "方案导出",
+                "description": "将生成结果导出为 Word/PDF 文档",
+                "category": "export",
+                "manifest_json": {
+                    "skill_id": "export",
+                    "name": "方案导出",
+                    "required_services": ["export.docx", "export.pdf"],
+                    "permissions": ["read_project_output"],
+                },
+                "input_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string"},
+                        "format": {"type": "string", "enum": ["word", "pdf"]},
+                    },
+                    "required": ["task_id", "format"],
+                },
+                "output_schema_json": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                    },
+                },
+                "required_services_json": ["export.docx", "export.pdf"],
+                "permissions_json": ["read_project_output"],
+                "visibility": "internal",
+                "version": "1.0.0",
+            },
+        ]
+
+        for sd in skills_data:
+            skill = Skill(
+                id=uuid.uuid4(),
+                skill_id=sd["skill_id"],
+                name=sd["name"],
+                description=sd["description"],
+                category=sd["category"],
+                manifest_json=sd["manifest_json"],
+                input_schema_json=sd["input_schema_json"],
+                output_schema_json=sd["output_schema_json"],
+                required_services_json=sd["required_services_json"],
+                permissions_json=sd["permissions_json"],
+                visibility=sd["visibility"],
+                version=sd["version"],
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(skill)
 
         await session.commit()
 

@@ -79,6 +79,12 @@ class MockImageGenerationService(ImageGenerationService):
 
 def get_image_service() -> ImageGenerationService:
     """Factory function to create the appropriate image generation service."""
-    if settings.image_provider == "mock":
-        return MockImageGenerationService()
+    if settings.image_provider == "openai":
+        from app.services.image.openai_provider import DallEImageGenerationService
+
+        return DallEImageGenerationService(
+            api_key=settings.image_api_key,
+            base_url=settings.image_base_url or None,
+            model=settings.image_model,
+        )
     return MockImageGenerationService()

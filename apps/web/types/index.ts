@@ -28,17 +28,18 @@ export type SOPStepStatus = "pending" | "running" | "completed" | "skipped" | "f
 export interface Project {
   id: string;
   name: string;
-  client: string;
-  industry: string;
+  client?: string;
+  companyId?: string;
+  industry?: string;
   status: ProjectStatus;
-  priority: Priority;
+  priority?: Priority;
   createdAt: string;
   updatedAt: string;
-  dueDate: string;
-  description: string;
-  progress: number;
-  assignee: string;
-  tags: string[];
+  dueDate?: string;
+  description?: string;
+  progress?: number;
+  assignee?: string;
+  tags?: string[];
 }
 
 // --- Company Analysis ---
@@ -356,4 +357,46 @@ export interface NavItem {
   icon: string;
   badge?: string;
   children?: NavItem[];
+}
+
+// --- Skill System ---
+
+export interface SkillManifest {
+  skill_id: string;
+  name: string;
+  description?: string;
+  category: string;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+  required_services?: string[];
+  permissions?: string[];
+  visibility: string;
+  version: string;
+}
+
+export interface SkillExecution {
+  id: string;
+  skill_id: string;
+  project_id?: string;
+  user_id?: string;
+  input_json?: Record<string, unknown>;
+  output_json?: Record<string, unknown>;
+  status: string;
+  error_message?: string;
+  duration_ms?: number;
+  used_cases?: string[];
+  used_documents?: string[];
+  used_chunks?: string[];
+  created_at?: string;
+  completed_at?: string;
+}
+
+export interface Artifact {
+  id: string;
+  type: "report" | "document" | "image" | "prompt";
+  title: string;
+  content: string;
+  mimeType: string;
+  url?: string;
+  createdAt: string;
 }

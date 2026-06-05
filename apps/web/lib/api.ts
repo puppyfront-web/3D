@@ -15,6 +15,7 @@ import {
   Evaluation,
   ProjectWizardData,
   ApiResponse,
+  SkillManifest,
 } from "@/types";
 import {
   mockProjects,
@@ -38,12 +39,14 @@ import {
 // ============================================================
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const USE_MOCK = !process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_USE_MOCK === "true";
+// Default to real API; set NEXT_PUBLIC_USE_MOCK=true for offline development
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true";
 
 // Simulated API delay for mock mode
 const delay = (ms: number = 300) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Generic fetch wrapper for real API calls
+// Backend wraps responses in { success: bool, data: T, message: string }
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
   try {
@@ -56,7 +59,16 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<Api
       return { data: null as T, success: false, message: err.detail || "请求失败" };
     }
     const json = await res.json();
-    return { data: json, success: true };
+    // Backend wraps in { success, data, message }
+    if (json && typeof json === "object" && "data" in json) {
+      return {
+        data: json.data as T,
+        success: json.success ?? true,
+        message: json.message,
+      };
+    }
+    // Direct response (no wrapper)
+    return { data: json as T, success: true };
   } catch (error) {
     return { data: null as T, success: false, message: (error as Error).message };
   }
@@ -470,5 +482,64 @@ export async function searchKnowledge(query: string, filters?: Record<string, st
   return apiFetch("/api/v1/rag/search", {
     method: "POST",
     body: JSON.stringify({ query, filters }),
+  });
+}
+
+// ============================================================
+// Skills API
+// ============================================================
+
+export async function getSkills(): Promise<ApiResponse<SkillManifest[]>> {
+  if (USE_MOCK) {
+    await delay();
+    return {
+      data: [
+        { skill_id: "company_analysis", name: "企业解析", description: "分析企业画像", category: "analysis", visibility: "internal", version: "1.0.0" },
+        { skill_id: "case_retrieval", name: "案例检索", description: "检索匹配案例", category: "retrieval", visibility: "internal", version: "1.0.0" },
+        { skill_id: "proposal_generation", name: "策划案生成", description: "生成策划案初稿", category: "proposal", visibility: "internal", version: "1.0.0" },
+        { skill_id: "visual_prompt", name: "视觉 Prompt", description: "生成视觉策略和 Prompt", category: "visual", visibility: "internal", version: "1.0.0" },
+        { skill_id: "image_generation", name: "图片生成", description: "调用图片生成服务", category: "visual", visibility: "internal", version: "1.0.0" },
+        { skill_id: "export", name: "方案导出", description: "导出为 Word/PDF", category: "export", visibility: "internal", version: "1.0.0" },
+      ],
+      success: true,
+    };
+  }
+  return apiFetch<SkillManifest[]>("/api/v1/skills");
+}
+
+export async function executeSkill(
+  skillId: string,
+  inputData: Record<string, unknown>,
+  projectId?: string,
+): Promise<ApiResponse<Record<string, unknown>>> {
+  if (USE_MOCK) {
+    await delay(2000);
+    return { data: { success: true, output: {} }, success: true, message: "Skill 执行完成" };
+  }
+  return apiFetch<Record<string, unknown>>(`/api/v1/skills/${skillId}/execute`, {
+    method: "POST",
+    body: JSON.stringify({ input_data: inputData, project_id: projectId }),
+  });
+}
+
+// ============================================================
+// Pipeline API
+// ============================================================
+
+export async function runPipeline(projectId: string): Promise<ApiResponse<Record<string, unknown>>> {
+  if (USE_MOCK) {
+    await delay(5000);
+    return {
+      data: {
+        company_analysis: { success: true },
+        proposal_generation: { success: true },
+        visual_prompt: { success: true },
+      },
+      success: true,
+      message: "Pipeline completed",
+    };
+  }
+  return apiFetch<Record<string, unknown>>(`/api/v1/agents/pipeline/${projectId}`, {
+    method: "POST",
   });
 }

@@ -28,16 +28,21 @@ class Settings(BaseSettings):
     # LLM
     llm_provider: str = "mock"
     llm_api_key: str = ""
-    llm_model: str = ""
+    llm_base_url: str = ""
+    llm_model: str = "gpt-4o"
 
     # Embedding
     embedding_provider: str = "mock"
     embedding_api_key: str = ""
-    embedding_model: str = ""
+    embedding_base_url: str = ""
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
 
     # Image generation
     image_provider: str = "mock"
     image_api_key: str = ""
+    image_base_url: str = ""
+    image_model: str = "dall-e-3"
 
     # Storage
     storage_path: str = "./storage"

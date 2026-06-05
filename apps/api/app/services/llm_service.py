@@ -198,8 +198,12 @@ We recommend scheduling a detailed discovery session to finalize scope and prior
 
 def get_llm_service() -> LLMService:
     """Factory function to create the appropriate LLM service."""
-    if settings.llm_provider == "mock":
-        return MockLLMService()
+    if settings.llm_provider == "openai":
+        from app.services.llm.openai_provider import OpenAILLMService
 
-    # Future: return OpenAILLMService(settings) etc.
+        return OpenAILLMService(
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url or None,
+            model=settings.llm_model,
+        )
     return MockLLMService()

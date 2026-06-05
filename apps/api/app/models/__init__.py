@@ -13,6 +13,7 @@ from app.models.rule import QualityRule, TechnicalRule
 from app.models.generation import GenerationOutput, GenerationTask
 from app.models.retrieval import RetrievalLog
 from app.models.feedback import Feedback
+from app.models.skill import Skill, SkillExecution
 
 __all__ = [
     "User",
@@ -33,4 +34,6 @@ __all__ = [
     "GenerationOutput",
     "RetrievalLog",
     "Feedback",
+    "Skill",
+    "SkillExecution",
 ]

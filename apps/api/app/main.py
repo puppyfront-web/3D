@@ -64,6 +64,7 @@ def _register_routers(app: FastAPI) -> None:
         projects,
         rag,
         rules,
+        skills,
         templates,
         users,
         visual_styles,
@@ -88,6 +89,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(agents.router, prefix=prefix)
     app.include_router(feedback.router, prefix=prefix)
     app.include_router(exports.router, prefix=prefix)
+    app.include_router(skills.router, prefix=prefix)
 
 
 # Create the application instance

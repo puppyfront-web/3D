@@ -64,6 +64,13 @@ class MockEmbeddingService(EmbeddingService):
 
 def get_embedding_service() -> EmbeddingService:
     """Factory function to create the appropriate embedding service."""
-    if settings.embedding_provider == "mock":
-        return MockEmbeddingService()
+    if settings.embedding_provider == "openai":
+        from app.services.embedding.openai_provider import OpenAIEmbeddingService
+
+        return OpenAIEmbeddingService(
+            api_key=settings.embedding_api_key,
+            base_url=settings.embedding_base_url or None,
+            model=settings.embedding_model,
+            dimensions=settings.embedding_dimensions,
+        )
     return MockEmbeddingService()

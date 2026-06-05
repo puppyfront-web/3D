@@ -55,6 +55,14 @@ class Project(Base):
     )
     priority: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
+    # External portal fields (reserved for future ToC version)
+    external_token: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, unique=True
+    )
+    external_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    shared_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_for_external: Mapped[bool] = mapped_column(default=False, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
