@@ -1,0 +1,198 @@
+"use client";
+
+import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import {
+  FileText,
+  Edit3,
+  Save,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
+  MessageSquare,
+  Wand2,
+  Copy,
+  Download,
+  PanelRightOpen,
+  PanelRightClose,
+  Clock,
+} from "lucide-react";
+import { AgentPanel } from "@/components/layout/agent-panel";
+import { mockProposal } from "@/lib/mock-data";
+
+export default function ProposalPage() {
+  const [proposal, setProposal] = useState(mockProposal);
+  const [expandedSections, setExpandedSections] = useState<string[]>(
+    proposal.sections.map((s) => s.id)
+  );
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [agentOpen, setAgentOpen] = useState(true);
+
+  const toggleSection = (id: string) => {
+    setExpandedSections((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  };
+
+  const startEdit = (sectionId: string, content: string) => {
+    setEditingSection(sectionId);
+    setEditContent(content);
+  };
+
+  const saveEdit = () => {
+    if (!editingSection) return;
+    setProposal((prev) => ({
+      ...prev,
+      sections: prev.sections.map((s) =>
+        s.id === editingSection ? { ...s, content: editContent } : s
+      ),
+    }));
+    setEditingSection(null);
+  };
+
+  const statusColor = (status: string) => {
+    if (status === "approved") return "bg-green-50 text-[#10B981]";
+    if (status === "review") return "bg-amber-50 text-[#F59E0B]";
+    return "bg-gray-100 text-gray-500";
+  };
+
+  const statusLabel = (status: string) => {
+    if (status === "approved") return "已审核";
+    if (status === "review") return "审核中";
+    return "草稿";
+  };
+
+  return (
+    <div className="flex h-[calc(100vh-8rem)]">
+      {/* Main Editor Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <FileText className="h-5 w-5 text-[#1E3A5F]" />
+            <div>
+              <h2 className="text-sm font-semibold text-[#1A1A2E]">{proposal.title}</h2>
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <Clock className="h-3 w-3" />
+                <span>最后编辑：{new Date(proposal.lastEditedAt).toLocaleString("zh-CN")}</span>
+                <span>·</span>
+                <span>v{proposal.version}</span>
+                <span>·</span>
+                <span>{proposal.totalWords} 字</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1">
+              <Copy className="h-3.5 w-3.5" /> 复制
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1">
+              <Download className="h-3.5 w-3.5" /> 导出
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAgentOpen(!agentOpen)}
+              className="gap-1"
+            >
+              {agentOpen ? (
+                <PanelRightClose className="h-3.5 w-3.5" />
+              ) : (
+                <PanelRightOpen className="h-3.5 w-3.5" />
+              )}
+              AI助手
+            </Button>
+          </div>
+        </div>
+
+        {/* Document Content */}
+        <div className="flex-1 overflow-y-auto bg-white">
+          <div className="max-w-3xl mx-auto px-8 py-6">
+            {proposal.sections.map((section) => (
+              <div key={section.id} className="mb-4">
+                <div
+                  className="flex items-center gap-2 cursor-pointer group"
+                  onClick={() => toggleSection(section.id)}
+                >
+                  {expandedSections.includes(section.id) ? (
+                    <ChevronDown className="h-4 w-4 text-gray-400" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-gray-400" />
+                  )}
+                  <h3 className="text-base font-semibold text-[#1A1A2E] flex-1">
+                    {section.order}. {section.title}
+                  </h3>
+                  <Badge variant="outline" className={`text-xs ${statusColor(section.status)}`}>
+                    {statusLabel(section.status)}
+                  </Badge>
+                  {editingSection !== section.id && expandedSections.includes(section.id) && (
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEdit(section.id, section.content);
+                        }}
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Wand2 className="h-3.5 w-3.5 text-[#00D4FF]" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {expandedSections.includes(section.id) && (
+                  <div className="mt-3 ml-6">
+                    {editingSection === section.id ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          rows={10}
+                          className="text-sm leading-relaxed"
+                        />
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={saveEdit} className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-1">
+                            <Save className="h-3 w-3" /> 保存
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setEditingSection(null)}>
+                            取消
+                          </Button>
+                          <Button size="sm" variant="outline" className="gap-1 text-[#00D4FF]">
+                            <Sparkles className="h-3 w-3" /> AI优化
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50/50 rounded-lg p-4 border border-gray-100">
+                        {section.content}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <Separator className="mt-4" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Agent Panel */}
+      <AgentPanel isOpen={agentOpen} onClose={() => setAgentOpen(false)} />
+    </div>
+  );
+}

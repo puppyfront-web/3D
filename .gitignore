@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite3
+
+# Storage (local uploads)
+apps/api/storage/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+htmlcov/
+
+# Claude Code
+.claude/
