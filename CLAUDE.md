@@ -4,7 +4,9 @@
 
 本项目是一个面向 3D 展示幕墙、裸眼 3D、LED 媒体立面、数字视觉展示行业的 AI Native 专家系统。
 
-系统 MVP 阶段主要面向企业内部用户，包括销售、策划、设计、项目经理和审核人员。后续版本会扩展为对外客户使用的需求提交门户和客户协同确认系统。
+系统 MVP 阶段主要面向企业内部用户，包括销售、策划、设计、项目经理和审核人员。
+后续版本会扩展为对外客户使用的需求提交门户和客户协同确认系统。
+长期目标是打造行业垂直的 AI Skill Workspace 平台，支持 ToC 推广。
 
 本项目不是一个通用 AI 聊天机器人，也不是一个简单的"上传文档 + 问答"工具。
 
@@ -13,14 +15,30 @@
 ```text
 内部 AI 方案工作台
 + 专家能力管理后台
++ Skill 技能系统（内置技能 + 未来插件市场）
 + RAG 知识库
 + SOP 工作流
 + 策划案专家 Agent
 + 视觉创意专家 Agent
 + 人工审核与反馈闭环
++ 产物中心（Artifact）
 ```
 
 系统需要帮助企业将多年沉淀的 PPT、策划案、项目案例、图片素材、SOP、Prompt、生图方法和技术规则，转化为可配置、可检索、可复用、可持续优化的行业专家能力。
+
+### 产品演进路线
+
+```text
+第一阶段（MVP）：内部项目工作台
+  项目创建 → 企业解析 → 策划案生成 → 视觉生成 → 审核导出 → 知识库运营
+
+第二阶段：技能化改造
+  把企业解析、策划案、视觉生成、导出封装为 Skill
+  支持 Skill 卡片、运行日志、产物中心
+
+第三阶段：ToC 技能工作台
+  一句话输入 → 技能选择 → 模板生成 → 产物管理 → 导出/付费/分享
+```
 
 详细需求规格见 [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md)。
 
@@ -28,24 +46,51 @@
 
 ## 2. 产品形态
 
-系统采用一个统一平台，两类入口。
+系统采用一个统一平台，三类入口，分阶段实现。
 
 ```text
 3D 展示幕墙 AI 专家系统
-├─ 内部 AI 工作台
-└─ 专家能力管理后台
-```
-
-后续预留：
-
-```text
-外部客户门户
-├─ 客户需求提交
-├─ 已审核方案查看
-└─ 修改意见反馈
+├─ 内部 AI 工作台（MVP）
+├─ 专家能力管理后台（MVP）
+└─ 公开技能工作台（后续 ToC）
+   ├─ 对话入口 + 意图识别
+   ├─ 技能市场 / 技能卡片
+   ├─ 模板中心
+   ├─ 产物中心
+   └─ 轻量项目空间
 ```
 
 MVP 阶段只做内部用户体验版，不直接开放给终端客户使用。
+
+### 2.1 用户端交互原则
+
+用户端不应该做成纯 ChatGPT 式聊天框。
+
+正确形态是"对话入口 + 技能路由 + 结构化产物"：
+
+```text
+用户输入自然语言
+      ↓
+系统识别意图，推荐 Skill
+      ↓
+表单补全关键信息
+      ↓
+Skill 执行，生成结构化产物
+      ↓
+产物以 Artifact 形式展示（报告、文档、图片、Prompt、导出文件）
+```
+
+主入口可以是对话框，但过程必须用技能卡片和表单补全，结果用 Artifact 产物展示。
+
+不要做成纯聊天页面的原因：
+
+```text
+1. 专业信息容易漏填
+2. 过程不可控
+3. 产物不好管理
+4. 生成结果难复用
+5. 后续难做模板市场和插件市场
+```
 
 ---
 
@@ -307,7 +352,7 @@ Milvus
 │  │  │  │  ├─ quality-rules/
 │  │  │  │  └─ evaluations/
 │  │  │  │
-│  │  │  └─ portal/
+│  │  │  └─ portal/              （后续 ToC）
 │  │  │     ├─ request/
 │  │  │     └─ project/[token]/
 │  │  │
@@ -317,7 +362,9 @@ Milvus
 │  │  │  ├─ admin/
 │  │  │  ├─ proposal/
 │  │  │  ├─ visual/
-│  │  │  └─ agent/
+│  │  │  ├─ agent/
+│  │  │  ├─ skills/              （技能卡片、技能选择器）
+│  │  │  └─ artifacts/           （产物展示组件）
 │  │  │
 │  │  ├─ lib/
 │  │  └─ types/
@@ -331,6 +378,18 @@ Milvus
 │     │  ├─ schemas/
 │     │  ├─ routers/
 │     │  ├─ services/
+│     │  ├─ skills/              （Skill Runtime 核心）
+│     │  │  ├─ base.py           （Skill 基类和接口定义）
+│     │  │  ├─ registry.py       （Skill 注册表）
+│     │  │  ├─ runner.py         （Skill 执行引擎）
+│     │  │  ├─ manifest.py       （Skill Manifest 模型）
+│     │  │  └─ builtins/         （内置 Skill 实现）
+│     │  │     ├─ company_analysis.py
+│     │  │     ├─ case_retrieval.py
+│     │  │     ├─ proposal_generation.py
+│     │  │     ├─ visual_prompt.py
+│     │  │     ├─ image_generation.py
+│     │  │     └─ export.py
 │     │  ├─ rag/
 │     │  ├─ agents/
 │     │  ├─ workflows/
@@ -919,13 +978,178 @@ exports
 evaluations
 ```
 
+skills（Skill Runtime，见第 12 节）
+```
+
 API 逻辑必须放在 service 层，不要把业务逻辑堆在 router 里。
 
 ---
 
-## 12. 代码质量规则
+## 12. Skill 技能系统设计
 
-### 12.1 通用规则
+系统采用 Skill-based 架构，每个专业能力封装为独立 Skill。
+
+### 12.1 设计原则
+
+```text
+1. 每个 Skill 有标准 Manifest（id、名称、描述、输入输出 schema、依赖服务、权限、版本）
+2. Skill 是最小可执行单元，可以被 Agent、工作流、对话路由调用
+3. MVP 只做内置 Skill，后续再开放自定义 Skill 和第三方 Skill
+4. Skill 执行过程必须记录日志、输入输出和引用来源
+5. Skill 输出必须作为结构化产物（Artifact），不能只是聊天文本
+```
+
+### 12.2 Skill Manifest 规范
+
+每个 Skill 必须定义 Manifest：
+
+```json
+{
+  "skill_id": "proposal_generation",
+  "name": "策划案生成",
+  "description": "根据企业画像、项目需求和案例库生成策划案初稿",
+  "category": "proposal",
+  "input_schema": {
+    "company_profile_id": "string",
+    "project_requirement": "object",
+    "style": "string",
+    "template_id": "string"
+  },
+  "output_schema": {
+    "proposal_sections": "array",
+    "citations": "array",
+    "missing_info": "array"
+  },
+  "required_services": [
+    "knowledge.context_pack",
+    "llm.generate",
+    "export.docx"
+  ],
+  "permissions": [
+    "read_knowledge",
+    "write_project_output"
+  ],
+  "visibility": "internal",
+  "version": "1.0.0"
+}
+```
+
+### 12.3 MVP 内置 Skill 清单
+
+MVP 阶段实现以下内置 Skill：
+
+```text
+1. company_analysis    - 企业解析 Skill
+2. case_retrieval      - 案例检索 Skill
+3. proposal_generation - 策划案生成 Skill
+4. visual_prompt       - 视觉 Prompt 生成 Skill
+5. image_generation    - 图片生成 Skill
+6. export              - 方案导出 Skill（Word/PDF）
+```
+
+### 12.4 Skill 类型分类
+
+```text
+企业解析类：company_analysis
+策划文档类：proposal_generation, export
+视觉生成类：visual_prompt, image_generation
+知识检索类：case_retrieval
+审核类：（后续）
+项目管理类：（后续）
+```
+
+### 12.5 Skill Runtime 架构
+
+```text
+Skill Runtime 负责：
+  注册 Skill
+  读取 Skill Manifest
+  校验输入（基于 input_schema）
+  调用依赖服务（required_services）
+  校验输出（基于 output_schema）
+  保存产物
+  记录运行日志
+  权限控制
+```
+
+### 12.6 Skill 调用方式
+
+Skill 可以通过以下方式调用：
+
+```text
+1. 项目工作台：按 SOP 流程自动编排 Skill 链路
+2. 对话入口：意图识别后自动路由到对应 Skill
+3. 技能卡片：用户手动选择并触发 Skill
+4. 工作流引擎：多个 Skill 编排为 pipeline
+```
+
+### 12.7 Skill 与 Agent 的关系
+
+```text
+Agent = 意图理解 + Skill 编排 + 上下文管理 + 交互协商
+Skill = 单一专业能力的原子执行单元
+
+Agent 决定调用哪些 Skill、以什么顺序调用、如何处理异常。
+Skill 只负责执行并返回结构化结果。
+```
+
+### 12.8 前端 Skill 相关组件
+
+```text
+SkillCard        - 技能卡片展示（名称、描述、状态、使用按钮）
+SkillSelector    - 技能选择器（推荐技能、已启用技能）
+SkillProgress    - 技能执行进度
+SkillLog         - 技能运行日志
+ArtifactViewer   - 产物展示（报告、文档、图片、Prompt）
+ArtifactList     - 产物列表
+```
+
+### 12.9 Skill 数据模型
+
+新增 `skills` 表：
+
+```text
+id
+skill_id（唯一标识）
+name
+description
+category
+manifest_json
+input_schema_json
+output_schema_json
+required_services_json
+permissions_json
+visibility（internal / public）
+version
+status（active / disabled / deprecated）
+created_at
+updated_at
+```
+
+新增 `skill_executions` 表：
+
+```text
+id
+skill_id
+project_id
+user_id
+input_json
+output_json
+status（running / completed / failed）
+error_message
+duration_ms
+used_cases
+used_documents
+used_chunks
+created_at
+completed_at
+```
+
+---
+
+## 13. 代码质量规则
+
+### 13.1 通用规则
 
 ```text
 不要写死业务配置
@@ -945,9 +1169,10 @@ ImageGenerationService
 RetrievalService
 DocumentParserService
 ExportService
+SkillRuntime
 ```
 
-### 12.2 前端规则
+### 13.2 前端规则
 
 ```text
 页面只负责展示和交互
@@ -958,7 +1183,7 @@ Agent 助手组件复用
 不要在页面里写大量 mock 逻辑
 ```
 
-### 12.3 后端规则
+### 13.3 后端规则
 
 ```text
 Router 只处理请求响应
@@ -971,9 +1196,9 @@ Agent 逻辑放到 agents 或 workflows 模块
 
 ---
 
-## 13. Claude Code 工作规则
+## 14. Claude Code 工作规则
 
-### 13.1 写代码前必须先计划
+### 14.1 写代码前必须先计划
 
 每次任务开始时，必须先输出：
 
@@ -989,7 +1214,7 @@ API 变更
 
 在用户确认前，不要直接大规模写代码。
 
-### 13.2 一次只做一个任务包
+### 14.2 一次只做一个任务包
 
 不要一次性实现整个系统。
 
@@ -1011,7 +1236,7 @@ Task 11：导出和反馈
 Task 12：效果评估
 ```
 
-### 13.3 每次修改后必须自检
+### 14.3 每次修改后必须自检
 
 每次完成任务后必须执行：
 
@@ -1035,9 +1260,9 @@ lint
 
 ---
 
-## 14. 测试要求
+## 15. 测试要求
 
-### 14.1 后端测试
+### 15.1 后端测试
 
 必须覆盖：
 
@@ -1054,7 +1279,7 @@ Prompt 生成
 导出功能
 ```
 
-### 14.2 RAG 测试
+### 15.2 RAG 测试
 
 必须构造测试数据，验证：
 
@@ -1066,7 +1291,7 @@ Prompt 生成
 生成结果能够记录引用来源
 ```
 
-### 14.3 前端测试重点
+### 15.3 前端测试重点
 
 必须人工检查：
 
@@ -1081,7 +1306,7 @@ Agent 助手是否只是辅助，而不是主界面
 
 ---
 
-## 15. UI 风格要求
+## 16. UI 风格要求
 
 整体风格：
 
@@ -1108,7 +1333,7 @@ Agent 助手是否只是辅助，而不是主界面
 
 ---
 
-## 16. 外部客户门户预留规则
+## 17. 外部客户门户预留规则
 
 MVP 不实现完整外部客户系统，但必须预留设计。
 
@@ -1142,7 +1367,7 @@ external_status
 
 ---
 
-## 17. 禁止事项
+## 18. 禁止事项
 
 开发中禁止出现以下情况：
 
@@ -1161,7 +1386,7 @@ AI 生成内容不能编辑
 
 ---
 
-## 18. 第一阶段开发任务
+## 19. 第一阶段开发任务
 
 ### Phase 1：工程与 UI 骨架
 
@@ -1221,7 +1446,7 @@ Word / PDF 导出
 
 ---
 
-## 19. 给 Claude Code 的第一条启动 Prompt
+## 20. 给 Claude Code 的第一条启动 Prompt
 
 执行项目时，先使用以下 Prompt：
 
@@ -1251,7 +1476,7 @@ Word / PDF 导出
 
 ---
 
-## 20. 最终验收标准
+## 21. 最终验收标准
 
 MVP 验收时，系统至少应该做到：
 
@@ -1272,4 +1497,68 @@ MVP 验收时，系统至少应该做到：
 
 ---
 
-这份 `CLAUDE.md` 的核心作用是约束 Claude Code：**不要把项目做成普通 AI 聊天应用，而是按"内部 AI 工作台 + 专家管理后台 + 可运营专家能力"的方向生成代码。**
+这份 `CLAUDE.md` 的核心作用是约束 Claude Code：**不要把项目做成普通 AI 聊天应用，而是按"内部 AI 工作台 + 专家管理后台 + Skill 技能系统 + 可运营专家能力"的方向生成代码。**
+
+产品长期目标是：**内部版做"项目工作台"，外部版做"技能插件式 AI 工作台"。底层统一用 Skill Runtime + Knowledge Service，既能满足当前客户交付，也能为后续 ToC 产品化铺路。**
+
+---
+
+## 22. 最终系统架构
+
+```text
+前端
+├─ Internal Workspace（内部项目工作台）
+│  ├─ 项目创建向导
+│  ├─ 企业解析页
+│  ├─ 策划案编辑器
+│  ├─ 视觉生成工作台
+│  └─ 审核与导出
+│
+├─ Knowledge Console（知识库运营后台）
+│  ├─ 资料管理
+│  ├─ 案例库管理
+│  ├─ Prompt 模板管理
+│  ├─ SOP 配置
+│  ├─ 视觉风格库
+│  ├─ 技术规则库
+│  ├─ 质量标准管理
+│  └─ 检索测试
+│
+└─ Public Skill Workspace（后续 ToC）
+   ├─ 对话入口 + 意图识别
+   ├─ 技能市场 / 技能卡片
+   ├─ 模板中心（行业模板）
+   ├─ 产物中心（Artifact）
+   └─ 轻量项目空间
+
+后端
+├─ Platform API（项目、用户、企业、权限）
+├─ Knowledge API（文档、案例、模板、规则）
+├─ Skill Runtime（技能注册、执行、日志）
+├─ Agent Workflow Runtime（意图理解、技能编排）
+└─ Model Gateway（LLM / Embedding / Image 抽象层）
+```
+
+### 内部版 vs ToC 版分层
+
+```text
+内部版：
+  完整项目工作台
+  完整知识库运营
+  完整案例权重
+  完整 SOP 配置
+  人工审核
+  文档导出
+  Skill 管理后台
+
+ToC 版：
+  对话入口
+  技能选择
+  模板生成
+  轻量项目空间
+  少量资料上传
+  有限知识库
+  导出付费
+```
+
+不要把内部后台暴露给 ToC 用户。
