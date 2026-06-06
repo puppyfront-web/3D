@@ -13,6 +13,25 @@ from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# SSE chunk helper
+# ---------------------------------------------------------------------------
+
+
+def _sse_chunk(
+    chunk_type: str,
+    text: Optional[str] = None,
+    data: Optional[Dict] = None,
+) -> str:
+    """Build an SSE-formatted string for streaming to the frontend."""
+    payload: Dict[str, Any] = {"type": chunk_type}
+    if text is not None:
+        payload["text"] = text
+    if data is not None:
+        payload["data"] = data
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 @dataclass
 class ModificationEntry:
     """修改追踪条目。"""
@@ -468,3 +487,379 @@ class VisualConceptContext:
         if data.get("version_tree"):
             ctx.version_tree = VersionTree.from_dict(data["version_tree"])
         return ctx
+
+
+# ---------------------------------------------------------------------------
+# VisualConceptAgent — state-machine driven visual concept generation
+# ---------------------------------------------------------------------------
+
+
+class VisualConceptAgent:
+    """Agent that drives the full COLLECTING → … → COMPLETED state machine.
+
+    The agent is *stateless* by itself — all per-conversation state lives in a
+    ``VisualConceptContext`` instance that the caller persists (e.g. inside
+    ``Message.metadata_json``).
+    """
+
+    name: str = "visual_concept"
+
+    def __init__(
+        self,
+        llm_service: Optional[Any] = None,
+        image_service: Optional[Any] = None,
+        embedding_service: Optional[Any] = None,
+    ):
+        # Lazy import to avoid circular deps at module level
+        from app.services.llm_service import get_llm_service
+        from app.services.image_service import get_image_service
+        from app.services.embedding_service import get_embedding_service
+
+        self._llm = llm_service or get_llm_service()
+        self._image = image_service or get_image_service()
+        self._embedding = embedding_service or get_embedding_service()
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
+    async def handle_message(
+        self,
+        user_input: str,
+        ctx: VisualConceptContext,
+        db: Optional[Any] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Route *user_input* to the correct handler based on ``ctx.state``.
+
+        Yields SSE-formatted chunks that the frontend can consume directly.
+        """
+        try:
+            if ctx.state == "REVIEWING":
+                async for chunk in self._handle_reviewing(user_input, ctx, db):
+                    yield chunk
+            else:
+                # COLLECTING (or any transient state treated as collecting)
+                async for chunk in self._handle_collecting(user_input, ctx, db):
+                    yield chunk
+        except Exception as exc:
+            logger.exception("VisualConceptAgent error")
+            yield _sse_chunk("error", text=f"Agent error: {exc}")
+            yield _sse_chunk("done")
+
+    # ------------------------------------------------------------------
+    # COLLECTING handler
+    # ------------------------------------------------------------------
+
+    async def _handle_collecting(
+        self,
+        user_input: str,
+        ctx: VisualConceptContext,
+        db: Optional[Any],
+    ) -> AsyncGenerator[str, None]:
+        """Parse user input → merge into requirement → ask more or run pipeline."""
+        ctx.requirement.raw_input = (
+            f"{ctx.requirement.raw_input}\n{user_input}".strip()
+            if ctx.requirement.raw_input
+            else user_input
+        )
+
+        # Ask LLM to extract structured fields from user input
+        parse_result = await self._llm.generate_json(
+            prompt=(
+                "从以下用户输入中提取视觉概念图需求信息，返回 JSON：\n"
+                "字段：scene（使用场景）, screen_type（屏幕类型）, "
+                "visual_style（视觉风格）, brand_or_theme（品牌/主题）, "
+                "color_tone（色调）, target_audience（目标受众）, "
+                "key_elements（关键元素列表）, constraints（约束）, "
+                "missing_fields（仍然缺失的字段名列表）\n\n"
+                f"用户输入：{user_input}\n\n"
+                f"当前已收集的需求：{json.dumps(ctx.requirement.to_dict(), ensure_ascii=False)}"
+            ),
+            system_prompt=(
+                "你是一个视觉概念图需求分析助手。"
+                "从用户自然语言中提取结构化需求字段。"
+                "只返回 JSON，不要额外解释。"
+            ),
+        )
+
+        # Merge parsed fields into requirement
+        for key in (
+            "scene", "screen_type", "visual_style", "brand_or_theme",
+            "color_tone", "target_audience", "constraints",
+        ):
+            val = parse_result.get(key)
+            if val is not None:
+                ctx.requirement.merge_field(key, val)
+        if parse_result.get("key_elements"):
+            ctx.requirement.merge_field("key_elements", parse_result["key_elements"])
+
+        # Check if we still need more info
+        missing = ctx.requirement.get_missing_critical_fields()
+        if missing and ctx.should_ask_more():
+            ctx.ask_round += 1
+            ctx.missing_info = missing
+            ask_text = await self._generate_ask_question(ctx, missing)
+            buttons = self._generate_quick_replies(missing)
+            yield _sse_chunk("text_delta", text=ask_text)
+            yield _sse_chunk("action_buttons", data={"buttons": buttons})
+            yield _sse_chunk("done")
+            return
+
+        # Enough info — create the first version node and run the full pipeline
+        ctx.create_initial_node()
+        async for chunk in self._run_full_pipeline(ctx, db):
+            yield chunk
+
+    # ------------------------------------------------------------------
+    # REVIEWING handler
+    # ------------------------------------------------------------------
+
+    async def _handle_reviewing(
+        self,
+        user_input: str,
+        ctx: VisualConceptContext,
+        db: Optional[Any],
+    ) -> AsyncGenerator[str, None]:
+        """Detect user intent: satisfied / modify / restart."""
+        intent_result = await self._llm.generate_json(
+            prompt=(
+                "判断用户对当前视觉概念图的意图，返回 JSON：\n"
+                '{"intent": "satisfied" | "modify" | "restart", '
+                '"modifications": {"field": "value", ...}, '
+                '"reason": "解释"}\n\n'
+                f"用户输入：{user_input}"
+            ),
+            system_prompt=(
+                "你是一个意图识别助手。用户正在审核一张 AI 生成的视觉概念图。\n"
+                '- 如果用户表示满意/确认/可以了，intent 为 "satisfied"\n'
+                '- 如果用户要求修改某些方面，intent 为 "modify"，并在 modifications 中提取修改内容\n'
+                "- 如果用户要求完全重来/换个方向，intent 为 \"restart\""
+            ),
+        )
+
+        intent = intent_result.get("intent", "modify")
+
+        if intent == "satisfied":
+            ctx.state = "COMPLETED"
+            node = ctx.get_current_node()
+            summary = (
+                f"视觉概念图已确认完成。\n"
+                f"版本：{node.version_label if node else 'N/A'}\n"
+                f"正向 Prompt：{node.positive_prompt[:100] if node and node.positive_prompt else 'N/A'}…\n"
+            ) if node else "视觉概念图已确认完成。"
+            yield _sse_chunk("text_delta", text=summary)
+            yield _sse_chunk("artifact_summary", data=ctx.get_current_node().to_dict() if node else {})
+            yield _sse_chunk("done")
+            return
+
+        if intent == "restart":
+            ctx.state = "COLLECTING"
+            ctx.requirement = VisualRequirement()
+            ctx.ask_round = 0
+            ctx.missing_info = []
+            ctx.version_tree = None
+            ctx.current_node_id = None
+            yield _sse_chunk("text_delta", text="好的，让我们重新开始。请描述您想要的视觉概念图。")
+            yield _sse_chunk("done")
+            return
+
+        # modify
+        modifications = intent_result.get("modifications", {})
+        if modifications:
+            ctx.requirement.add_modification(
+                round=len(ctx.requirement.modification_log) + 1,
+                instruction=user_input,
+                parsed_changes=modifications,
+            )
+
+        ctx.create_next_version(trigger="modify", user_instruction=user_input)
+        async for chunk in self._run_full_pipeline(ctx, db):
+            yield chunk
+
+    # ------------------------------------------------------------------
+    # Full generation pipeline
+    # ------------------------------------------------------------------
+
+    async def _run_full_pipeline(
+        self,
+        ctx: VisualConceptContext,
+        db: Optional[Any],
+    ) -> AsyncGenerator[str, None]:
+        """Execute PLANNING → PROMPTING → GENERATING → REVIEWING sequence."""
+        node = ctx.get_current_node()
+        if node is None:
+            yield _sse_chunk("error", text="No version node available")
+            yield _sse_chunk("done")
+            return
+
+        # --- PLANNING ---
+        ctx.state = "PLANNING"
+        yield _sse_chunk(
+            "skill_progress",
+            data={"skill": "visual_strategy", "status": "running", "message": "正在生成视觉策略…"},
+        )
+        strategy = await self._generate_visual_strategy(ctx, db)
+        node.visual_strategy = strategy
+        yield _sse_chunk("visual_strategy", data=strategy)
+
+        # --- PROMPTING ---
+        ctx.state = "PROMPTING"
+        yield _sse_chunk(
+            "skill_progress",
+            data={"skill": "prompt_generation", "status": "running", "message": "正在生成 Prompt…"},
+        )
+        prompts = await self._generate_prompts(ctx, strategy)
+        node.positive_prompt = prompts.get("positive_prompt", "")
+        node.negative_prompt = prompts.get("negative_prompt", "")
+        yield _sse_chunk("text_delta", text=f"正向 Prompt：{node.positive_prompt}\n\n负向 Prompt：{node.negative_prompt}")
+
+        # --- GENERATING ---
+        ctx.state = "GENERATING"
+        yield _sse_chunk(
+            "skill_progress",
+            data={"skill": "image_generation", "status": "running", "message": "正在生成概念图…"},
+        )
+        image_url = await self._generate_image(node.positive_prompt, node.negative_prompt)
+        node.image_url = image_url
+        node.image_metadata = {
+            "width": 1024,
+            "height": 768,
+        }
+
+        # Quality check
+        quality = await self._quality_check(ctx, node)
+        node.quality_check = quality
+        node.completed_at = datetime.now(timezone.utc).isoformat()
+
+        yield _sse_chunk("visual_result", data={"image_url": image_url})
+        yield _sse_chunk("quality_check", data=quality)
+
+        # --- REVIEWING ---
+        ctx.state = "REVIEWING"
+        yield _sse_chunk(
+            "action_buttons",
+            data={
+                "buttons": [
+                    {"label": "满意，确认", "action": "satisfied"},
+                    {"label": "需要修改", "action": "modify"},
+                    {"label": "重新开始", "action": "restart"},
+                ],
+            },
+        )
+        yield _sse_chunk("done")
+
+    # ------------------------------------------------------------------
+    # Helper methods
+    # ------------------------------------------------------------------
+
+    async def _generate_ask_question(
+        self, ctx: VisualConceptContext, missing: List[str]
+    ) -> str:
+        """Generate a friendly follow-up question for the missing fields."""
+        field_labels = {
+            "scene": "使用场景",
+            "visual_style": "视觉风格",
+            "screen_type": "屏幕类型",
+            "brand_or_theme": "品牌或主题",
+            "color_tone": "色调",
+            "target_audience": "目标受众",
+        }
+        labels = [field_labels.get(f, f) for f in missing]
+        ask_text = await self._llm.generate(
+            prompt=(
+                f"当前已收集需求：{json.dumps(ctx.requirement.to_dict(), ensure_ascii=False)}\n"
+                f"还缺少以下关键信息：{', '.join(labels)}\n\n"
+                "请用友好的语气，简短地询问用户补充这些信息。一句话即可。"
+            ),
+            system_prompt="你是一个友好的视觉设计需求收集助手。",
+        )
+        return ask_text
+
+    @staticmethod
+    def _generate_quick_replies(missing: List[str]) -> List[Dict[str, str]]:
+        """Return quick-reply button dicts based on missing fields."""
+        button_map: Dict[str, List[Dict[str, str]]] = {
+            "scene": [
+                {"label": "品牌发布会", "value": "品牌发布会"},
+                {"label": "商场展示", "value": "商场展示"},
+                {"label": "户外广告", "value": "户外广告"},
+            ],
+            "visual_style": [
+                {"label": "科技感", "value": "科技感"},
+                {"label": "国潮风", "value": "国潮风"},
+                {"label": "简约商务", "value": "简约商务"},
+            ],
+        }
+        buttons: List[Dict[str, str]] = []
+        for field_name in missing:
+            if field_name in button_map:
+                buttons.extend(button_map[field_name])
+        return buttons
+
+    async def _generate_visual_strategy(
+        self, ctx: VisualConceptContext, db: Optional[Any]
+    ) -> Dict[str, Any]:
+        """Call LLM to generate a visual strategy from the requirement."""
+        strategy = await self._llm.generate_json(
+            prompt=(
+                "根据以下需求生成视觉策略，返回 JSON：\n"
+                "字段：style（视觉风格方向）, color_tone（色调方案）, "
+                "composition（构图建议）, key_elements（关键视觉元素列表）, "
+                "focus（视觉焦点）, mood（氛围）, notes（注意事项）, "
+                "citations（参考案例描述列表）\n\n"
+                f"需求：{json.dumps(ctx.requirement.to_dict(), ensure_ascii=False)}"
+            ),
+            system_prompt=(
+                "你是一位 3D 展示幕墙视觉创意专家。"
+                "根据客户需求生成专业的视觉策略方案。"
+                "只返回 JSON。"
+            ),
+        )
+        return strategy
+
+    async def _generate_prompts(
+        self, ctx: VisualConceptContext, strategy: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Call LLM to generate positive/negative prompts from the strategy."""
+        result = await self._llm.generate_json(
+            prompt=(
+                "根据以下视觉策略生成文生图 Prompt，返回 JSON：\n"
+                '{"positive_prompt": "...", "negative_prompt": "..."}\n\n'
+                f"视觉策略：{json.dumps(strategy, ensure_ascii=False)}\n\n"
+                f"原始需求：{json.dumps(ctx.requirement.to_dict(), ensure_ascii=False)}"
+            ),
+            system_prompt=(
+                "你是一位专业的 AI 绘图 Prompt 工程师，专注于 3D 展示幕墙和裸眼 3D 概念图。\n"
+                "positive_prompt 应该是英文，详细描述画面内容、构图、光影、色调。\n"
+                "negative_prompt 应该列出需要排除的元素和低质量标记。\n"
+                "只返回 JSON。"
+            ),
+        )
+        return result
+
+    async def _generate_image(
+        self, positive_prompt: str, negative_prompt: str
+    ) -> str:
+        """Call image generation service and return the image URL."""
+        image_url = await self._image.generate_image_url(
+            prompt=positive_prompt,
+            width=1024,
+            height=768,
+        )
+        return image_url
+
+    async def _quality_check(
+        self, ctx: VisualConceptContext, node: VersionNode
+    ) -> Dict[str, Any]:
+        """Call LLM to perform a quality check on the generated output."""
+        result = await self._llm.generate_json(
+            prompt=(
+                "对以下生成结果进行质量检查，返回 JSON：\n"
+                '{"items": [{"item": "检查项", "status": "✅或⚠️", "note": "说明"}]}\n\n'
+                f"需求：{json.dumps(ctx.requirement.to_dict(), ensure_ascii=False)}\n"
+                f"视觉策略：{json.dumps(node.visual_strategy or {}, ensure_ascii=False)}\n"
+                f"正向 Prompt：{node.positive_prompt}"
+            ),
+            system_prompt="你是一位视觉质量审核专家。检查生成结果是否满足需求。只返回 JSON。",
+        )
+        return result

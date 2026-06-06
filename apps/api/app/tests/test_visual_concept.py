@@ -1,6 +1,8 @@
 """Tests for VisualRequirement data model and modification tracking."""
 
 import pytest
+from unittest.mock import AsyncMock
+
 from app.agents.visual_concept import (
     VisualRequirement,
     ModificationEntry,
@@ -8,6 +10,8 @@ from app.agents.visual_concept import (
     BranchMeta,
     VersionTree,
     VisualConceptContext,
+    VisualConceptAgent,
+    _sse_chunk,
 )
 
 
@@ -224,3 +228,340 @@ class TestVisualConceptContext:
         current = ctx.version_tree.get_current_node()
         assert current.version_label == "V2"
         assert current.trigger == "modify"
+
+
+# ---------------------------------------------------------------------------
+# Tests for _sse_chunk helper
+# ---------------------------------------------------------------------------
+
+
+class TestSseChunk:
+    def test_text_only(self):
+        result = _sse_chunk("text_delta", text="hello")
+        assert result.startswith("data: ")
+        assert '"text_delta"' in result
+        assert '"hello"' in result
+        assert result.endswith("\n\n")
+
+    def test_data_only(self):
+        result = _sse_chunk("action_buttons", data={"buttons": []})
+        assert '"action_buttons"' in result
+        assert '"buttons"' in result
+
+    def test_text_and_data(self):
+        result = _sse_chunk("error", text="oops", data={"code": 500})
+        assert '"error"' in result
+        assert '"oops"' in result
+        assert '"code"' in result
+
+    def test_no_text_no_data(self):
+        result = _sse_chunk("done")
+        assert '"done"' in result
+        parsed = result[len("data: "):].strip()
+        import json
+        payload = json.loads(parsed)
+        assert payload == {"type": "done"}
+
+
+# ---------------------------------------------------------------------------
+# Tests for VisualConceptAgent
+# ---------------------------------------------------------------------------
+
+
+class TestVisualConceptAgent:
+    """Tests for the VisualConceptAgent state machine and SSE streaming."""
+
+    def _make_agent(self):
+        """Create an agent with mocked LLM and image services.
+
+        The mock LLM sequence covers the full pipeline:
+        parse requirement -> visual strategy -> prompts -> quality check.
+        """
+        mock_llm = AsyncMock()
+        mock_image = AsyncMock()
+        mock_image.generate_image_url = AsyncMock(
+            return_value="data:image/svg+xml,test"
+        )
+
+        call_count = [0]
+
+        async def mock_generate_json(**kwargs):
+            call_count[0] += 1
+            n = call_count[0]
+            if n == 1:  # COLLECTING: parse requirement
+                return {
+                    "scene": "品牌发布会",
+                    "screen_type": "裸眼3D",
+                    "visual_style": "科技感",
+                    "brand_or_theme": "汽车品牌",
+                    "missing_fields": [],
+                }
+            elif n == 2:  # PLANNING: strategy
+                return {
+                    "style": "赛博科技风",
+                    "color_tone": "深蓝渐变",
+                    "composition": "纵深透视",
+                    "key_elements": ["悬浮粒子"],
+                    "focus": "产品居中",
+                    "mood": "未来科技感",
+                    "notes": "",
+                    "citations": [],
+                }
+            elif n == 3:  # PROMPTING
+                return {
+                    "positive_prompt": "A futuristic cyberpunk-style 3D display...",
+                    "negative_prompt": "low quality, blurry",
+                }
+            elif n == 4:  # QUALITY CHECK
+                return {
+                    "items": [
+                        {"item": "场景", "status": "✅", "note": "匹配"},
+                        {"item": "风格", "status": "✅", "note": "匹配"},
+                    ]
+                }
+            return {}
+
+        mock_llm.generate_json = AsyncMock(side_effect=mock_generate_json)
+        mock_llm.generate = AsyncMock(
+            return_value="请问使用场景和视觉风格偏好是？"
+        )
+
+        agent = VisualConceptAgent(
+            llm_service=mock_llm, image_service=mock_image
+        )
+        return agent, mock_llm, mock_image
+
+    # -- init --
+
+    def test_agent_init(self):
+        agent, _, _ = self._make_agent()
+        assert agent.name == "visual_concept"
+
+    def test_agent_init_with_services(self):
+        mock_llm = AsyncMock()
+        mock_image = AsyncMock()
+        agent = VisualConceptAgent(
+            llm_service=mock_llm, image_service=mock_image
+        )
+        assert agent._llm is mock_llm
+        assert agent._image is mock_image
+
+    # -- COLLECTING with enough info --
+
+    @pytest.mark.asyncio
+    async def test_collecting_with_enough_info(self):
+        agent, _, _ = self._make_agent()
+        ctx = VisualConceptContext()
+        chunks = []
+        async for chunk in agent.handle_message(
+            "汽车品牌裸眼3D概念图，品牌发布会，科技感", ctx
+        ):
+            chunks.append(chunk)
+        # After full pipeline the context should be in REVIEWING
+        assert ctx.state == "REVIEWING"
+        assert ctx.version_tree is not None
+        # Must have yielded skill_progress chunks
+        progress = [
+            c for c in chunks if '"skill_progress"' in c
+        ]
+        assert len(progress) >= 3  # PLANNING, PROMPTING, GENERATING
+        # Must have yielded visual_strategy content block (not skill_progress)
+        strategy = [
+            c for c in chunks if '"visual_strategy"' in c and '"skill_progress"' not in c
+        ]
+        assert len(strategy) == 1
+        # Must have yielded visual_result with image_url
+        results = [c for c in chunks if '"visual_result"' in c]
+        assert len(results) == 1
+        # Must have quality check
+        qc = [c for c in chunks if '"quality_check"' in c]
+        assert len(qc) == 1
+        # Must have action_buttons at the end (REVIEWING)
+        buttons = [c for c in chunks if '"action_buttons"' in c]
+        assert len(buttons) == 1
+
+    @pytest.mark.asyncio
+    async def test_collecting_populates_node(self):
+        agent, _, _ = self._make_agent()
+        ctx = VisualConceptContext()
+        async for _ in agent.handle_message("test input", ctx):
+            pass
+        node = ctx.get_current_node()
+        assert node is not None
+        assert node.visual_strategy is not None
+        assert node.positive_prompt is not None
+        assert node.negative_prompt is not None
+        assert node.image_url is not None
+        assert node.quality_check is not None
+
+    @pytest.mark.asyncio
+    async def test_collecting_image_service_called(self):
+        agent, _, mock_image = self._make_agent()
+        ctx = VisualConceptContext()
+        async for _ in agent.handle_message("test input", ctx):
+            pass
+        mock_image.generate_image_url.assert_awaited_once()
+
+    # -- COLLECTING with missing info --
+
+    @pytest.mark.asyncio
+    async def test_collecting_missing_info_triggers_ask(self):
+        agent, mock_llm, _ = self._make_agent()
+        # Override: first call returns missing fields
+        mock_llm.generate_json = AsyncMock(
+            return_value={
+                "scene": None,
+                "screen_type": "裸眼3D",
+                "visual_style": None,
+                "missing_fields": ["scene", "visual_style"],
+            }
+        )
+        mock_llm.generate = AsyncMock(
+            return_value="请问使用场景和风格偏好？"
+        )
+        ctx = VisualConceptContext()
+        chunks = []
+        async for chunk in agent.handle_message("做一个裸眼3D", ctx):
+            chunks.append(chunk)
+        assert ctx.state == "COLLECTING"
+        assert ctx.ask_round == 1
+        text_deltas = [
+            c
+            for c in chunks
+            if c.startswith("data:") and '"text_delta"' in c
+        ]
+        assert len(text_deltas) > 0
+        # Should also have action_buttons with quick replies
+        buttons = [c for c in chunks if '"action_buttons"' in c]
+        assert len(buttons) == 1
+
+    @pytest.mark.asyncio
+    async def test_collecting_ask_increments_round(self):
+        agent, mock_llm, _ = self._make_agent()
+        mock_llm.generate_json = AsyncMock(
+            return_value={
+                "scene": None,
+                "visual_style": None,
+                "missing_fields": ["scene", "visual_style"],
+            }
+        )
+        mock_llm.generate = AsyncMock(return_value="补充信息？")
+        ctx = VisualConceptContext()
+        assert ctx.ask_round == 0
+        async for _ in agent.handle_message("做一个裸眼3D", ctx):
+            pass
+        assert ctx.ask_round == 1
+
+    # -- REVIEWING handlers --
+
+    @pytest.mark.asyncio
+    async def test_reviewing_satisfied(self):
+        agent, _, _ = self._make_agent()
+        ctx = VisualConceptContext()
+        # First run full pipeline to get into REVIEWING
+        async for _ in agent.handle_message("test", ctx):
+            pass
+        assert ctx.state == "REVIEWING"
+
+        # Now simulate "satisfied"
+        async def satisfied_json(**kwargs):
+            return {"intent": "satisfied", "modifications": {}, "reason": "user happy"}
+
+        agent._llm.generate_json = AsyncMock(side_effect=satisfied_json)
+        chunks = []
+        async for chunk in agent.handle_message("很满意，确认", ctx):
+            chunks.append(chunk)
+        assert ctx.state == "COMPLETED"
+        summary = [c for c in chunks if '"artifact_summary"' in c]
+        assert len(summary) == 1
+
+    @pytest.mark.asyncio
+    async def test_reviewing_restart(self):
+        agent, _, _ = self._make_agent()
+        ctx = VisualConceptContext()
+        async for _ in agent.handle_message("test", ctx):
+            pass
+        assert ctx.state == "REVIEWING"
+
+        async def restart_json(**kwargs):
+            return {"intent": "restart", "modifications": {}, "reason": "redo"}
+
+        agent._llm.generate_json = AsyncMock(side_effect=restart_json)
+        chunks = []
+        async for chunk in agent.handle_message("重新开始", ctx):
+            chunks.append(chunk)
+        assert ctx.state == "COLLECTING"
+        assert ctx.version_tree is None
+        assert ctx.requirement.scene is None
+
+    @pytest.mark.asyncio
+    async def test_reviewing_modify(self):
+        agent, _, _ = self._make_agent()
+        ctx = VisualConceptContext()
+        async for _ in agent.handle_message("test", ctx):
+            pass
+        assert ctx.state == "REVIEWING"
+
+        # Modify: first call is intent detection, then pipeline calls
+        modify_call_count = [0]
+
+        async def modify_json(**kwargs):
+            modify_call_count[0] += 1
+            n = modify_call_count[0]
+            if n == 1:  # intent detection
+                return {
+                    "intent": "modify",
+                    "modifications": {"color_tone": "红色"},
+                    "reason": "change color",
+                }
+            elif n == 2:  # strategy
+                return {"style": "warm", "color_tone": "red"}
+            elif n == 3:  # prompts
+                return {
+                    "positive_prompt": "warm red style",
+                    "negative_prompt": "cold",
+                }
+            elif n == 4:  # quality check
+                return {"items": [{"item": "color", "status": "✅", "note": "updated"}]}
+            return {}
+
+        agent._llm.generate_json = AsyncMock(side_effect=modify_json)
+        chunks = []
+        async for chunk in agent.handle_message("改成红色调", ctx):
+            chunks.append(chunk)
+        assert ctx.state == "REVIEWING"
+        node = ctx.get_current_node()
+        assert node is not None
+        assert node.trigger == "modify"
+        assert node.version_label == "V2"
+
+    # -- error handling --
+
+    @pytest.mark.asyncio
+    async def test_error_handling(self):
+        agent, mock_llm, _ = self._make_agent()
+        mock_llm.generate_json = AsyncMock(side_effect=RuntimeError("boom"))
+        ctx = VisualConceptContext()
+        chunks = []
+        async for chunk in agent.handle_message("test", ctx):
+            chunks.append(chunk)
+        errors = [c for c in chunks if '"error"' in c]
+        assert len(errors) == 1
+        dones = [c for c in chunks if '"done"' in c]
+        assert len(dones) >= 1
+
+    # -- quick replies --
+
+    def test_quick_replies_scene(self):
+        buttons = VisualConceptAgent._generate_quick_replies(["scene"])
+        labels = [b["label"] for b in buttons]
+        assert "品牌发布会" in labels
+
+    def test_quick_replies_visual_style(self):
+        buttons = VisualConceptAgent._generate_quick_replies(["visual_style"])
+        labels = [b["label"] for b in buttons]
+        assert "科技感" in labels
+
+    def test_quick_replies_empty(self):
+        buttons = VisualConceptAgent._generate_quick_replies(["brand_or_theme"])
+        assert buttons == []
