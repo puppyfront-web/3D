@@ -400,3 +400,141 @@ export interface Artifact {
   url?: string;
   createdAt: string;
 }
+
+// --- Chat / Conversation ---
+
+export interface Conversation {
+  id: string;
+  projectId?: string;
+  title: string;
+  status: "active" | "archived";
+  lastMessage?: ChatMessage;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: ChatMessage[];
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  contentType: "text" | "rich";
+  richContent?: RichContent;
+  skillExecutionId?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface RichContent {
+  blocks: ContentBlock[];
+}
+
+export interface ContentBlock {
+  type:
+    | "text"
+    | "company_analysis_card"
+    | "proposal_section"
+    | "visual_result"
+    | "visual_strategy"
+    | "quality_check"
+    | "skill_progress"
+    | "artifact"
+    | "form"
+    | "action_buttons";
+  content?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface StreamChunk {
+  type:
+    | "text_delta"
+    | "content_block_start"
+    | "content_block_data"
+    | "content_block_end"
+    | "done"
+    | "error";
+  text?: string;
+  data?: Record<string, unknown>;
+}
+
+// ── Visual Concept ──────────────────────────────────────
+
+export interface VisualRequirement {
+  raw_input: string;
+  scene?: string;
+  screen_type?: string;
+  brand_or_theme?: string;
+  visual_style?: string;
+  color_tone?: string;
+  target_audience?: string;
+  key_elements: string[];
+  constraints?: string;
+  reference_case_ids: string[];
+}
+
+export interface VersionNode {
+  node_id: string;
+  parent_id?: string;
+  branch_id: string;
+  version_label: string;
+  requirement_snapshot: Record<string, unknown>;
+  visual_strategy?: Record<string, unknown>;
+  positive_prompt?: string;
+  negative_prompt?: string;
+  prompt_template_used?: string;
+  image_url?: string;
+  image_metadata?: Record<string, unknown>;
+  quality_check?: QualityCheckItem[];
+  rag_citations: Citation[];
+  status: "completed" | "active" | "abandoned";
+  children_ids: string[];
+  trigger: "initial" | "modify" | "branch" | "rollback";
+  user_instruction?: string;
+  created_at: string;
+  completed_at?: string;
+}
+
+export interface QualityCheckItem {
+  item: string;
+  status: "✅" | "⚠️";
+  note: string;
+}
+
+export interface Citation {
+  type: "case" | "document_chunk" | "prompt_template" | "technical_rule";
+  id: string;
+  title?: string;
+  score?: number;
+}
+
+export interface BranchMeta {
+  branch_id: string;
+  branch_name: string;
+  root_node_id: string;
+  current_node_id: string;
+  status: "active" | "merged" | "abandoned";
+  created_at: string;
+}
+
+export interface VersionTree {
+  nodes: Record<string, VersionNode>;
+  root_id: string;
+  active_branch: string;
+  branches: Record<string, BranchMeta>;
+}
+
+export interface VisualConceptState {
+  isActive: boolean;
+  agentState: "COLLECTING" | "PLANNING" | "PROMPTING" | "GENERATING" | "REVIEWING" | "COMPLETED";
+  requirement: VisualRequirement | null;
+  versionTree: VersionTree | null;
+  currentBranchId: string;
+  currentNodeId: string | null;
+  currentImageUrl: string | null;
+  qualityCheck: QualityCheckItem[] | null;
+}
