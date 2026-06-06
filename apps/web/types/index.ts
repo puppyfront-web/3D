@@ -444,6 +444,7 @@ export interface ContentBlock {
     | "quality_check"
     | "skill_progress"
     | "artifact"
+    | "attachment"
     | "form"
     | "action_buttons";
   content?: string;
