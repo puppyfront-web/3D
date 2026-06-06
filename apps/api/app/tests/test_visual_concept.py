@@ -565,3 +565,35 @@ class TestVisualConceptAgent:
     def test_quick_replies_empty(self):
         buttons = VisualConceptAgent._generate_quick_replies(["brand_or_theme"])
         assert buttons == []
+
+
+# ---------------------------------------------------------------------------
+# Tests for visual_concept intent detection
+# ---------------------------------------------------------------------------
+
+
+class TestVisualConceptIntent:
+    def test_high_confidence_keywords(self):
+        from app.services.intent_service import IntentDetector
+        detector = IntentDetector()
+        for keyword in ["生成概念图", "出概念图", "视觉概念", "概念设计", "生成效果图", "视觉方案"]:
+            result = detector._keyword_match(f"帮我{keyword}")
+            assert result is not None, f"Should match keyword: {keyword}"
+            assert result.intent == "visual_concept", f"Should be visual_concept for: {keyword}"
+            assert result.confidence >= 0.8
+
+    def test_medium_confidence_keywords(self):
+        from app.services.intent_service import IntentDetector
+        detector = IntentDetector()
+        result = detector._keyword_match("我想做一个裸眼3D")
+        assert result is not None
+        assert result.intent == "visual_concept"
+
+    def test_skill_keywords_not_overridden(self):
+        """Existing skill keywords should still work."""
+        from app.services.intent_service import IntentDetector
+        detector = IntentDetector()
+        result = detector._keyword_match("帮我解析企业信息")
+        if result:
+            assert result.intent == "run_skill"
+            assert result.skill_id == "company_analysis"
