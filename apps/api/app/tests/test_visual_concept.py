@@ -1,5 +1,7 @@
 """Tests for VisualRequirement data model and modification tracking."""
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock
 
@@ -597,3 +599,178 @@ class TestVisualConceptIntent:
         if result:
             assert result.intent == "run_skill"
             assert result.skill_id == "company_analysis"
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — full pipeline mock verification
+# ---------------------------------------------------------------------------
+
+
+class TestVisualConceptIntegration:
+    """集成测试：完整链路 mock 验证。"""
+
+    def _make_agent_with_mocks(self):
+        """Create agent with mock LLM that returns different results based on call order."""
+        mock_llm = AsyncMock()
+        mock_image = AsyncMock()
+        mock_image.generate_image_url = AsyncMock(return_value="data:image/svg+xml,...mock...")
+
+        call_sequence = []
+
+        async def mock_generate_json(**kwargs):
+            call_sequence.append(1)
+            n = len(call_sequence)
+            if n == 1:  # COLLECTING: parse requirement
+                return {"scene": "品牌发布会", "screen_type": "裸眼3D", "visual_style": "科技感", "brand_or_theme": "汽车品牌", "missing_fields": []}
+            elif n == 2:  # PLANNING: visual strategy
+                return {"style": "赛博科技风", "color_tone": "深蓝渐变+电光蓝", "composition": "中心对称+纵深透视", "key_elements": ["悬浮粒子", "光线穿透"], "focus": "产品居中", "mood": "未来科技感", "notes": "注意屏幕分辨率", "citations": []}
+            elif n == 3:  # PROMPTING
+                return {"positive_prompt": "A futuristic cyberpunk-style 3D display wall with glowing neon particles, deep blue gradient background, electric blue highlights, centered product with light rays penetrating through...", "negative_prompt": "low quality, blurry, text, watermark, cartoon"}
+            elif n == 4:  # QUALITY CHECK
+                return {"items": [
+                    {"item": "场景匹配", "status": "✅", "note": "品牌发布会"},
+                    {"item": "风格匹配", "status": "✅", "note": "科技感"},
+                    {"item": "色调匹配", "status": "✅", "note": "深蓝渐变"},
+                    {"item": "关键元素", "status": "⚠️", "note": "悬浮粒子未明确包含"},
+                    {"item": "构图方向", "status": "✅", "note": "纵深透视"},
+                ]}
+            return {}
+
+        mock_llm.generate_json = AsyncMock(side_effect=mock_generate_json)
+        mock_llm.generate = AsyncMock(return_value="请问使用场景和视觉风格偏好是？")
+
+        agent = VisualConceptAgent(llm_service=mock_llm, image_service=mock_image)
+        return agent
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_collecting_to_reviewing(self):
+        """完整链路：一条消息从 COLLECTING 自动走到 REVIEWING。"""
+        agent = self._make_agent_with_mocks()
+        ctx = VisualConceptContext()
+
+        chunks = []
+        async for chunk in agent.handle_message(
+            "帮我做一个汽车品牌的裸眼3D概念图，品牌发布会，科技感风格", ctx
+        ):
+            chunks.append(chunk)
+
+        # Verify final state
+        assert ctx.state == "REVIEWING"
+        assert ctx.version_tree is not None
+        assert ctx.current_node_id is not None
+
+        # Verify node has all artifacts
+        node = ctx.get_current_node()
+        assert node is not None
+        assert node.visual_strategy is not None
+        assert node.positive_prompt is not None
+        assert node.image_url is not None
+        assert node.quality_check is not None
+        assert len(node.quality_check["items"]) == 5
+
+        # Verify SSE output contains expected block types
+        chunk_types = []
+        for c in chunks:
+            if c.startswith("data: "):
+                data = json.loads(c[6:])
+                chunk_types.append(data.get("type"))
+
+        assert "visual_strategy" in chunk_types
+        assert "visual_result" in chunk_types
+        assert "quality_check" in chunk_types
+        assert "action_buttons" in chunk_types
+        assert "done" in chunk_types
+
+    @pytest.mark.asyncio
+    async def test_modify_creates_new_version(self):
+        """修改操作创建新版本节点。"""
+        agent = self._make_agent_with_mocks()
+        ctx = VisualConceptContext()
+
+        # First round: initial generation
+        async for _ in agent.handle_message("汽车品牌裸眼3D概念图，品牌发布会，科技感", ctx):
+            pass
+        v1_node_id = ctx.current_node_id
+        assert ctx.state == "REVIEWING"
+
+        # Second round: modify — mock for intent + pipeline
+        modify_call_count = [0]
+
+        async def modify_json(**kwargs):
+            modify_call_count[0] += 1
+            n = modify_call_count[0]
+            if n == 1:  # intent detection
+                return {"intent": "modify", "modifications": {"color_tone": "深红色"}, "reason": "change background color"}
+            elif n == 2:  # strategy
+                return {"style": "赛博科技风", "color_tone": "深红色", "composition": "纵深透视", "key_elements": ["悬浮粒子"], "focus": "产品居中", "mood": "未来科技感", "notes": "", "citations": []}
+            elif n == 3:  # prompts
+                return {"positive_prompt": "A deep red background version...", "negative_prompt": "low quality"}
+            elif n == 4:  # quality check
+                return {"items": [{"item": "色调", "status": "✅", "note": "深红色"}]}
+            return {}
+
+        agent._llm.generate_json = AsyncMock(side_effect=modify_json)
+        async for _ in agent.handle_message("背景改成深红色", ctx):
+            pass
+
+        assert ctx.state == "REVIEWING"
+        assert ctx.current_node_id != v1_node_id
+
+        v2_node = ctx.get_current_node()
+        assert v2_node.version_label == "V2"
+        assert v2_node.trigger == "modify"
+        assert v2_node.parent_id == v1_node_id
+
+    @pytest.mark.asyncio
+    async def test_satisfied_completes_flow(self):
+        """满意操作完成流程。"""
+        agent = self._make_agent_with_mocks()
+        ctx = VisualConceptContext()
+
+        async for _ in agent.handle_message("汽车品牌裸眼3D概念图，品牌发布会，科技感", ctx):
+            pass
+
+        # Simulate "satisfied"
+        agent._llm.generate_json = AsyncMock(return_value={"intent": "satisfied"})
+        async for _ in agent.handle_message("很满意，就这样吧", ctx):
+            pass
+
+        assert ctx.state == "COMPLETED"
+
+    @pytest.mark.asyncio
+    async def test_restart_resets_state(self):
+        """全部重来重置状态。"""
+        agent = self._make_agent_with_mocks()
+        ctx = VisualConceptContext()
+
+        async for _ in agent.handle_message("汽车品牌裸眼3D概念图，品牌发布会，科技感", ctx):
+            pass
+
+        agent._llm.generate_json = AsyncMock(return_value={"intent": "restart"})
+        async for _ in agent.handle_message("重新来过", ctx):
+            pass
+
+        assert ctx.state == "COLLECTING"
+        assert ctx.requirement.raw_input == ""  # reset
+
+    @pytest.mark.asyncio
+    async def test_context_serialization_survives_full_flow(self):
+        """上下文序列化在整个流程中保持完整。"""
+        agent = self._make_agent_with_mocks()
+        ctx = VisualConceptContext()
+
+        async for _ in agent.handle_message("汽车品牌裸眼3D概念图，品牌发布会，科技感", ctx):
+            pass
+
+        # Serialize and deserialize
+        data = ctx.to_dict()
+        restored = VisualConceptContext.from_dict(data)
+
+        assert restored.state == "REVIEWING"
+        assert restored.version_tree is not None
+        assert restored.current_node_id == ctx.current_node_id
+        assert restored.requirement.scene == "品牌发布会"
+
+        node = restored.get_current_node()
+        assert node.positive_prompt is not None
+        assert node.image_url is not None
