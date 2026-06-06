@@ -136,7 +136,7 @@ export function ChatInput({
     (input.trim().length > 0 || attachment !== null);
 
   return (
-    <div className="border-t border-gray-200 bg-white">
+    <div className="shrink-0 border-t border-gray-200 bg-white">
       {/* Skill shortcuts */}
       <div className="px-4 pt-3 pb-1">
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
