@@ -7,6 +7,7 @@ from app.agents.visual_concept import (
     VersionNode,
     BranchMeta,
     VersionTree,
+    VisualConceptContext,
 )
 
 
@@ -173,3 +174,53 @@ class TestVersionTree:
         assert "n2" in restored.nodes
         assert restored.nodes["n2"].positive_prompt == "A futuristic..."
         assert restored.active_branch == "main"
+
+
+class TestVisualConceptContext:
+    def test_create_initial(self):
+        ctx = VisualConceptContext()
+        assert ctx.state == "COLLECTING"
+        assert ctx.ask_round == 0
+        assert ctx.version_tree is None
+
+    def test_increment_ask_round(self):
+        ctx = VisualConceptContext()
+        ctx.ask_round = 1
+        assert ctx.should_ask_more() is True
+        ctx.ask_round = 3
+        assert ctx.should_ask_more() is False
+
+    def test_create_version_tree_on_first_planning(self):
+        ctx = VisualConceptContext()
+        assert ctx.version_tree is None
+        node = ctx.create_initial_node()
+        assert ctx.version_tree is not None
+        assert ctx.version_tree.root_id == node.node_id
+        assert ctx.current_node_id == node.node_id
+
+    def test_to_dict_round_trip(self):
+        ctx = VisualConceptContext()
+        ctx.requirement.merge_field("scene", "商场")
+        ctx.requirement.merge_field("visual_style", "科技感")
+        node = ctx.create_initial_node()
+        ctx.state = "PLANNING"
+
+        data = ctx.to_dict()
+        restored = VisualConceptContext.from_dict(data)
+        assert restored.state == "PLANNING"
+        assert restored.requirement.scene == "商场"
+        assert restored.current_node_id == node.node_id
+        assert restored.version_tree is not None
+
+    def test_create_next_version(self):
+        ctx = VisualConceptContext()
+        ctx.requirement.merge_field("scene", "商场")
+        ctx.requirement.merge_field("visual_style", "科技感")
+        ctx.create_initial_node()
+        ctx.state = "REVIEWING"
+
+        ctx.create_next_version(trigger="modify", user_instruction="背景改成红色")
+        assert ctx.current_node_id is not None
+        current = ctx.version_tree.get_current_node()
+        assert current.version_label == "V2"
+        assert current.trigger == "modify"

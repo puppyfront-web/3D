@@ -363,3 +363,108 @@ class VersionTree:
         tree.active_branch = data.get("active_branch", "main")
         tree.branches = branches
         return tree
+
+
+# ---------------------------------------------------------------------------
+# VisualConceptContext — Agent 持有的对话上下文状态机
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class VisualConceptContext:
+    """Agent 持有的对话上下文，序列化存储在 Message.metadata_json 中。"""
+
+    state: Literal[
+        "COLLECTING", "PLANNING", "PROMPTING",
+        "GENERATING", "REVIEWING", "COMPLETED"
+    ] = "COLLECTING"
+
+    requirement: VisualRequirement = field(default_factory=VisualRequirement)
+    ask_round: int = 0
+    max_ask_rounds: int = 3
+    missing_info: List[str] = field(default_factory=list)
+
+    version_tree: Optional[VersionTree] = None
+    current_node_id: Optional[str] = None
+    current_branch_id: str = "main"
+
+    def should_ask_more(self) -> bool:
+        return self.ask_round < self.max_ask_rounds
+
+    def create_initial_node(self) -> VersionNode:
+        """创建第一个版本节点（触发 PLANNING 时调用）。"""
+        node = VersionNode(
+            node_id=str(uuid.uuid4()),
+            branch_id="main",
+            version_label="V1",
+            trigger="initial",
+            requirement_snapshot=self.requirement.to_dict(),
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self.version_tree = VersionTree(root=node)
+        self.current_node_id = node.node_id
+        return node
+
+    def create_next_version(
+        self,
+        trigger: Literal["modify", "branch", "rollback"] = "modify",
+        user_instruction: Optional[str] = None,
+        branch_id: Optional[str] = None,
+        branch_name: Optional[str] = None,
+    ) -> VersionNode:
+        """创建下一个版本节点。"""
+        target_branch = branch_id or self.current_branch_id
+        existing_count = len([n for n in self.version_tree.nodes.values() if n.branch_id == target_branch])
+        label = f"V{existing_count + 1}"
+        if branch_id and branch_id != "main":
+            label = f"V{existing_count + 1}'"
+
+        node = VersionNode(
+            node_id=str(uuid.uuid4()),
+            parent_id=self.current_node_id,
+            branch_id=target_branch,
+            version_label=label,
+            trigger=trigger,
+            user_instruction=user_instruction,
+            requirement_snapshot=self.requirement.to_dict(),
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        if branch_id and branch_id not in self.version_tree.branches:
+            self.version_tree.create_branch(branch_id, branch_name or branch_id, node)
+
+        self.version_tree.add_node(node)
+        self.current_node_id = node.node_id
+        self.current_branch_id = target_branch
+        return node
+
+    def get_current_node(self) -> Optional[VersionNode]:
+        if self.version_tree and self.current_node_id:
+            return self.version_tree.nodes.get(self.current_node_id)
+        return None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "state": self.state,
+            "requirement": self.requirement.to_dict(),
+            "ask_round": self.ask_round,
+            "max_ask_rounds": self.max_ask_rounds,
+            "missing_info": self.missing_info,
+            "version_tree": self.version_tree.to_dict() if self.version_tree else None,
+            "current_node_id": self.current_node_id,
+            "current_branch_id": self.current_branch_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "VisualConceptContext":
+        ctx = cls()
+        ctx.state = data.get("state", "COLLECTING")
+        ctx.requirement = VisualRequirement.from_dict(data.get("requirement", {}))
+        ctx.ask_round = data.get("ask_round", 0)
+        ctx.max_ask_rounds = data.get("max_ask_rounds", 3)
+        ctx.missing_info = data.get("missing_info", [])
+        ctx.current_node_id = data.get("current_node_id")
+        ctx.current_branch_id = data.get("current_branch_id", "main")
+        if data.get("version_tree"):
+            ctx.version_tree = VersionTree.from_dict(data["version_tree"])
+        return ctx
