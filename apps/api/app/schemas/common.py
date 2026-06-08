@@ -56,3 +56,12 @@ class IDResponse(BaseModel):
     """Minimal response returning only an ID."""
 
     id: str
+
+
+class ImportResponse(BaseModel):
+    """Response for entity import operations."""
+
+    imported: int
+    failed: int
+    errors: List[str] = Field(default_factory=list)
+    message: str = ""

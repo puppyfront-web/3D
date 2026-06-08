@@ -19,15 +19,19 @@ engine = create_async_engine(
 @event.listens_for(engine.sync_engine, "connect")
 def _on_connect(dbapi_conn, connection_record):
     """Enable pgvector extension on each new connection (PostgreSQL only)."""
-    cursor = dbapi_conn.cursor()
-    try:
-        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        dbapi_conn.commit()
-    except Exception:
-        # Not PostgreSQL (e.g. SQLite in tests) — ignore
-        dbapi_conn.rollback()
-    finally:
-        cursor.close()
+    # SQLite connections don't support CREATE EXTENSION
+    if hasattr(dbapi_conn, "cursor"):
+        try:
+            cursor = dbapi_conn.cursor()
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            dbapi_conn.commit()
+            cursor.close()
+        except Exception:
+            # Not PostgreSQL — ignore
+            try:
+                dbapi_conn.rollback()
+            except Exception:
+                pass
 
 
 async_session_factory = async_sessionmaker(

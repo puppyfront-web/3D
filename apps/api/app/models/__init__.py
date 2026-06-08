@@ -14,6 +14,8 @@ from app.models.generation import GenerationOutput, GenerationTask
 from app.models.retrieval import RetrievalLog
 from app.models.feedback import Feedback
 from app.models.skill import Skill, SkillExecution
+from app.models.conversation import Conversation, Message
+from app.models.app_setting import AppSetting
 
 __all__ = [
     "User",
@@ -36,4 +38,7 @@ __all__ = [
     "Feedback",
     "Skill",
     "SkillExecution",
+    "Conversation",
+    "Message",
+    "AppSetting",
 ]

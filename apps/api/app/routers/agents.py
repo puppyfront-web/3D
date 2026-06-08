@@ -15,6 +15,7 @@ from app.models.project import Company, Project
 from app.models.generation import GenerationOutput, GenerationTask
 from app.schemas.common import Response
 from app.schemas.generation import (
+    DirectImageRequest,
     ProposalGenerationRequest,
     VisualPromptRequest,
 )
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 _registry = SkillRegistry.get_instance()
 
 
-def _make_context(
+async def _make_context(
     db: AsyncSession,
     project_id: Optional[str] = None,
     user_id: Optional[str] = None,
@@ -41,9 +42,9 @@ def _make_context(
         project_id=project_id,
         user_id=user_id,
         db=db,
-        llm_service=get_llm_service(),
-        embedding_service=get_embedding_service(),
-        image_service=get_image_service(),
+        llm_service=await get_llm_service(db),
+        embedding_service=await get_embedding_service(db),
+        image_service=await get_image_service(db),
     )
 
 
@@ -73,7 +74,7 @@ async def run_company_analysis(
         if fallback:
             pid = str(fallback.id)
 
-    context = _make_context(db, project_id=pid)
+    context = await _make_context(db, project_id=pid)
     runner = SkillRunner(registry=_registry)
 
     result = await runner.run(
@@ -103,7 +104,7 @@ async def run_proposal_generation(
     if not project:
         raise NotFoundException("Project", str(body.project_id))
 
-    context = _make_context(db, project_id=str(body.project_id))
+    context = await _make_context(db, project_id=str(body.project_id))
     runner = SkillRunner(registry=_registry)
 
     result = await runner.run(
@@ -133,7 +134,7 @@ async def run_visual_prompt_generation(
     if not project:
         raise NotFoundException("Project", str(body.project_id))
 
-    context = _make_context(db, project_id=str(body.project_id))
+    context = await _make_context(db, project_id=str(body.project_id))
     runner = SkillRunner(registry=_registry)
 
     # Step 1: Generate visual prompt
@@ -152,13 +153,19 @@ async def run_visual_prompt_generation(
         positive_prompt = visual_result["output"]["positive_prompt"]
         negative_prompt = visual_result["output"].get("negative_prompt", "")
 
+        image_input: dict = {
+            "prompt": positive_prompt,
+            "negative_prompt": negative_prompt,
+            "project_id": str(body.project_id),
+        }
+        if body.width:
+            image_input["width"] = body.width
+        if body.height:
+            image_input["height"] = body.height
+
         image_result = await runner.run(
             skill_id="image_generation",
-            input_data={
-                "prompt": positive_prompt,
-                "negative_prompt": negative_prompt,
-                "project_id": str(body.project_id),
-            },
+            input_data=image_input,
             context=context,
         )
 
@@ -168,6 +175,40 @@ async def run_visual_prompt_generation(
             "image_generation": image_result,
         },
         message="Visual generation completed" if visual_result.get("success") else "Visual generation failed",
+    )
+
+
+@router.post("/generate-image", response_model=Response)
+async def direct_image_generation(
+    body: DirectImageRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate an image directly from a prompt. No project required.
+
+    Useful for generating visual charts, diagrams, and curation analysis images.
+    """
+    from app.services.image_service import get_image_service
+
+    image_service = await get_image_service(db)
+
+    width = body.width or 1024
+    height = body.height or 768
+
+    image_url = await image_service.generate_image_url(
+        prompt=body.prompt,
+        width=width,
+        height=height,
+        negative_prompt=body.negative_prompt or "",
+    )
+
+    return Response(
+        data={
+            "image_url": image_url,
+            "prompt": body.prompt,
+            "width": width,
+            "height": height,
+        },
+        message="Image generated",
     )
 
 
@@ -185,7 +226,7 @@ async def run_full_pipeline(
     if not project:
         raise NotFoundException("Project", str(project_id))
 
-    context = _make_context(db, project_id=str(project_id))
+    context = await _make_context(db, project_id=str(project_id))
     runner = SkillRunner(registry=_registry)
     results = {}
 

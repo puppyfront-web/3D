@@ -1,4 +1,4 @@
-"""Export service for Word and PDF generation."""
+"""Export service for Word, PDF and PPTX generation."""
 
 import os
 from abc import ABC, abstractmethod
@@ -28,6 +28,15 @@ class ExportService(ABC):
         title: Optional[str] = None,
     ) -> str:
         """Export content to a PDF document. Returns the file path."""
+
+    @abstractmethod
+    async def export_to_pptx(
+        self,
+        content: str,
+        filename: str,
+        title: Optional[str] = None,
+    ) -> str:
+        """Export content to a PowerPoint presentation. Returns the file path."""
 
 
 class LocalExportService(ExportService):
@@ -109,6 +118,22 @@ class LocalExportService(ExportService):
 
         doc.build(story)
         return filepath
+
+    async def export_to_pptx(
+        self,
+        content: str,
+        filename: str,
+        title: Optional[str] = None,
+    ) -> str:
+        """Export markdown-like content to a PowerPoint presentation."""
+        from app.exporters.pptx_exporter import PPTXExporter
+
+        exporter = PPTXExporter()
+        return await exporter.export(
+            content=content,
+            filename=filename,
+            title=title,
+        )
 
 
 def get_export_service() -> ExportService:

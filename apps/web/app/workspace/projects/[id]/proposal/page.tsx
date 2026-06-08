@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,18 +21,46 @@ import {
   PanelRightOpen,
   PanelRightClose,
   Clock,
+  Loader2,
 } from "lucide-react";
 import { AgentPanel } from "@/components/layout/agent-panel";
-import { mockProposal } from "@/lib/mock-data";
+import { getProposal, generateProposal, updateProposalSection } from "@/lib/api";
+import type { Proposal } from "@/types";
 
 export default function ProposalPage() {
-  const [proposal, setProposal] = useState(mockProposal);
-  const [expandedSections, setExpandedSections] = useState<string[]>(
-    proposal.sections.map((s) => s.id)
-  );
+  const params = useParams();
+  const projectId = params.id as string;
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [agentOpen, setAgentOpen] = useState(true);
+
+  const loadProposal = useCallback(async () => {
+    setLoading(true);
+    const res = await getProposal(projectId);
+    if (res.success && res.data) {
+      setProposal(res.data);
+      setExpandedSections(res.data.sections.map((s) => s.id));
+    }
+    setLoading(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    loadProposal();
+  }, [loadProposal]);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    const res = await generateProposal(projectId);
+    if (res.success && res.data) {
+      setProposal(res.data);
+      setExpandedSections(res.data.sections.map((s) => s.id));
+    }
+    setGenerating(false);
+  };
 
   const toggleSection = (id: string) => {
     setExpandedSections((prev) =>
@@ -44,14 +73,23 @@ export default function ProposalPage() {
     setEditContent(content);
   };
 
-  const saveEdit = () => {
-    if (!editingSection) return;
-    setProposal((prev) => ({
-      ...prev,
-      sections: prev.sections.map((s) =>
-        s.id === editingSection ? { ...s, content: editContent } : s
-      ),
-    }));
+  const saveEdit = async () => {
+    if (!editingSection || !proposal) return;
+    const res = await updateProposalSection(proposal.id, editingSection, editContent);
+    if (res.success && res.data) {
+      setProposal(res.data);
+    } else {
+      setProposal((prev) =>
+        prev
+          ? {
+              ...prev,
+              sections: prev.sections.map((s) =>
+                s.id === editingSection ? { ...s, content: editContent } : s
+              ),
+            }
+          : prev
+      );
+    }
     setEditingSection(null);
   };
 
@@ -66,6 +104,38 @@ export default function ProposalPage() {
     if (status === "review") return "审核中";
     return "草稿";
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[#1E3A5F]" />
+      </div>
+    );
+  }
+
+  if (!proposal) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-gray-400 gap-3">
+        <FileText className="h-12 w-12 text-gray-300" />
+        <p className="text-sm">暂无策划案数据</p>
+        <Button
+          onClick={handleGenerate}
+          disabled={generating}
+          className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2"
+        >
+          {generating ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> 生成中...
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-4 w-4" /> 生成策划案
+            </>
+          )}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-[calc(100vh-8rem)]">

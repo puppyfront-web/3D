@@ -5,6 +5,7 @@ import {
   VisualProject,
   ReviewChecklist,
   Asset,
+  AssetType,
   CaseItem,
   SOPWorkflow,
   ProposalTemplate,
@@ -16,34 +17,16 @@ import {
   ProjectWizardData,
   ApiResponse,
   SkillManifest,
+  DocumentIndexResponse,
+  DocumentBatchIndexResponse,
+  ImportResult,
 } from "@/types";
-import {
-  mockProjects,
-  mockCompanyAnalysis,
-  mockProposal,
-  mockVisualProjects,
-  mockReviewChecklists,
-  mockAssets,
-  mockCases,
-  mockSOPWorkflows,
-  mockProposalTemplates,
-  mockPromptTemplates,
-  mockVisualStyles,
-  mockTechnicalRules,
-  mockQualityRules,
-  mockEvaluations,
-} from "./mock-data";
 
 // ============================================================
 // API Configuration
 // ============================================================
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-// Default to real API; set NEXT_PUBLIC_USE_MOCK=true for offline development
-const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true";
-
-// Simulated API delay for mock mode
-const delay = (ms: number = 300) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Generic fetch wrapper for real API calls
 // Backend wraps responses in { success: bool, data: T, message: string }
@@ -79,42 +62,14 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<Api
 // ============================================================
 
 export async function getProjects(): Promise<ApiResponse<Project[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockProjects, success: true };
-  }
-  return apiFetch<Project[]>("/api/v1/projects");
+  return unwrapPaginated<Project>("/api/v1/projects");
 }
 
 export async function getProjectById(id: string): Promise<ApiResponse<Project | undefined>> {
-  if (USE_MOCK) {
-    await delay();
-    const project = mockProjects.find((p) => p.id === id);
-    return { data: project, success: !!project };
-  }
   return apiFetch<Project>(`/api/v1/projects/${id}`);
 }
 
 export async function createProject(data: ProjectWizardData): Promise<ApiResponse<Project>> {
-  if (USE_MOCK) {
-    await delay(500);
-    const newProject: Project = {
-      id: `proj-${String(mockProjects.length + 1).padStart(3, "0")}`,
-      name: data.step1.projectName,
-      client: data.step1.clientName,
-      industry: data.step1.industry,
-      status: "draft",
-      priority: data.step1.priority,
-      createdAt: new Date().toISOString().split("T")[0],
-      updatedAt: new Date().toISOString().split("T")[0],
-      dueDate: data.step1.dueDate,
-      description: data.step1.description,
-      progress: 0,
-      assignee: "当前用户",
-      tags: [],
-    };
-    return { data: newProject, success: true, message: "项目创建成功" };
-  }
   return apiFetch<Project>("/api/v1/projects", {
     method: "POST",
     body: JSON.stringify(data),
@@ -126,10 +81,6 @@ export async function createProject(data: ProjectWizardData): Promise<ApiRespons
 // ============================================================
 
 export async function getCompanyAnalysis(projectId: string): Promise<ApiResponse<CompanyAnalysis>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockCompanyAnalysis, success: true };
-  }
   return apiFetch<CompanyAnalysis>(`/api/v1/company-profiles/by-company/${projectId}`);
 }
 
@@ -137,10 +88,6 @@ export async function updateCompanyAnalysis(
   projectId: string,
   data: Partial<CompanyAnalysis>
 ): Promise<ApiResponse<CompanyAnalysis>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: { ...mockCompanyAnalysis, ...data }, success: true, message: "企业分析更新成功" };
-  }
   return apiFetch<CompanyAnalysis>(`/api/v1/company-profiles/${projectId}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -148,10 +95,6 @@ export async function updateCompanyAnalysis(
 }
 
 export async function generateCompanyAnalysis(companyId: string): Promise<ApiResponse<CompanyAnalysis>> {
-  if (USE_MOCK) {
-    await delay(2000);
-    return { data: mockCompanyAnalysis, success: true, message: "企业分析生成成功" };
-  }
   return apiFetch<CompanyAnalysis>(`/api/v1/agents/company-analysis/${companyId}`, {
     method: "POST",
   });
@@ -162,10 +105,6 @@ export async function generateCompanyAnalysis(companyId: string): Promise<ApiRes
 // ============================================================
 
 export async function getProposal(projectId: string): Promise<ApiResponse<Proposal>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockProposal, success: true };
-  }
   return apiFetch<Proposal>(`/api/v1/generations/tasks?project_id=${projectId}`);
 }
 
@@ -174,16 +113,6 @@ export async function updateProposalSection(
   sectionId: string,
   content: string
 ): Promise<ApiResponse<Proposal>> {
-  if (USE_MOCK) {
-    await delay();
-    const updated = {
-      ...mockProposal,
-      sections: mockProposal.sections.map((s) =>
-        s.id === sectionId ? { ...s, content } : s
-      ),
-    };
-    return { data: updated, success: true, message: "章节内容已更新" };
-  }
   return apiFetch<Proposal>(`/api/v1/generations/outputs/${proposalId}`, {
     method: "PUT",
     body: JSON.stringify({ section_id: sectionId, content }),
@@ -191,10 +120,6 @@ export async function updateProposalSection(
 }
 
 export async function generateProposal(projectId: string): Promise<ApiResponse<Proposal>> {
-  if (USE_MOCK) {
-    await delay(3000);
-    return { data: mockProposal, success: true, message: "策划案生成成功" };
-  }
   return apiFetch<Proposal>("/api/v1/agents/proposal", {
     method: "POST",
     body: JSON.stringify({ project_id: projectId }),
@@ -206,43 +131,47 @@ export async function generateProposal(projectId: string): Promise<ApiResponse<P
 // ============================================================
 
 export async function getVisualProjects(projectId: string): Promise<ApiResponse<VisualProject[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockVisualProjects, success: true };
-  }
   return apiFetch<VisualProject[]>(`/api/v1/generations/tasks?project_id=${projectId}&type=visual`);
 }
 
 export async function generateVisualImage(
   projectId: string,
   prompt: string,
-  style: string
+  style: string,
+  width?: number,
+  height?: number
 ): Promise<ApiResponse<VisualProject>> {
-  if (USE_MOCK) {
-    await delay(2000);
-    const newProject: VisualProject = {
-      id: `vp-${Date.now()}`,
-      projectId,
-      name: "新生成任务",
-      prompt,
-      style,
-      size: "1920x1080",
-      images: [
-        {
-          id: `img-${Date.now()}`,
-          url: "/placeholder-visual-new.jpg",
-          prompt,
-          status: "completed",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      createdAt: new Date().toISOString(),
-    };
-    return { data: newProject, success: true, message: "图片生成成功" };
-  }
   return apiFetch<VisualProject>("/api/v1/agents/visual-prompt", {
     method: "POST",
-    body: JSON.stringify({ project_id: projectId, prompt, style }),
+    body: JSON.stringify({
+      project_id: projectId,
+      style_preferences: style,
+      width,
+      height,
+    }),
+  });
+}
+
+/**
+ * Directly generate an image from a prompt — no project required.
+ * Returns { image_url, prompt, width, height }.
+ */
+export async function directGenerateImage(
+  prompt: string,
+  options?: {
+    negative_prompt?: string;
+    width?: number;
+    height?: number;
+  }
+): Promise<ApiResponse<{ image_url: string; prompt: string; width: number; height: number }>> {
+  return apiFetch("/api/v1/agents/generate-image", {
+    method: "POST",
+    body: JSON.stringify({
+      prompt,
+      negative_prompt: options?.negative_prompt,
+      width: options?.width,
+      height: options?.height,
+    }),
   });
 }
 
@@ -251,10 +180,6 @@ export async function generateVisualImage(
 // ============================================================
 
 export async function getReviewChecklists(projectId: string): Promise<ApiResponse<ReviewChecklist[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockReviewChecklists, success: true };
-  }
   return apiFetch<ReviewChecklist[]>(`/api/v1/generations/tasks?project_id=${projectId}&type=review`);
 }
 
@@ -263,51 +188,121 @@ export async function getReviewChecklists(projectId: string): Promise<ApiRespons
 // ============================================================
 
 export async function exportToWord(taskId: string): Promise<ApiResponse<{ file_path: string }>> {
-  if (USE_MOCK) {
-    await delay(1000);
-    return { data: { file_path: `/exports/proposal-${taskId}.docx` }, success: true, message: "Word 导出成功" };
-  }
   return apiFetch<{ file_path: string }>(`/api/v1/exports/word/${taskId}`, { method: "POST" });
 }
 
 export async function exportToPdf(taskId: string): Promise<ApiResponse<{ file_path: string }>> {
-  if (USE_MOCK) {
-    await delay(1000);
-    return { data: { file_path: `/exports/proposal-${taskId}.pdf` }, success: true, message: "PDF 导出成功" };
-  }
   return apiFetch<{ file_path: string }>(`/api/v1/exports/pdf/${taskId}`, { method: "POST" });
 }
 
-// ============================================================
-// Admin: Assets API
-// ============================================================
-
-export async function getAssets(): Promise<ApiResponse<Asset[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockAssets, success: true };
-  }
-  return apiFetch<Asset[]>("/api/v1/documents");
+export async function exportToPptx(taskId: string): Promise<ApiResponse<{ file_path: string }>> {
+  return apiFetch<{ file_path: string }>(`/api/v1/exports/pptx/${taskId}`, { method: "POST" });
 }
 
-export async function uploadAsset(file: File): Promise<ApiResponse<Asset>> {
-  if (USE_MOCK) {
-    await delay(1000);
-    return { data: { id: `asset-${Date.now()}`, name: file.name, type: file.type, size: `${(file.size / 1024).toFixed(1)} KB`, uploadedAt: new Date().toISOString(), status: "ready", category: "document", url: "", uploadedBy: "当前用户", tags: [] } as Asset, success: true, message: "文件上传成功" };
+// ============================================================
+// Helpers
+// ============================================================
+
+function contentTypeToAssetType(contentType: string): AssetType {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  return "document";
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDocumentToAsset(doc: any): Asset {
+  return {
+    id: doc.id,
+    name: doc.original_filename || doc.filename,
+    type: contentTypeToAssetType(doc.content_type || ""),
+    category: "document",
+    url: "",
+    size: formatFileSize(doc.file_size || 0),
+    file_size: doc.file_size || 0,
+    project_id: doc.project_id || null,
+    status: doc.status || "uploaded",
+    chunk_count: doc.chunk_count || 0,
+    uploadedAt: doc.created_at || new Date().toISOString(),
+    uploadedBy: "",
+    tags: [],
+  };
+}
+
+// ============================================================
+// Admin: Assets / Documents API
+// ============================================================
+
+export async function getAssets(page = 1, pageSize = 50): Promise<ApiResponse<Asset[]>> {
+  const result = await apiFetch<{ items: unknown[]; total: number }>(
+    `/api/v1/documents?page=${page}&page_size=${pageSize}`
+  );
+  if (result.success && result.data) {
+    return {
+      data: result.data.items.map(mapDocumentToAsset),
+      success: true,
+    };
   }
+  return { data: [], success: false, message: result.message };
+}
+
+export async function uploadAsset(
+  file: File,
+  projectId?: string,
+  autoIndex: boolean = true,
+): Promise<ApiResponse<Asset>> {
   const formData = new FormData();
   formData.append("file", file);
-  const res = await fetch(`${API_BASE_URL}/api/v1/documents/upload`, { method: "POST", body: formData });
+  const params = new URLSearchParams();
+  if (projectId) params.set("project_id", projectId);
+  params.set("auto_index", String(autoIndex));
+  const res = await fetch(
+    `${API_BASE_URL}/api/v1/documents/upload?${params.toString()}`,
+    { method: "POST", body: formData },
+  );
   const json = await res.json();
-  return { data: json, success: res.ok };
+  if (res.ok && json.data) {
+    return { data: mapDocumentToAsset(json.data), success: true, message: json.message };
+  }
+  return { data: null as unknown as Asset, success: false, message: json.detail || "上传失败" };
 }
 
 export async function deleteAsset(id: string): Promise<ApiResponse<null>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: null, success: true, message: "资产已删除" };
-  }
   return apiFetch<null>(`/api/v1/documents/${id}`, { method: "DELETE" });
+}
+
+export async function indexDocument(documentId: string): Promise<ApiResponse<DocumentIndexResponse>> {
+  return apiFetch<DocumentIndexResponse>(`/api/v1/documents/${documentId}/index`, {
+    method: "POST",
+  });
+}
+
+export async function indexBatchDocuments(
+  documentIds?: string[],
+  projectId?: string,
+): Promise<ApiResponse<DocumentBatchIndexResponse>> {
+  return apiFetch<DocumentBatchIndexResponse>("/api/v1/documents/index-batch", {
+    method: "POST",
+    body: JSON.stringify({
+      document_ids: documentIds || null,
+      project_id: projectId || null,
+    }),
+  });
+}
+
+// Helper: unwrap paginated {items, total} responses
+async function unwrapPaginated<T>(endpoint: string): Promise<ApiResponse<T[]>> {
+  const result = await apiFetch<{ items: T[]; total: number }>(endpoint);
+  if (result.success && result.data) {
+    return { data: result.data.items, success: true };
+  }
+  return { data: [] as T[], success: false, message: result.message };
 }
 
 // ============================================================
@@ -315,18 +310,10 @@ export async function deleteAsset(id: string): Promise<ApiResponse<null>> {
 // ============================================================
 
 export async function getCases(): Promise<ApiResponse<CaseItem[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockCases, success: true };
-  }
-  return apiFetch<CaseItem[]>("/api/v1/cases");
+  return unwrapPaginated<CaseItem>("/api/v1/cases");
 }
 
 export async function createCase(data: Partial<CaseItem>): Promise<ApiResponse<CaseItem>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: data as CaseItem, success: true, message: "案例创建成功" };
-  }
   return apiFetch<CaseItem>("/api/v1/cases", {
     method: "POST",
     body: JSON.stringify(data),
@@ -334,10 +321,6 @@ export async function createCase(data: Partial<CaseItem>): Promise<ApiResponse<C
 }
 
 export async function updateCase(id: string, data: Partial<CaseItem>): Promise<ApiResponse<CaseItem>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: { ...data, id } as CaseItem, success: true, message: "案例更新成功" };
-  }
   return apiFetch<CaseItem>(`/api/v1/cases/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -345,10 +328,6 @@ export async function updateCase(id: string, data: Partial<CaseItem>): Promise<A
 }
 
 export async function deleteCase(id: string): Promise<ApiResponse<null>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: null, success: true, message: "案例已删除" };
-  }
   return apiFetch<null>(`/api/v1/cases/${id}`, { method: "DELETE" });
 }
 
@@ -357,22 +336,25 @@ export async function deleteCase(id: string): Promise<ApiResponse<null>> {
 // ============================================================
 
 export async function getSOPWorkflows(): Promise<ApiResponse<SOPWorkflow[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockSOPWorkflows, success: true };
-  }
-  return apiFetch<SOPWorkflow[]>("/api/v1/workflows");
+  return unwrapPaginated<SOPWorkflow>("/api/v1/workflows");
 }
 
 export async function createSOPWorkflow(data: Partial<SOPWorkflow>): Promise<ApiResponse<SOPWorkflow>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: data as SOPWorkflow, success: true, message: "SOP 创建成功" };
-  }
   return apiFetch<SOPWorkflow>("/api/v1/workflows", {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function updateSOPWorkflow(id: string, data: Partial<SOPWorkflow>): Promise<ApiResponse<SOPWorkflow>> {
+  return apiFetch<SOPWorkflow>(`/api/v1/workflows/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSOPWorkflow(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/workflows/${id}`, { method: "DELETE" });
 }
 
 // ============================================================
@@ -380,30 +362,29 @@ export async function createSOPWorkflow(data: Partial<SOPWorkflow>): Promise<Api
 // ============================================================
 
 export async function getProposalTemplates(): Promise<ApiResponse<ProposalTemplate[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockProposalTemplates, success: true };
-  }
-  return apiFetch<ProposalTemplate[]>("/api/v1/templates/proposals");
+  return unwrapPaginated<ProposalTemplate>("/api/v1/templates/proposals");
 }
 
 export async function getPromptTemplates(): Promise<ApiResponse<PromptTemplate[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockPromptTemplates, success: true };
-  }
-  return apiFetch<PromptTemplate[]>("/api/v1/templates/prompts");
+  return unwrapPaginated<PromptTemplate>("/api/v1/templates/prompts");
 }
 
 export async function createPromptTemplate(data: Partial<PromptTemplate>): Promise<ApiResponse<PromptTemplate>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: data as PromptTemplate, success: true, message: "Prompt 模板创建成功" };
-  }
   return apiFetch<PromptTemplate>("/api/v1/templates/prompts", {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function updatePromptTemplate(id: string, data: Partial<PromptTemplate>): Promise<ApiResponse<PromptTemplate>> {
+  return apiFetch<PromptTemplate>(`/api/v1/templates/prompts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePromptTemplate(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/templates/prompts/${id}`, { method: "DELETE" });
 }
 
 // ============================================================
@@ -411,11 +392,25 @@ export async function createPromptTemplate(data: Partial<PromptTemplate>): Promi
 // ============================================================
 
 export async function getVisualStyles(): Promise<ApiResponse<VisualStyle[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockVisualStyles, success: true };
-  }
-  return apiFetch<VisualStyle[]>("/api/v1/visual-styles");
+  return unwrapPaginated<VisualStyle>("/api/v1/visual-styles");
+}
+
+export async function createVisualStyle(data: Partial<VisualStyle>): Promise<ApiResponse<VisualStyle>> {
+  return apiFetch<VisualStyle>("/api/v1/visual-styles", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateVisualStyle(id: string, data: Partial<VisualStyle>): Promise<ApiResponse<VisualStyle>> {
+  return apiFetch<VisualStyle>(`/api/v1/visual-styles/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteVisualStyle(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/visual-styles/${id}`, { method: "DELETE" });
 }
 
 // ============================================================
@@ -423,19 +418,47 @@ export async function getVisualStyles(): Promise<ApiResponse<VisualStyle[]>> {
 // ============================================================
 
 export async function getTechnicalRules(): Promise<ApiResponse<TechnicalRule[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockTechnicalRules, success: true };
-  }
-  return apiFetch<TechnicalRule[]>("/api/v1/rules/technical");
+  return unwrapPaginated<TechnicalRule>("/api/v1/rules/technical");
+}
+
+export async function createTechnicalRule(data: Partial<TechnicalRule>): Promise<ApiResponse<TechnicalRule>> {
+  return apiFetch<TechnicalRule>("/api/v1/rules/technical", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTechnicalRule(id: string, data: Partial<TechnicalRule>): Promise<ApiResponse<TechnicalRule>> {
+  return apiFetch<TechnicalRule>(`/api/v1/rules/technical/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTechnicalRule(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/rules/technical/${id}`, { method: "DELETE" });
 }
 
 export async function getQualityRules(): Promise<ApiResponse<QualityRule[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockQualityRules, success: true };
-  }
-  return apiFetch<QualityRule[]>("/api/v1/rules/quality");
+  return unwrapPaginated<QualityRule>("/api/v1/rules/quality");
+}
+
+export async function createQualityRule(data: Partial<QualityRule>): Promise<ApiResponse<QualityRule>> {
+  return apiFetch<QualityRule>("/api/v1/rules/quality", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateQualityRule(id: string, data: Partial<QualityRule>): Promise<ApiResponse<QualityRule>> {
+  return apiFetch<QualityRule>(`/api/v1/rules/quality/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteQualityRule(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/rules/quality/${id}`, { method: "DELETE" });
 }
 
 // ============================================================
@@ -443,11 +466,7 @@ export async function getQualityRules(): Promise<ApiResponse<QualityRule[]>> {
 // ============================================================
 
 export async function getEvaluations(): Promise<ApiResponse<Evaluation[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: mockEvaluations, success: true };
-  }
-  return apiFetch<Evaluation[]>("/api/v1/generations/tasks?type=evaluation");
+  return unwrapPaginated<Evaluation>("/api/v1/generations/tasks?type=evaluation");
 }
 
 // ============================================================
@@ -460,10 +479,6 @@ export async function submitFeedback(data: {
   comment: string;
   feedback_type: string;
 }): Promise<ApiResponse<null>> {
-  if (USE_MOCK) {
-    await delay();
-    return { data: null, success: true, message: "反馈已提交" };
-  }
   return apiFetch<null>("/api/v1/feedback", {
     method: "POST",
     body: JSON.stringify(data),
@@ -475,10 +490,6 @@ export async function submitFeedback(data: {
 // ============================================================
 
 export async function searchKnowledge(query: string, filters?: Record<string, string>): Promise<ApiResponse<unknown>> {
-  if (USE_MOCK) {
-    await delay(500);
-    return { data: { results: mockCases.slice(0, 3), total: 3 }, success: true };
-  }
   return apiFetch("/api/v1/rag/search", {
     method: "POST",
     body: JSON.stringify({ query, filters }),
@@ -490,20 +501,6 @@ export async function searchKnowledge(query: string, filters?: Record<string, st
 // ============================================================
 
 export async function getSkills(): Promise<ApiResponse<SkillManifest[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return {
-      data: [
-        { skill_id: "company_analysis", name: "企业解析", description: "分析企业画像", category: "analysis", visibility: "internal", version: "1.0.0" },
-        { skill_id: "case_retrieval", name: "案例检索", description: "检索匹配案例", category: "retrieval", visibility: "internal", version: "1.0.0" },
-        { skill_id: "proposal_generation", name: "策划案生成", description: "生成策划案初稿", category: "proposal", visibility: "internal", version: "1.0.0" },
-        { skill_id: "visual_prompt", name: "视觉 Prompt", description: "生成视觉策略和 Prompt", category: "visual", visibility: "internal", version: "1.0.0" },
-        { skill_id: "image_generation", name: "图片生成", description: "调用图片生成服务", category: "visual", visibility: "internal", version: "1.0.0" },
-        { skill_id: "export", name: "方案导出", description: "导出为 Word/PDF", category: "export", visibility: "internal", version: "1.0.0" },
-      ],
-      success: true,
-    };
-  }
   return apiFetch<SkillManifest[]>("/api/v1/skills");
 }
 
@@ -512,10 +509,6 @@ export async function executeSkill(
   inputData: Record<string, unknown>,
   projectId?: string,
 ): Promise<ApiResponse<Record<string, unknown>>> {
-  if (USE_MOCK) {
-    await delay(2000);
-    return { data: { success: true, output: {} }, success: true, message: "Skill 执行完成" };
-  }
   return apiFetch<Record<string, unknown>>(`/api/v1/skills/${skillId}/execute`, {
     method: "POST",
     body: JSON.stringify({ input_data: inputData, project_id: projectId }),
@@ -527,19 +520,82 @@ export async function executeSkill(
 // ============================================================
 
 export async function runPipeline(projectId: string): Promise<ApiResponse<Record<string, unknown>>> {
-  if (USE_MOCK) {
-    await delay(5000);
-    return {
-      data: {
-        company_analysis: { success: true },
-        proposal_generation: { success: true },
-        visual_prompt: { success: true },
-      },
-      success: true,
-      message: "Pipeline completed",
-    };
-  }
   return apiFetch<Record<string, unknown>>(`/api/v1/agents/pipeline/${projectId}`, {
     method: "POST",
+  });
+}
+
+// ============================================================
+// Generic Import Helper
+// ============================================================
+
+async function importFromFile(
+  endpoint: string,
+  file: File,
+  extraParams?: Record<string, string>,
+): Promise<ApiResponse<ImportResult>> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const params = new URLSearchParams(extraParams);
+  const url = `${API_BASE_URL}${endpoint}${params.toString() ? "?" + params.toString() : ""}`;
+  try {
+    const res = await fetch(url, { method: "POST", body: formData });
+    const json = await res.json();
+    if (res.ok) {
+      const data = json.data || json;
+      return { data: data as ImportResult, success: true, message: json.message };
+    }
+    return { data: null as unknown as ImportResult, success: false, message: json.detail || "导入失败" };
+  } catch (error) {
+    return { data: null as unknown as ImportResult, success: false, message: (error as Error).message };
+  }
+}
+
+// ============================================================
+// Admin: Import API
+// ============================================================
+
+export async function importCases(file: File, projectId?: string): Promise<ApiResponse<ImportResult>> {
+  const params: Record<string, string> = {};
+  if (projectId) params.project_id = projectId;
+  return importFromFile("/api/v1/cases/import", file, params);
+}
+
+export async function importSOPWorkflows(file: File): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/workflows/import", file);
+}
+
+export async function importProposalTemplates(file: File): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/templates/proposals/import", file);
+}
+
+export async function importPromptTemplates(file: File): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/templates/prompts/import", file);
+}
+
+export async function importVisualStyles(file: File): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/visual-styles/import", file);
+}
+
+export async function importTechnicalRules(file: File): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/rules/technical/import", file);
+}
+
+export async function importQualityRules(file: File): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/rules/quality/import", file);
+}
+
+// ============================================================
+// Settings
+// ============================================================
+
+export async function getAppSettings(): Promise<ApiResponse<Record<string, string>>> {
+  return apiFetch<Record<string, string>>("/api/v1/settings");
+}
+
+export async function updateAppSettings(data: Record<string, string>): Promise<ApiResponse<Record<string, string>>> {
+  return apiFetch<Record<string, string>>("/api/v1/settings", {
+    method: "PUT",
+    body: JSON.stringify(data),
   });
 }

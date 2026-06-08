@@ -2,9 +2,28 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
+
+
+# ── Reference image sub-model ──
+
+
+class ReferenceImage(BaseModel):
+    """A reference image attached to a case."""
+
+    url: str
+    caption: str = ""
+    photo_type: str = Field(
+        default="",
+        description="product_experience | brand_exhibition | space_design | technology_showcase | outdoor_installation",
+    )
+    style_label: str = Field(default="", description="风格标签，如 高科技风、北欧风")
+    description: str = ""
+
+
+# ── CRUD schemas ──
 
 
 class CaseBase(BaseModel):
@@ -19,6 +38,7 @@ class CaseBase(BaseModel):
     team_size: Optional[int] = None
     budget_range: Optional[str] = Field(None, max_length=100)
     tags: Optional[str] = None
+    reference_images: Optional[List[ReferenceImage]] = None
 
 
 class CaseCreate(CaseBase):
@@ -40,6 +60,7 @@ class CaseUpdate(BaseModel):
     quality_score: Optional[float] = None
     is_published: Optional[bool] = None
     tags: Optional[str] = None
+    reference_images: Optional[List[ReferenceImage]] = None
 
 
 class CaseOut(CaseBase):

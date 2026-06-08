@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +21,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Search, Eye, ClipboardCheck, TrendingUp, BarChart3, Calendar } from "lucide-react";
-import { mockEvaluations } from "@/lib/mock-data";
+import { Search, Eye, ClipboardCheck, TrendingUp, BarChart3, Calendar, Loader2 } from "lucide-react";
+import { getEvaluations } from "@/lib/api";
+import type { Evaluation } from "@/types";
 
 const statusColor = {
   completed: "text-[#10B981] bg-green-50",
@@ -38,8 +39,23 @@ const statusLabel = {
 
 export default function EvaluationsPage() {
   const [selectedEval, setSelectedEval] = useState<string | null>(null);
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const selected = mockEvaluations.find((e) => e.id === selectedEval);
+  const fetchEvaluations = useCallback(async () => {
+    setLoading(true);
+    const res = await getEvaluations();
+    if (res.success && res.data) {
+      setEvaluations(res.data);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchEvaluations();
+  }, [fetchEvaluations]);
+
+  const selected = evaluations.find((e) => e.id === selectedEval);
 
   return (
     <div className="p-6">
@@ -59,7 +75,7 @@ export default function EvaluationsPage() {
             </div>
             <div>
               <p className="text-xs text-gray-500">总评估数</p>
-              <p className="text-xl font-bold text-[#1E3A5F]">{mockEvaluations.length}</p>
+              <p className="text-xl font-bold text-[#1E3A5F]">{evaluations.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -71,7 +87,9 @@ export default function EvaluationsPage() {
             <div>
               <p className="text-xs text-gray-500">平均分</p>
               <p className="text-xl font-bold text-[#10B981]">
-                {Math.round(mockEvaluations.reduce((acc, e) => acc + e.overallScore, 0) / mockEvaluations.length)}
+                {evaluations.length > 0
+                  ? Math.round(evaluations.reduce((acc, e) => acc + e.overallScore, 0) / evaluations.length)
+                  : 0}
               </p>
             </div>
           </CardContent>
@@ -84,7 +102,7 @@ export default function EvaluationsPage() {
             <div>
               <p className="text-xs text-gray-500">已完成</p>
               <p className="text-xl font-bold text-[#F59E0B]">
-                {mockEvaluations.filter((e) => e.status === "completed").length}
+                {evaluations.filter((e) => e.status === "completed").length}
               </p>
             </div>
           </CardContent>
@@ -95,52 +113,64 @@ export default function EvaluationsPage() {
         {/* Table */}
         <Card className={`border-gray-200 flex-1 ${selectedEval ? "hidden lg:block" : ""}`}>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-xs">项目名称</TableHead>
-                  <TableHead className="text-xs">总分</TableHead>
-                  <TableHead className="text-xs">评估时间</TableHead>
-                  <TableHead className="text-xs">评估人</TableHead>
-                  <TableHead className="text-xs">状态</TableHead>
-                  <TableHead className="text-xs text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mockEvaluations.map((evalItem) => (
-                  <TableRow key={evalItem.id} className={selectedEval === evalItem.id ? "bg-[#1E3A5F]/5" : ""}>
-                    <TableCell className="text-sm font-medium text-[#1A1A2E]">{evalItem.projectName}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-bold ${evalItem.overallScore >= 80 ? "text-[#10B981]" : evalItem.overallScore >= 60 ? "text-[#F59E0B]" : "text-[#EF4444]"}`}>
-                          {evalItem.overallScore}
-                        </span>
-                        <Progress value={evalItem.overallScore} className="h-1.5 w-16" />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-gray-500">
-                      {new Date(evalItem.evaluatedAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                    </TableCell>
-                    <TableCell className="text-sm text-gray-600">{evalItem.evaluator}</TableCell>
-                    <TableCell>
-                      <Badge className={`text-xs ${statusColor[evalItem.status]}`}>
-                        {statusLabel[evalItem.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 gap-1"
-                        onClick={() => setSelectedEval(selectedEval === evalItem.id ? null : evalItem.id)}
-                      >
-                        <Eye className="h-3.5 w-3.5" /> 详情
-                      </Button>
-                    </TableCell>
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-[#1E3A5F]" />
+                <span className="ml-2 text-sm text-gray-500">加载中...</span>
+              </div>
+            ) : evaluations.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                <ClipboardCheck className="h-10 w-10 mb-3" />
+                <p className="text-sm">暂无评估记录</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">项目名称</TableHead>
+                    <TableHead className="text-xs">总分</TableHead>
+                    <TableHead className="text-xs">评估时间</TableHead>
+                    <TableHead className="text-xs">评估人</TableHead>
+                    <TableHead className="text-xs">状态</TableHead>
+                    <TableHead className="text-xs text-right">操作</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {evaluations.map((evalItem) => (
+                    <TableRow key={evalItem.id} className={selectedEval === evalItem.id ? "bg-[#1E3A5F]/5" : ""}>
+                      <TableCell className="text-sm font-medium text-[#1A1A2E]">{evalItem.projectName}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-bold ${evalItem.overallScore >= 80 ? "text-[#10B981]" : evalItem.overallScore >= 60 ? "text-[#F59E0B]" : "text-[#EF4444]"}`}>
+                            {evalItem.overallScore}
+                          </span>
+                          <Progress value={evalItem.overallScore} className="h-1.5 w-16" />
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-500">
+                        {new Date(evalItem.evaluatedAt).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">{evalItem.evaluator}</TableCell>
+                      <TableCell>
+                        <Badge className={`text-xs ${statusColor[evalItem.status]}`}>
+                          {statusLabel[evalItem.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1"
+                          onClick={() => setSelectedEval(selectedEval === evalItem.id ? null : evalItem.id)}
+                        >
+                          <Eye className="h-3.5 w-3.5" /> 详情
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 

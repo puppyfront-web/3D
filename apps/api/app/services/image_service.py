@@ -1,4 +1,12 @@
-"""Abstract image generation service and MockImageGenerationService."""
+"""Abstract image generation service and MockImageGenerationService.
+
+Supported providers:
+  - mock: SVG placeholder (default for dev)
+  - openai / dalle: OpenAI DALL-E API
+  - siliconflow: SiliconFlow API (Flux, SDXL, etc.)
+  - zhipu: Zhipu AI CogView API
+  - custom: Any OpenAI-compatible image API
+"""
 
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -16,6 +24,7 @@ class ImageGenerationService(ABC):
         width: int = 1024,
         height: int = 768,
         style: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
     ) -> bytes:
         """Generate an image from a text prompt."""
 
@@ -26,6 +35,7 @@ class ImageGenerationService(ABC):
         width: int = 1024,
         height: int = 768,
         style: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
     ) -> str:
         """Generate an image and return its URL."""
 
@@ -39,6 +49,7 @@ class MockImageGenerationService(ImageGenerationService):
         width: int = 1024,
         height: int = 768,
         style: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
     ) -> bytes:
         """Return a simple SVG placeholder image as bytes."""
         svg = self._create_placeholder_svg(prompt, width, height, style)
@@ -50,6 +61,7 @@ class MockImageGenerationService(ImageGenerationService):
         width: int = 1024,
         height: int = 768,
         style: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
     ) -> str:
         """Return a placeholder image URL (using a data URI for mock)."""
         svg = self._create_placeholder_svg(prompt, width, height, style)
@@ -77,14 +89,59 @@ class MockImageGenerationService(ImageGenerationService):
 </svg>"""
 
 
-def get_image_service() -> ImageGenerationService:
-    """Factory function to create the appropriate image generation service."""
-    if settings.image_provider == "openai":
-        from app.services.image.openai_provider import DallEImageGenerationService
+async def get_image_service(db=None) -> ImageGenerationService:
+    """Factory function to create the appropriate image generation service.
 
+    Provider selection via IMAGE_PROVIDER env var:
+      - "mock"       : SVG placeholder (default)
+      - "openai"     : OpenAI DALL-E API
+      - "dalle"      : Alias for openai
+      - "siliconflow": SiliconFlow (Flux, SDXL, Kolors, etc.)
+      - "zhipu"      : Zhipu AI CogView
+      - "custom"     : Any OpenAI-compatible image API
+
+    If db session is provided, reads config from database (priority) then .env fallback.
+    """
+    if db is not None:
+        from app.services.settings_service import SettingsService
+        provider = (await SettingsService.get_raw(db, "image_provider", settings.image_provider)).lower()
+        api_key = await SettingsService.get_raw(db, "image_api_key", settings.image_api_key)
+        base_url = await SettingsService.get_raw(db, "image_base_url", settings.image_base_url)
+        model = await SettingsService.get_raw(db, "image_model", settings.image_model)
+    else:
+        provider = settings.image_provider.lower()
+        api_key = settings.image_api_key
+        base_url = settings.image_base_url
+        model = settings.image_model
+
+    if provider in ("openai", "dalle"):
+        from app.services.image.openai_provider import DallEImageGenerationService
         return DallEImageGenerationService(
-            api_key=settings.image_api_key,
-            base_url=settings.image_base_url or None,
-            model=settings.image_model,
+            api_key=api_key,
+            base_url=base_url or None,
+            model=model,
         )
+
+    if provider == "siliconflow":
+        from app.services.image.siliconflow_provider import SiliconFlowImageService
+        return SiliconFlowImageService(
+            api_key=api_key,
+            model=model,
+        )
+
+    if provider == "zhipu":
+        from app.services.image.zhipu_provider import ZhipuImageService
+        return ZhipuImageService(
+            api_key=api_key,
+            model=model,
+        )
+
+    if provider == "custom":
+        from app.services.image.openai_provider import DallEImageGenerationService
+        return DallEImageGenerationService(
+            api_key=api_key,
+            base_url=base_url or None,
+            model=model,
+        )
+
     return MockImageGenerationService()

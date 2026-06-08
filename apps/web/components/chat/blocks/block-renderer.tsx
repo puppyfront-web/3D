@@ -4,6 +4,7 @@ import type { ContentBlock } from "@/types";
 import { TextBlock } from "./text-block";
 import { CompanyAnalysisBlock } from "./company-analysis-block";
 import { SkillProgressBlock } from "./skill-progress-block";
+import { SkillExecutingBlock } from "./skill-executing-block";
 import { ActionButtonsBlock } from "./action-buttons-block";
 import { ArtifactBlock } from "./artifact-block";
 import { VisualResultBlock } from "./visual-result-block";
@@ -27,6 +28,10 @@ export function BlockRenderer({ block }: BlockRendererProps) {
 
   if (block.type === "skill_progress") {
     return <SkillProgressBlock data={block.data || {}} />;
+  }
+
+  if (block.type === "skill_executing") {
+    return <SkillExecutingBlock data={block.data || {}} />;
   }
 
   if (block.type === "action_buttons") {

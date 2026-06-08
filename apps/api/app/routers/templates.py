@@ -3,14 +3,14 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.models.template import PromptTemplate, ProposalTemplate
-from app.schemas.common import PaginatedResponse, Response
+from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.template import (
     PromptTemplateCreate,
     PromptTemplateOut,
@@ -19,6 +19,7 @@ from app.schemas.template import (
     ProposalTemplateOut,
     ProposalTemplateUpdate,
 )
+from app.services.import_service import ImportService
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -26,6 +27,28 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 # ---------------------------------------------------------------------------
 # Prompt Templates
 # ---------------------------------------------------------------------------
+
+@router.post("/prompts/import", response_model=Response[ImportResponse])
+async def import_prompt_templates(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import prompt templates from JSON, TXT, or MD file."""
+    result = await ImportService.parse_file(file, "prompt_template")
+    for item in result.items:
+        tmpl = PromptTemplate(**item)
+        db.add(tmpl)
+    await db.flush()
+    return Response(
+        data=ImportResponse(
+            imported=result.imported,
+            failed=result.failed,
+            errors=result.errors,
+            message=f"成功导入 {result.imported} 条 Prompt 模板",
+        ),
+        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    )
+
 
 @router.get("/prompts", response_model=PaginatedResponse[PromptTemplateOut])
 async def list_prompt_templates(
@@ -100,6 +123,28 @@ async def delete_prompt_template(template_id: uuid.UUID, db: AsyncSession = Depe
 # ---------------------------------------------------------------------------
 # Proposal Templates
 # ---------------------------------------------------------------------------
+
+@router.post("/proposals/import", response_model=Response[ImportResponse])
+async def import_proposal_templates(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import proposal templates from JSON file."""
+    result = await ImportService.parse_file(file, "proposal_template")
+    for item in result.items:
+        tmpl = ProposalTemplate(**item)
+        db.add(tmpl)
+    await db.flush()
+    return Response(
+        data=ImportResponse(
+            imported=result.imported,
+            failed=result.failed,
+            errors=result.errors,
+            message=f"成功导入 {result.imported} 条策划案模板",
+        ),
+        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    )
+
 
 @router.get("/proposals", response_model=PaginatedResponse[ProposalTemplateOut])
 async def list_proposal_templates(

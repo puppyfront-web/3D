@@ -14,6 +14,7 @@ import {
   TrendingUp,
   FolderKanban,
   Users,
+  Settings,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -34,6 +35,7 @@ const adminLinks = [
   { label: "技术规则", desc: "配置技术方案生成的约束规则", href: "/admin/technical-rules", icon: <Cpu className="h-5 w-5 text-[#F59E0B]" /> },
   { label: "质量标准", desc: "管理方案质量评估标准和评分规则", href: "/admin/quality-rules", icon: <ShieldCheck className="h-5 w-5 text-[#EF4444]" /> },
   { label: "评估记录", desc: "查看方案质量评估历史和报告", href: "/admin/evaluations", icon: <ClipboardCheck className="h-5 w-5 text-[#1E3A5F]" /> },
+  { label: "系统设置", desc: "配置AI服务提供商、模型参数和API密钥", href: "/admin/settings", icon: <Settings className="h-5 w-5 text-[#6B7280]" /> },
 ];
 
 export default function AdminDashboardPage() {

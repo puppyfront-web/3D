@@ -35,15 +35,11 @@ export default function ChatPage() {
 
   const handleSend = useCallback(
     async (message: string) => {
-      // If no active conversation, create one first
+      // If no active conversation, create one first then send directly with the new ID
       if (!state.activeConversationId) {
         const id = await createConversation({ title: message.slice(0, 50) });
-        // Wait for context to update, then send
-        // The sendMessage will be called after the conversation is created
-        // We need to use a small delay to let state update
-        setTimeout(() => {
-          sendMessage(message);
-        }, 100);
+        // Pass the new conversation ID directly to avoid stale closure
+        sendMessage(message, id);
       } else {
         sendMessage(message);
       }

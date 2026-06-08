@@ -600,6 +600,58 @@ class TestVisualConceptIntent:
             assert result.intent == "run_skill"
             assert result.skill_id == "company_analysis"
 
+    def test_direct_image_generation_includes_prompt(self):
+        from app.services.intent_service import IntentDetector
+        detector = IntentDetector()
+        result = detector._keyword_match("生成小猫图片")
+        assert result is not None
+        assert result.intent == "run_skill"
+        assert result.skill_id == "image_generation"
+        assert result.input_data["prompt"] == "小猫"
+
+    @pytest.mark.asyncio
+    async def test_direct_image_generation_streams_visual_result(self, client, monkeypatch):
+        from app.services.image_service import MockImageGenerationService
+        from app.services.llm_service import MockLLMService
+        from app.services.embedding_service import MockEmbeddingService
+
+        async def mock_get_image_service(db=None):
+            return MockImageGenerationService()
+
+        async def mock_get_llm_service(db=None):
+            return MockLLMService()
+
+        async def mock_get_embedding_service(db=None):
+            return MockEmbeddingService()
+
+        monkeypatch.setattr(
+            "app.services.image_service.get_image_service",
+            mock_get_image_service,
+        )
+        monkeypatch.setattr(
+            "app.services.conversation_service.get_llm_service",
+            mock_get_llm_service,
+        )
+        monkeypatch.setattr(
+            "app.services.embedding_service.get_embedding_service",
+            mock_get_embedding_service,
+        )
+
+        created = await client.post("/api/v1/conversations", json={"title": "图片测试"})
+        conversation_id = created.json()["data"]["id"]
+
+        async with client.stream(
+            "POST",
+            f"/api/v1/conversations/{conversation_id}/chat/stream",
+            json={"message": "生成小猫图片"},
+        ) as response:
+            body = (await response.aread()).decode("utf-8")
+
+        assert response.status_code == 200
+        assert '"type": "visual_result"' in body
+        assert '"image_url"' in body
+        assert "data:image/svg+xml;base64" in body
+
 
 # ---------------------------------------------------------------------------
 # Integration tests — full pipeline mock verification

@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.models.skill import Skill, SkillExecution
-from app.routers import agents as agents_router  # ensure agents module loaded
 from app.schemas.common import Response
 from app.schemas.skill import SkillExecuteRequest, SkillExecutionOut, SkillOut, SkillManifestOut
 from app.services.llm_service import get_llm_service
@@ -158,9 +157,9 @@ async def execute_skill(
         project_id=body.project_id,
         user_id=body.user_id,
         db=db,
-        llm_service=get_llm_service(),
-        embedding_service=get_embedding_service(),
-        image_service=get_image_service(),
+        llm_service=await get_llm_service(db),
+        embedding_service=await get_embedding_service(db),
+        image_service=await get_image_service(db),
     )
 
     runner = SkillRunner(registry=_registry)

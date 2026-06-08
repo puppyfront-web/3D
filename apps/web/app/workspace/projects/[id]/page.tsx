@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,14 +17,38 @@ import {
   FileText,
   Image,
   CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { StatusTag, PriorityTag } from "@/components/workspace/status-tag";
-import { mockProjects } from "@/lib/mock-data";
+import { getProjectById } from "@/lib/api";
+import type { Project } from "@/types";
 
 export default function ProjectOverviewPage() {
   const params = useParams();
   const projectId = params.id as string;
-  const project = mockProjects.find((p) => p.id === projectId);
+  const [project, setProject] = useState<Project | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadProject = useCallback(async () => {
+    setLoading(true);
+    const res = await getProjectById(projectId);
+    if (res.success && res.data) {
+      setProject(res.data);
+    }
+    setLoading(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    loadProject();
+  }, [loadProject]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[#1E3A5F]" />
+      </div>
+    );
+  }
 
   if (!project) {
     return (
@@ -35,10 +60,10 @@ export default function ProjectOverviewPage() {
 
   const steps = [
     { label: "需求确认", status: "completed" },
-    { label: "企业分析", status: project.progress >= 35 ? "completed" : "current" },
-    { label: "方案撰写", status: project.progress >= 65 ? "completed" : project.progress >= 35 ? "current" : "pending" },
-    { label: "视觉设计", status: project.progress >= 78 ? "completed" : project.progress >= 65 ? "current" : "pending" },
-    { label: "审核导出", status: project.progress >= 90 ? "completed" : project.progress >= 78 ? "current" : "pending" },
+    { label: "企业分析", status: project.progress! >= 35 ? "completed" : "current" },
+    { label: "方案撰写", status: project.progress! >= 65 ? "completed" : project.progress! >= 35 ? "current" : "pending" },
+    { label: "视觉设计", status: project.progress! >= 78 ? "completed" : project.progress! >= 65 ? "current" : "pending" },
+    { label: "审核导出", status: project.progress! >= 90 ? "completed" : project.progress! >= 78 ? "current" : "pending" },
   ];
 
   return (
@@ -49,7 +74,7 @@ export default function ProjectOverviewPage() {
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-xl font-semibold text-[#1A1A2E]">{project.name}</h1>
             <StatusTag status={project.status} />
-            <PriorityTag priority={project.priority} />
+            {project.priority && <PriorityTag priority={project.priority} />}
           </div>
           <p className="text-sm text-gray-500">{project.client} | {project.industry}</p>
         </div>
@@ -63,7 +88,7 @@ export default function ProjectOverviewPage() {
         <CardContent className="p-5">
           <p className="text-sm text-gray-600 leading-relaxed">{project.description}</p>
           <div className="flex flex-wrap gap-2 mt-4">
-            {project.tags.map((tag) => (
+            {(project.tags || []).map((tag) => (
               <Badge key={tag} variant="secondary" className="text-xs bg-blue-50 text-[#1E3A5F]">
                 {tag}
               </Badge>

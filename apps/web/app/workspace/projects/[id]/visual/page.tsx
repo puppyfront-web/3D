@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,31 +27,107 @@ import {
   Loader2,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
-import { mockVisualProjects } from "@/lib/mock-data";
+import { getVisualProjects, generateVisualImage } from "@/lib/api";
+import type { VisualProject, VisualImage } from "@/types";
 
 export default function VisualPage() {
-  const [prompt, setPrompt] = useState(mockVisualProjects[0].prompt);
+  const params = useParams();
+  const projectId = params.id as string;
+  const [visualProjects, setVisualProjects] = useState<VisualProject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState("写实科技风");
   const [size, setSize] = useState("1920x1080");
   const [generating, setGenerating] = useState(false);
-  const [images, setImages] = useState(mockVisualProjects[0].images);
+  const [images, setImages] = useState<VisualImage[]>([]);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleGenerate = () => {
+  const loadVisualProjects = useCallback(async () => {
+    setLoading(true);
+    const res = await getVisualProjects(projectId);
+    if (res.success && res.data) {
+      setVisualProjects(res.data);
+      if (res.data.length > 0) {
+        setPrompt(res.data[0].prompt);
+        setImages(res.data[0].images);
+      }
+    }
+    setLoading(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    loadVisualProjects();
+  }, [loadVisualProjects]);
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
     setGenerating(true);
-    setTimeout(() => {
-      setImages((prev) => [
-        {
-          id: `img-${Date.now()}`,
-          url: "/placeholder-visual-new.jpg",
-          prompt,
-          status: "completed" as const,
+    setErrorMsg(null);
+
+    // Parse size into width/height
+    const [w, h] = size.split("x").map(Number);
+    const res = await generateVisualImage(projectId, prompt, style, w, h);
+    if (res.success && res.data) {
+      // Backend returns { visual_prompt: {...}, image_generation: {...} }
+      // We need to extract the image_url from the response
+      const data = res.data as unknown as Record<string, unknown>;
+      const imgGen = (data.image_generation as Record<string, unknown>) || {};
+      const imgOutput = (imgGen.output as Record<string, unknown>) || {};
+      const visualOutput = ((data.visual_prompt as Record<string, unknown>)?.output as Record<string, unknown>) || {};
+      const imageUrl = imgOutput.image_url as string | undefined;
+      const usedPrompt = (visualOutput.positive_prompt as string) || prompt;
+
+      if (imageUrl) {
+        const newImage: VisualImage = {
+          id: (imgOutput.task_id as string) || `img-${Date.now()}`,
+          url: imageUrl,
+          prompt: usedPrompt,
+          status: "completed",
           createdAt: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
-      setGenerating(false);
-    }, 2000);
+        };
+        setImages((prev) => [newImage, ...prev]);
+      } else {
+        // Image generation failed but visual prompt succeeded
+        const genSuccess = imgGen.success as boolean | undefined;
+        if (genSuccess === false) {
+          setErrorMsg((imgGen.error as string) || "图片生成失败");
+        } else {
+          setErrorMsg("未获取到图片URL");
+        }
+      }
+    } else {
+      setErrorMsg(res.message || "图片生成失败，请稍后重试");
+    }
+    setGenerating(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[#1E3A5F]" />
+      </div>
+    );
+  }
+
+  const handleDownload = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      // Fallback: open in new tab
+      window.open(url, "_blank");
+    }
   };
 
   return (
@@ -130,7 +207,7 @@ export default function VisualPage() {
             <div>
               <Label className="text-xs text-gray-500">历史任务</Label>
               <div className="space-y-1 mt-2">
-                {mockVisualProjects.map((vp) => (
+                {visualProjects.map((vp) => (
                   <div
                     key={vp.id}
                     className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg text-xs"
@@ -220,7 +297,7 @@ export default function VisualPage() {
             </div>
           </div>
 
-          {images.length === 0 ? (
+          {images.length === 0 && !generating ? (
             <div className="flex flex-col items-center justify-center h-64 text-gray-400">
               <Image className="h-12 w-12 mb-3 text-gray-300" />
               <p className="text-sm">暂无生成结果</p>
@@ -228,26 +305,83 @@ export default function VisualPage() {
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
+              {/* Generating placeholder card */}
+              {generating && (
+                <Card className="overflow-hidden border-blue-200 border-dashed">
+                  <div className="relative aspect-video bg-gradient-to-br from-blue-50 to-white flex items-center justify-center">
+                    <div className="text-center">
+                      <Loader2 className="h-8 w-8 mx-auto mb-2 text-[#1E3A5F] animate-spin" />
+                      <p className="text-xs text-[#1E3A5F]">正在生成图片...</p>
+                    </div>
+                  </div>
+                  <CardContent className="p-3">
+                    <p className="text-xs text-gray-400 line-clamp-2">{prompt}</p>
+                    <div className="mt-2">
+                      <Badge variant="outline" className="text-[#F59E0B] border-amber-200">
+                        生成中
+                      </Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Error message */}
+              {errorMsg && (
+                <div className="col-span-2 rounded-lg border border-red-200 bg-red-50 p-3 flex items-start gap-2">
+                  <span className="text-sm text-red-600 flex-1">{errorMsg}</span>
+                  <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-red-600">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+
               {images.map((img) => (
                 <Card key={img.id} className="overflow-hidden border-gray-200 hover:shadow-md transition-shadow group">
-                  <div className="relative aspect-video bg-gradient-to-br from-[#1E3A5F] via-[#2D5A8E] to-[#00D4FF] flex items-center justify-center">
-                    <div className="text-center text-white">
-                      <Image className="h-10 w-10 mx-auto mb-2 opacity-60" />
-                      <p className="text-xs opacity-80">3D渲染预览</p>
-                    </div>
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <div className="flex gap-2">
-                        <Button variant="secondary" size="sm" className="h-8 w-8 p-0">
-                          <ZoomIn className="h-4 w-4" />
-                        </Button>
-                        <Button variant="secondary" size="sm" className="h-8 w-8 p-0">
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button variant="secondary" size="sm" className="h-8 w-8 p-0">
-                          <Maximize2 className="h-4 w-4" />
-                        </Button>
+                  <div className="relative aspect-video bg-gray-100 overflow-hidden">
+                    {img.url && !img.url.startsWith("/") ? (
+                      <img
+                        src={img.url}
+                        alt="生成图片"
+                        className="w-full h-full object-cover transition-transform group-hover:scale-[1.02]"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-[#1E3A5F] via-[#2D5A8E] to-[#00D4FF] flex items-center justify-center">
+                        <div className="text-center text-white">
+                          <Image className="h-8 w-8 mx-auto mb-2 opacity-60" />
+                          <p className="text-xs opacity-80">无图片</p>
+                        </div>
                       </div>
-                    </div>
+                    )}
+                    {img.url && !img.url.startsWith("/") && (
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                        <div className="flex gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => setLightboxUrl(img.url)}
+                          >
+                            <ZoomIn className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleDownload(img.url, `visual-${img.id}.png`)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => setLightboxUrl(img.url)}
+                          >
+                            <Maximize2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <CardContent className="p-3">
                     <p className="text-xs text-gray-500 line-clamp-2">{img.prompt}</p>
@@ -275,6 +409,27 @@ export default function VisualPage() {
           )}
         </div>
       </div>
+
+      {/* Lightbox overlay */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white/80 hover:text-white p-2"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <X className="h-6 w-6" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Preview"
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

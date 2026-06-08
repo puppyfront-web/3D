@@ -49,6 +49,13 @@ class ContextPack:
 
         if self.company_profile:
             sections.append(self._render_company_profile(self.company_profile))
+            # Render enriched structured data if present
+            if self.company_profile.get("six_views"):
+                sections.append(self._render_six_views(self.company_profile["six_views"]))
+            if self.company_profile.get("technology_arch"):
+                sections.append(self._render_technology_arch(self.company_profile["technology_arch"]))
+            if self.company_profile.get("project_background"):
+                sections.append(self._render_project_background(self.company_profile["project_background"]))
 
         if self.retrieved_chunks:
             sections.append(self._render_retrieved_chunks(self.retrieved_chunks))
@@ -215,6 +222,82 @@ class ContextPack:
         lines.append("**注意**: 以上信息缺失，生成内容中涉及的部分将标注「需进一步确认」。")
         return "\n".join(lines)
 
+    @staticmethod
+    def _render_six_views(six_views: Any) -> str:
+        """Render Enterprise Six Views into structured text."""
+        lines = ["## 企业六看", ""]
+        sv = six_views if isinstance(six_views, dict) else {}
+        dim_map = {
+            "backward_history": ("向后看·发展历史", ["founding", "origin", "core_philosophy"]),
+            "forward_planning": ("向前看·发展规划", ["strategy", "product_roadmap", "market_expansion"]),
+            "left_competitors": ("向左看·竞争对手", None),
+            "right_industry": ("向右看·行业情况", ["trends", "market_landscape"]),
+            "upward_policy": ("向上看·政策背景", ["national_policy", "local_policy"]),
+            "downward_niche": ("向下看·生态位", ["core_advantage", "irreplaceability"]),
+        }
+        for key, (label, fields) in dim_map.items():
+            data = sv.get(key)
+            if not data:
+                continue
+            if isinstance(data, dict) and fields:
+                parts = [f"  - {f}: {data.get(f, '')}" for f in fields if data.get(f)]
+                if parts:
+                    lines.append(f"**{label}**:")
+                    lines.extend(parts)
+            elif isinstance(data, dict):
+                parts = [f"  - {k}: {v}" for k, v in data.items() if v]
+                if parts:
+                    lines.append(f"**{label}**:")
+                    lines.extend(parts)
+            elif isinstance(data, list):
+                lines.append(f"**{label}**: {', '.join(str(x) for x in data)}")
+            elif isinstance(data, str):
+                lines.append(f"**{label}**: {data}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_technology_arch(tech_arch: Any) -> str:
+        """Render Technology Architecture into structured text."""
+        lines = ["## 技术一张图", ""]
+        arch = tech_arch if isinstance(tech_arch, dict) else {}
+        layers = arch.get("layers", [])
+        for layer in layers:
+            name = layer.get("name", "")
+            level = layer.get("level", "")
+            desc = layer.get("description", "")
+            metaphor = layer.get("metaphor", "")
+            level_label = {"top": "顶层", "middle": "中层", "bottom": "底层"}.get(level, level)
+            metaphor_tag = f"（{metaphor}）" if metaphor else ""
+            lines.append(f"- **[{level_label}] {name}**{metaphor_tag}: {desc}")
+        summary = arch.get("core_technology_summary", "")
+        if summary:
+            lines.append(f"\n核心技术总结: {summary}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_project_background(proj_bg: Any) -> str:
+        """Render Project Background three-level hierarchy."""
+        lines = ["## 项目背景", ""]
+        bg = proj_bg if isinstance(proj_bg, dict) else {}
+        labels = {
+            "national_policy": "宏观·国家政策",
+            "city_or_industry": "中观·城市/行业",
+            "project_positioning": "微观·项目定位",
+        }
+        for key, label in labels.items():
+            data = bg.get(key)
+            if not data:
+                continue
+            if isinstance(data, dict):
+                title = data.get("title", "")
+                content = data.get("content", "")
+                lines.append(f"**{label}**: {title}")
+                if content:
+                    lines.append(f"  {content}")
+            elif isinstance(data, str):
+                lines.append(f"**{label}**: {data}")
+        return "\n".join(lines)
+
 
 async def assemble_context_pack(
     query: str,
@@ -258,6 +341,9 @@ async def assemble_context_pack(
             company_profile["weaknesses"] = profile.weaknesses
             company_profile["market_position"] = profile.market_position
             company_profile["key_products"] = profile.key_products
+            company_profile["six_views"] = profile.six_views
+            company_profile["technology_arch"] = profile.technology_arch
+            company_profile["project_background"] = profile.project_background
 
     # 3. Run RAG retrieval
     retrieved_chunks = []

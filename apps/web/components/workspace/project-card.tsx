@@ -24,7 +24,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
               <p className="text-xs text-gray-500 mt-0.5">{project.client}</p>
             </div>
             <div className="flex items-center gap-2">
-              <PriorityTag priority={project.priority} />
+              {project.priority && <PriorityTag priority={project.priority} />}
               <StatusTag status={project.status} />
             </div>
           </div>
@@ -54,10 +54,10 @@ export function ProjectCard({ project }: ProjectCardProps) {
                 截止 {project.dueDate}
               </span>
             </div>
-            {project.tags.length > 0 && (
+            {(project.tags?.length ?? 0) > 0 && (
               <div className="flex items-center gap-1">
                 <Tag className="h-3 w-3 text-gray-300" />
-                <span className="text-xs text-gray-400">{project.tags.length}个标签</span>
+                <span className="text-xs text-gray-400">{project.tags!.length}个标签</span>
               </div>
             )}
           </div>

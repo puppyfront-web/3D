@@ -62,15 +62,35 @@ class MockEmbeddingService(EmbeddingService):
         return vector
 
 
-def get_embedding_service() -> EmbeddingService:
-    """Factory function to create the appropriate embedding service."""
-    if settings.embedding_provider == "openai":
+async def get_embedding_service(db=None) -> EmbeddingService:
+    """Factory function to create the appropriate embedding service.
+
+    If db session is provided, reads config from database (priority) then .env fallback.
+    If no db session, falls back to .env only (backward compatible).
+    """
+    if db is not None:
+        from app.services.settings_service import SettingsService
+        provider = await SettingsService.get_raw(db, "embedding_provider", settings.embedding_provider)
+    else:
+        provider = settings.embedding_provider
+
+    if provider == "openai":
         from app.services.embedding.openai_provider import OpenAIEmbeddingService
 
+        if db is not None:
+            from app.services.settings_service import SettingsService
+            api_key = await SettingsService.get_raw(db, "embedding_api_key", settings.embedding_api_key)
+            base_url = await SettingsService.get_raw(db, "embedding_base_url", settings.embedding_base_url)
+            model = await SettingsService.get_raw(db, "embedding_model", settings.embedding_model)
+        else:
+            api_key = settings.embedding_api_key
+            base_url = settings.embedding_base_url
+            model = settings.embedding_model
+
         return OpenAIEmbeddingService(
-            api_key=settings.embedding_api_key,
-            base_url=settings.embedding_base_url or None,
-            model=settings.embedding_model,
+            api_key=api_key,
+            base_url=base_url or None,
+            model=model,
             dimensions=settings.embedding_dimensions,
         )
     return MockEmbeddingService()

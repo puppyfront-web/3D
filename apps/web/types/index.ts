@@ -21,6 +21,8 @@ export type ReviewStatus = "pass" | "warning" | "fail" | "pending";
 
 export type AssetType = "image" | "video" | "document" | "template" | "model";
 
+export type AssetStatus = "pending" | "uploaded" | "indexed" | "error";
+
 export type SOPStepStatus = "pending" | "running" | "completed" | "skipped" | "failed";
 
 // --- Project ---
@@ -44,6 +46,111 @@ export interface Project {
 
 // --- Company Analysis ---
 
+// ── Enterprise Six Views ──
+
+export interface SixViews {
+  backward_history?: Record<string, string>;
+  forward_planning?: Record<string, string>;
+  left_competitors?: { benchmark_companies?: string[]; differentiation?: string };
+  right_industry?: Record<string, string>;
+  upward_policy?: Record<string, string>;
+  downward_niche?: Record<string, string>;
+}
+
+// ── Technology Architecture ──
+
+export interface TechnologyLayer {
+  name: string;
+  level: "top" | "middle" | "bottom";
+  description: string;
+  metaphor: string;
+}
+
+export interface TechnologyArchitecture {
+  layers: TechnologyLayer[];
+  core_technology_summary: string;
+  visual_metaphor: string;
+}
+
+// ── Project Background ──
+
+export interface BackgroundLevel {
+  title: string;
+  content: string;
+}
+
+export interface ProjectBackground {
+  national_policy?: BackgroundLevel;
+  city_or_industry?: BackgroundLevel;
+  project_positioning?: BackgroundLevel;
+}
+
+// ── Material & Lighting Specs ──
+
+export interface MaterialCategory {
+  name: string;
+  description: string;
+  coverage: string;
+}
+
+export interface MaterialSpec {
+  style: string;
+  categories: MaterialCategory[];
+}
+
+export interface ColorTemperature {
+  range: string;
+  description: string;
+}
+
+export interface LightingLayer {
+  type: "ambient" | "task" | "accent";
+  description: string;
+}
+
+export interface LightingSpec {
+  overall_atmosphere: string;
+  color_temperature?: ColorTemperature;
+  lighting_layers: LightingLayer[];
+  fixture_style: string;
+}
+
+// ── Reference Image ──
+
+export interface ReferenceImage {
+  url: string;
+  caption: string;
+  photo_type:
+    | "product_experience"
+    | "brand_exhibition"
+    | "space_design"
+    | "technology_showcase"
+    | "outdoor_installation";
+  style_label: string;
+  description: string;
+}
+
+// ── Pipeline Stage ──
+
+export interface PipelineStage {
+  stage: string;
+  name: string;
+  description: string;
+}
+
+// ── SOP Step Rule & Prompt ──
+
+export interface SOPStepRule {
+  type: "general" | "custom";
+  description: string;
+}
+
+export interface SOPStepPrompt {
+  number: number;
+  question: string;
+  purpose: string;
+}
+
 export interface CompanyAnalysis {
   companyId: string;
   projectName: string;
@@ -57,6 +164,10 @@ export interface CompanyAnalysis {
   risks: RiskItem[];
   recommendations: string[];
   generatedAt: string;
+  // Enriched structured data
+  sixViews?: SixViews;
+  technologyArch?: TechnologyArchitecture;
+  projectBackground?: ProjectBackground;
 }
 
 export interface CompetitiveItem {
@@ -145,6 +256,10 @@ export interface Asset {
   category: string;
   url: string;
   size: string;
+  file_size: number;
+  project_id: string | null;
+  status: AssetStatus;
+  chunk_count: number;
   uploadedAt: string;
   uploadedBy: string;
   tags: string[];
@@ -161,6 +276,7 @@ export interface CaseItem {
   highlights: string[];
   createdAt: string;
   status: "published" | "draft" | "archived";
+  referenceImages?: ReferenceImage[];
 }
 
 // --- Admin: SOP Workflow ---
@@ -170,6 +286,7 @@ export interface SOPWorkflow {
   name: string;
   description: string;
   steps: SOPStep[];
+  pipelineStages?: PipelineStage[];
   category: string;
   isActive: boolean;
   createdAt: string;
@@ -185,6 +302,10 @@ export interface SOPStep {
   estimatedTime: string;
   requiredInputs: string[];
   outputs: string[];
+  stage?: string;
+  rules?: SOPStepRule[];
+  prompts?: SOPStepPrompt[];
+  dependencies?: string[];
 }
 
 // --- Admin: Template ---
@@ -237,6 +358,8 @@ export interface VisualStyle {
   category: string;
   isActive: boolean;
   createdAt: string;
+  materialSpec?: MaterialSpec;
+  lightingSpec?: LightingSpec;
 }
 
 // --- Admin: Rules ---
@@ -443,6 +566,7 @@ export interface ContentBlock {
     | "visual_strategy"
     | "quality_check"
     | "skill_progress"
+    | "skill_executing"
     | "artifact"
     | "attachment"
     | "form"
@@ -538,4 +662,30 @@ export interface VisualConceptState {
   currentNodeId: string | null;
   currentImageUrl: string | null;
   qualityCheck: QualityCheckItem[] | null;
+}
+
+// --- Document Indexing ---
+
+export interface DocumentIndexResponse {
+  document_id: string;
+  status: string;
+  chunk_count: number;
+  message: string;
+}
+
+export interface DocumentBatchIndexResponse {
+  total: number;
+  indexed: number;
+  failed: number;
+  total_chunks: number;
+  message: string;
+}
+
+// --- Import ---
+
+export interface ImportResult {
+  imported: number;
+  failed: number;
+  errors: string[];
+  message: string;
 }

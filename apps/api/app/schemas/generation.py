@@ -79,3 +79,14 @@ class VisualPromptRequest(BaseModel):
     project_id: uuid.UUID
     style_preferences: Optional[str] = None
     target_audience: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+class DirectImageRequest(BaseModel):
+    """Request to directly generate an image from a prompt (no project required)."""
+
+    prompt: str = Field(..., min_length=1, max_length=4000)
+    negative_prompt: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None

@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +12,7 @@ class DocumentBase(BaseModel):
 
 
 class DocumentCreate(DocumentBase):
-    project_id: uuid.UUID
+    project_id: Optional[uuid.UUID] = None
 
 
 class DocumentUpdate(BaseModel):
@@ -22,7 +22,7 @@ class DocumentUpdate(BaseModel):
 
 class DocumentOut(BaseModel):
     id: uuid.UUID
-    project_id: uuid.UUID
+    project_id: Optional[uuid.UUID] = None
     filename: str
     original_filename: str
     content_type: str
@@ -47,4 +47,31 @@ class DocumentUploadResponse(BaseModel):
     content_type: str
     file_size: int
     status: str
+    chunk_count: int = 0
     message: str = "Document uploaded successfully"
+
+
+class DocumentIndexResponse(BaseModel):
+    """Response after indexing a document."""
+
+    document_id: uuid.UUID
+    status: str
+    chunk_count: int
+    message: str = "Document indexed successfully"
+
+
+class DocumentBatchIndexRequest(BaseModel):
+    """Request body for batch indexing."""
+
+    document_ids: Optional[List[uuid.UUID]] = None
+    project_id: Optional[uuid.UUID] = None
+
+
+class DocumentBatchIndexResponse(BaseModel):
+    """Response after batch indexing."""
+
+    total: int
+    indexed: int
+    failed: int
+    total_chunks: int
+    message: str = "Batch indexing completed"

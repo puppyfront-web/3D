@@ -33,8 +33,8 @@ class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("projects.id"), nullable=False, index=True
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("projects.id"), nullable=True, index=True
     )
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -55,7 +55,7 @@ class Document(Base):
     )
 
     # Relationships
-    project: Mapped["Project"] = relationship(back_populates="documents", lazy="selectin")
+    project: Mapped[Optional["Project"]] = relationship(back_populates="documents", lazy="selectin")
     chunks: Mapped[List["DocumentChunk"]] = relationship(
         back_populates="document", lazy="selectin", cascade="all, delete-orphan"
     )

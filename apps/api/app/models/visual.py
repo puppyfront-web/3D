@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import JSON, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -26,6 +26,10 @@ class VisualStyle(Base):
     font_secondary: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     layout: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     brand_guidelines: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Design specification fields
+    material_spec: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="材质规范参数")
+    lighting_spec: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="灯光规范参数")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

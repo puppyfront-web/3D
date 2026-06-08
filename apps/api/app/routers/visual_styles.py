@@ -3,17 +3,40 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.models.visual import VisualStyle
-from app.schemas.common import PaginatedResponse, Response
+from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.visual import VisualStyleCreate, VisualStyleOut, VisualStyleUpdate
+from app.services.import_service import ImportService
 
 router = APIRouter(prefix="/visual-styles", tags=["visual-styles"])
+
+
+@router.post("/import", response_model=Response[ImportResponse])
+async def import_visual_styles(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import visual styles from JSON file."""
+    result = await ImportService.parse_file(file, "visual_style")
+    for item in result.items:
+        style = VisualStyle(**item)
+        db.add(style)
+    await db.flush()
+    return Response(
+        data=ImportResponse(
+            imported=result.imported,
+            failed=result.failed,
+            errors=result.errors,
+            message=f"成功导入 {result.imported} 条视觉风格",
+        ),
+        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    )
 
 
 @router.get("", response_model=PaginatedResponse[VisualStyleOut])

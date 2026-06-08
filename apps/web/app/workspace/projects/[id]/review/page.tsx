@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,27 +17,47 @@ import {
   Download,
   RotateCcw,
   ArrowRight,
+  Loader2,
 } from "lucide-react";
-import { mockReviewChecklists } from "@/lib/mock-data";
+import { getReviewChecklists } from "@/lib/api";
+import type { ReviewChecklist } from "@/types";
 
 export default function ReviewPage() {
-  const totalItems = mockReviewChecklists.reduce(
+  const params = useParams();
+  const projectId = params.id as string;
+  const [checklists, setChecklists] = useState<ReviewChecklist[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadChecklists = useCallback(async () => {
+    setLoading(true);
+    const res = await getReviewChecklists(projectId);
+    if (res.success && res.data) {
+      setChecklists(res.data);
+    }
+    setLoading(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    loadChecklists();
+  }, [loadChecklists]);
+
+  const totalItems = checklists.reduce(
     (acc, cl) => acc + cl.items.length,
     0
   );
-  const passItems = mockReviewChecklists.reduce(
+  const passItems = checklists.reduce(
     (acc, cl) => acc + cl.items.filter((i) => i.status === "pass").length,
     0
   );
-  const warningItems = mockReviewChecklists.reduce(
+  const warningItems = checklists.reduce(
     (acc, cl) => acc + cl.items.filter((i) => i.status === "warning").length,
     0
   );
-  const failItems = mockReviewChecklists.reduce(
+  const failItems = checklists.reduce(
     (acc, cl) => acc + cl.items.filter((i) => i.status === "fail").length,
     0
   );
-  const pendingItems = mockReviewChecklists.reduce(
+  const pendingItems = checklists.reduce(
     (acc, cl) => acc + cl.items.filter((i) => i.status === "pending").length,
     0
   );
@@ -61,7 +83,30 @@ export default function ReviewPage() {
     return "待审核";
   };
 
-  const overallScore = Math.round((passItems / totalItems) * 100);
+  const overallScore = totalItems > 0 ? Math.round((passItems / totalItems) * 100) : 0;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[#1E3A5F]" />
+      </div>
+    );
+  }
+
+  if (checklists.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-gray-400 gap-3">
+        <ClipboardCheck className="h-12 w-12 text-gray-300" />
+        <p className="text-sm">暂无审核数据</p>
+        <Button
+          onClick={loadChecklists}
+          className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2"
+        >
+          <RotateCcw className="h-3.5 w-3.5" /> 重新审核
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-5xl">
@@ -72,7 +117,7 @@ export default function ReviewPage() {
           <p className="text-sm text-gray-500 mt-1">自动质量审核 · 检查方案完整性、技术可行性与商务合规性</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-1">
+          <Button variant="outline" className="gap-1" onClick={loadChecklists}>
             <RotateCcw className="h-3.5 w-3.5" /> 重新审核
           </Button>
           <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-1">
@@ -118,7 +163,7 @@ export default function ReviewPage() {
 
       {/* Checklist Sections */}
       <div className="space-y-4">
-        {mockReviewChecklists.map((checklist) => {
+        {checklists.map((checklist) => {
           const categoryPass = checklist.items.filter((i) => i.status === "pass").length;
           const categoryTotal = checklist.items.length;
           return (
@@ -190,7 +235,7 @@ export default function ReviewPage() {
               <XCircle className="h-5 w-5 text-[#EF4444]" />
               <div>
                 <p className="text-sm font-medium text-[#EF4444]">存在未通过项</p>
-                <p className="text-xs text-gray-600">请修正标记为"不通过"的检查项后重新提交审核</p>
+                <p className="text-xs text-gray-600">请修正标记为「不通过」的检查项后重新提交审核</p>
               </div>
             </div>
             <Button variant="outline" className="gap-1 border-red-200 text-[#EF4444] hover:bg-red-50">

@@ -1,4 +1,4 @@
-"""Exports router — export proposals to Word/PDF."""
+"""Exports router — export proposals to Word/PDF/PPTX."""
 
 import os
 import uuid
@@ -18,12 +18,8 @@ from app.schemas.common import Response
 router = APIRouter(prefix="/exports", tags=["exports"])
 
 
-@router.post("/word/{task_id}")
-async def export_to_word(
-    task_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    """Export a generation task's output as a Word document."""
+async def _get_task_output(task_id: uuid.UUID, db: AsyncSession):
+    """Helper: look up a GenerationTask and its output."""
     task = await db.get(GenerationTask, task_id)
     if not task:
         raise NotFoundException("GenerationTask", str(task_id))
@@ -34,6 +30,16 @@ async def export_to_word(
     output = result.scalars().first()
     if not output:
         raise NotFoundException("GenerationOutput for task", str(task_id))
+    return task, output
+
+
+@router.post("/word/{task_id}")
+async def export_to_word(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a generation task's output as a Word document."""
+    task, output = await _get_task_output(task_id, db)
 
     try:
         from docx import Document as DocxDocument
@@ -64,7 +70,6 @@ async def export_to_word(
         elif stripped.startswith("---"):
             doc.add_paragraph("-" * 50)
         elif stripped.startswith("| "):
-            # Simple table row — just add as formatted text
             doc.add_paragraph(stripped, style="Normal")
         elif stripped.startswith("- ") or stripped.startswith("* "):
             doc.add_paragraph(stripped[2:], style="List Bullet")
@@ -106,16 +111,7 @@ async def export_to_pdf(
     db: AsyncSession = Depends(get_db),
 ):
     """Export a generation task's output as a PDF document."""
-    task = await db.get(GenerationTask, task_id)
-    if not task:
-        raise NotFoundException("GenerationTask", str(task_id))
-
-    result = await db.execute(
-        select(GenerationOutput).where(GenerationOutput.task_id == task_id)
-    )
-    output = result.scalars().first()
-    if not output:
-        raise NotFoundException("GenerationOutput for task", str(task_id))
+    task, output = await _get_task_output(task_id, db)
 
     try:
         from reportlab.lib.pagesizes import A4
@@ -176,7 +172,6 @@ async def export_to_pdf(
         elif stripped.startswith("---"):
             story.append(Spacer(1, 0.1 * inch))
         else:
-            # Escape HTML chars for reportlab
             safe = stripped.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             story.append(Paragraph(safe, styles["Normal"]))
 
@@ -186,4 +181,32 @@ async def export_to_pdf(
         path=filepath,
         media_type="application/pdf",
         filename=f"proposal_{task.type}.pdf",
+    )
+
+
+@router.post("/pptx/{task_id}")
+async def export_to_pptx(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a generation task's output as a PowerPoint presentation."""
+    task, output = await _get_task_output(task_id, db)
+
+    try:
+        from app.exporters.pptx_exporter import PPTXExporter
+    except ImportError:
+        raise HTTPException(status_code=500, detail="python-pptx not installed")
+
+    exporter = PPTXExporter()
+    filename = f"export_{task_id}.pptx"
+    filepath = await exporter.export(
+        content=output.content,
+        filename=filename,
+        title=task.type or "方案报告",
+    )
+
+    return FileResponse(
+        path=filepath,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=f"proposal_{task.type}.pptx",
     )

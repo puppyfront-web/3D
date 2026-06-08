@@ -1,15 +1,19 @@
 """Application configuration loaded from environment variables."""
 
+from pathlib import Path
 from typing import List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve .env relative to this file (apps/api/app/core/) -> apps/api/.env
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
     """Application settings derived from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -39,10 +43,13 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1536
 
     # Image generation
-    image_provider: str = "mock"
+    image_provider: str = "mock"  # mock | openai | dalle | siliconflow | zhipu | custom
     image_api_key: str = ""
     image_base_url: str = ""
-    image_model: str = "dall-e-3"
+    image_model: str = "dall-e-3"  # Model varies by provider:
+    #   openai: dall-e-2, dall-e-3
+    #   siliconflow: flux-schnell, flux-dev, sdxl, kolors, sd3
+    #   zhipu: cogview-4, cogview-3-plus, cogview-3
 
     # Storage
     storage_path: str = "./storage"

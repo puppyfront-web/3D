@@ -48,7 +48,9 @@ type ChatAction =
   | { type: "STREAM_ERROR"; payload: string }
   | { type: "SET_LOADING"; payload: boolean }
   | { type: "SET_UPLOADING"; payload: boolean }
-  | { type: "SET_ERROR"; payload: string | null };
+  | { type: "SET_ERROR"; payload: string | null }
+  | { type: "UPDATE_CONVERSATION"; payload: { id: string; title: string } }
+  | { type: "REMOVE_CONVERSATION"; payload: string };
 
 const initialState: ChatState = {
   conversations: [],
@@ -100,14 +102,21 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         streamingBlocks: [...state.streamingBlocks, action.payload],
       };
 
-    case "COMPLETE_STREAM":
+    case "COMPLETE_STREAM": {
+      // Avoid duplicate IDs (e.g. if stream fires onComplete twice)
+      const existingIds = new Set(state.messages.map((m) => m.id));
+      const msg = action.payload;
+      const messages = existingIds.has(msg.id)
+        ? state.messages
+        : [...state.messages, msg];
       return {
         ...state,
         isStreaming: false,
         streamingText: "",
         streamingBlocks: [],
-        messages: [...state.messages, action.payload],
+        messages,
       };
+    }
 
     case "STREAM_ERROR":
       return {
@@ -127,6 +136,24 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "SET_ERROR":
       return { ...state, error: action.payload };
 
+    case "UPDATE_CONVERSATION":
+      return {
+        ...state,
+        conversations: state.conversations.map((c) =>
+          c.id === action.payload.id ? { ...c, title: action.payload.title } : c
+        ),
+      };
+
+    case "REMOVE_CONVERSATION": {
+      const isTarget = state.activeConversationId === action.payload;
+      return {
+        ...state,
+        conversations: state.conversations.filter((c) => c.id !== action.payload),
+        activeConversationId: isTarget ? null : state.activeConversationId,
+        messages: isTarget ? [] : state.messages,
+      };
+    }
+
     default:
       return state;
   }
@@ -142,9 +169,11 @@ interface ChatContextValue {
     projectId?: string;
     title?: string;
   }) => Promise<string>;
-  sendMessage: (content: string) => void;
+  sendMessage: (content: string, overrideConversationId?: string) => void;
   uploadFile: (file: File, caption: string) => Promise<void>;
   abortStream: () => void;
+  renameConversation: (id: string, title: string) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -172,7 +201,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "SET_LOADING", payload: true });
     try {
       const res = await apiGetConversation(id);
-      dispatch({ type: "SET_MESSAGES", payload: res.data?.messages || [] });
+      // Map snake_case fields from API to camelCase for frontend types
+      const messages = (res.data?.messages || []).map((msg) => {
+        const raw = msg as unknown as Record<string, unknown>;
+        return {
+          ...msg,
+          createdAt: msg.createdAt || raw.created_at,
+          richContent: msg.richContent || raw.rich_content,
+        };
+      }) as ChatMessage[];
+      dispatch({ type: "SET_MESSAGES", payload: messages });
     } catch (err) {
       dispatch({
         type: "SET_ERROR",
@@ -207,13 +245,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendMessage = useCallback(
-    (content: string) => {
-      if (!state.activeConversationId || state.isStreaming) return;
+    (content: string, overrideConversationId?: string) => {
+      const convId = overrideConversationId || state.activeConversationId;
+      if (!convId || state.isStreaming) return;
 
       // Add user message immediately
       const userMsg: ChatMessage = {
         id: `user-${Date.now()}`,
-        conversationId: state.activeConversationId,
+        conversationId: convId,
         role: "user",
         content,
         contentType: "text",
@@ -249,11 +288,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         },
       };
 
-      const controller = streamChat(
-        state.activeConversationId,
-        content,
-        callbacks
-      );
+      const controller = streamChat(convId, content, callbacks);
       abortRef.current = controller;
     },
     [state.activeConversationId, state.isStreaming, loadConversations]
@@ -291,6 +326,38 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [state.activeConversationId, loadConversations]
   );
 
+  const renameConversation = useCallback(
+    async (id: string, title: string) => {
+      try {
+        const { updateConversation } = await import("@/lib/chat-api");
+        await updateConversation(id, { title });
+        dispatch({ type: "UPDATE_CONVERSATION", payload: { id, title } });
+      } catch (err) {
+        dispatch({
+          type: "SET_ERROR",
+          payload: err instanceof Error ? err.message : "Rename failed",
+        });
+      }
+    },
+    []
+  );
+
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      try {
+        const { archiveConversation } = await import("@/lib/chat-api");
+        await archiveConversation(id);
+        dispatch({ type: "REMOVE_CONVERSATION", payload: id });
+      } catch (err) {
+        dispatch({
+          type: "SET_ERROR",
+          payload: err instanceof Error ? err.message : "Delete failed",
+        });
+      }
+    },
+    []
+  );
+
   return (
     <VisualConceptProvider>
       <ChatContext.Provider
@@ -302,6 +369,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           sendMessage,
           uploadFile,
           abortStream,
+          renameConversation,
+          deleteConversation,
         }}
       >
         {children}

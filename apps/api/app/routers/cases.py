@@ -3,7 +3,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,9 +11,34 @@ from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.models.case import Case
 from app.schemas.case import CaseCreate, CaseOut, CaseQualityScore, CaseUpdate
-from app.schemas.common import PaginatedResponse, Response
+from app.schemas.common import ImportResponse, PaginatedResponse, Response
+from app.services.import_service import ImportService
 
 router = APIRouter(prefix="/cases", tags=["cases"])
+
+
+@router.post("/import", response_model=Response[ImportResponse])
+async def import_cases(
+    file: UploadFile = File(...),
+    project_id: uuid.UUID = Query(..., description="Required: project to associate imported cases with"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import cases from JSON or CSV file."""
+    result = await ImportService.parse_file(file, "case")
+    for item in result.items:
+        item["project_id"] = project_id
+        case = Case(**item)
+        db.add(case)
+    await db.flush()
+    return Response(
+        data=ImportResponse(
+            imported=result.imported,
+            failed=result.failed,
+            errors=result.errors,
+            message=f"成功导入 {result.imported} 条案例",
+        ),
+        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    )
 
 
 @router.get("", response_model=PaginatedResponse[CaseOut])

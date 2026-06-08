@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,14 +29,49 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Eye, Edit3, Copy, Trash2, FileText } from "lucide-react";
-import { mockProposalTemplates } from "@/lib/mock-data";
+import { Plus, Search, Eye, Edit3, Copy, Trash2, FileText, Loader2 } from "lucide-react";
+import { getProposalTemplates, importProposalTemplates } from "@/lib/api";
+import { FileUploadButton } from "@/components/admin/file-upload-button";
+import type { ProposalTemplate } from "@/types";
 
 export default function ProposalTemplatesPage() {
+  const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const filtered = mockProposalTemplates.filter((t) =>
+
+  const loadTemplates = useCallback(async () => {
+    setLoading(true);
+    const res = await getProposalTemplates();
+    if (res.success && res.data) {
+      setTemplates(res.data);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadTemplates();
+  }, [loadTemplates]);
+
+  const handleImport = async (file: File) => {
+    const res = await importProposalTemplates(file);
+    if (res.success && res.data) {
+      await loadTemplates();
+      return res.data;
+    }
+    throw new Error(res.message || "导入失败");
+  };
+
+  const filtered = templates.filter((t) =>
     t.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[#1E3A5F]" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
@@ -45,7 +80,14 @@ export default function ProposalTemplatesPage() {
           <h1 className="text-xl font-semibold text-[#1A1A2E]">方案模板管理</h1>
           <p className="text-sm text-gray-500 mt-1">管理方案文档模板和章节结构</p>
         </div>
-        <Dialog>
+        <div className="flex items-center gap-2">
+          <FileUploadButton
+            accept=".json"
+            dialogTitle="导入方案模板"
+            dialogDescription="支持 JSON 格式，含 sections 结构定义。"
+            onUpload={handleImport}
+          />
+          <Dialog>
           <DialogTrigger asChild>
             <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
               <Plus className="h-4 w-4" /> 新建模板
@@ -85,6 +127,7 @@ export default function ProposalTemplatesPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 mb-4">
@@ -94,50 +137,59 @@ export default function ProposalTemplatesPage() {
         </div>
       </div>
 
-      <Card className="border-gray-200">
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="text-xs">模板名称</TableHead>
-                <TableHead className="text-xs">分类</TableHead>
-                <TableHead className="text-xs">行业</TableHead>
-                <TableHead className="text-xs">章节数</TableHead>
-                <TableHead className="text-xs">使用次数</TableHead>
-                <TableHead className="text-xs">更新时间</TableHead>
-                <TableHead className="text-xs text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((tpl) => (
-                <TableRow key={tpl.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-[#1E3A5F]" />
-                      <span className="text-sm font-medium text-[#1A1A2E]">{tpl.name}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell><Badge variant="secondary" className="text-xs">{tpl.category}</Badge></TableCell>
-                  <TableCell className="text-sm text-gray-500">{tpl.industry}</TableCell>
-                  <TableCell className="text-sm text-gray-600">{tpl.sections.length} 个</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs">{tpl.usageCount} 次</Badge>
-                  </TableCell>
-                  <TableCell className="text-sm text-gray-500">{tpl.updatedAt}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Eye className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Edit3 className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Copy className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]"><Trash2 className="h-3.5 w-3.5" /></Button>
-                    </div>
-                  </TableCell>
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+          <FileText className="h-12 w-12 mb-3 text-gray-300" />
+          <p className="text-sm">暂无方案模板</p>
+        </div>
+      ) : (
+        <Card className="border-gray-200">
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">模板名称</TableHead>
+                  <TableHead className="text-xs">分类</TableHead>
+                  <TableHead className="text-xs">行业</TableHead>
+                  <TableHead className="text-xs">使用次数</TableHead>
+                  <TableHead className="text-xs">更新时间</TableHead>
+                  <TableHead className="text-xs text-right">操作</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((tpl) => (
+                  <TableRow key={tpl.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-[#1E3A5F]" />
+                        <span className="text-sm font-medium text-[#1A1A2E]">{tpl.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="text-xs">
+                        {tpl.category || "未分类"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-gray-500">{tpl.industry || "-"}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{tpl.usageCount ?? 0} 次</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-gray-500">{tpl.updatedAt || "-"}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Eye className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Edit3 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Copy className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]"><Trash2 className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

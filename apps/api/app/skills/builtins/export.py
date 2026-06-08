@@ -1,4 +1,4 @@
-"""Export Skill — exports generation results to Word/PDF."""
+"""Export Skill — exports generation results to Word/PDF/PPTX."""
 
 import logging
 import uuid
@@ -10,12 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 class ExportSkill(BaseSkill):
-    """Exports generation output to Word or PDF format."""
+    """Exports generation output to Word, PDF or PPTX format."""
 
     manifest = SkillManifest(
         skill_id="export",
         name="方案导出",
-        description="将生成结果导出为 Word/PDF 文档",
+        description="将生成结果导出为 Word/PDF/PPTX 文档",
         category="export",
         input_schema={
             "type": "object",
@@ -31,15 +31,15 @@ class ExportSkill(BaseSkill):
                 "file_path": {"type": "string"},
             },
         },
-        required_services=["export.docx", "export.pdf"],
+        required_services=["export.docx", "export.pdf", "export.pptx"],
         permissions=["read_project_output"],
         visibility="internal",
-        version="1.0.0",
+        version="1.1.0",
     )
 
     async def execute(self, input_data: Dict[str, Any], context: SkillContext) -> SkillResult:
         task_id = input_data["task_id"]
-        format_type = input_data["format"]  # "word" or "pdf"
+        format_type = input_data["format"]  # "word", "pdf" or "pptx"
 
         if context.db is None:
             return SkillResult(success=False, error="Database session required")
@@ -56,17 +56,25 @@ class ExportSkill(BaseSkill):
             return SkillResult(success=False, error="No content to export")
 
         try:
+            from app.services.export_service import get_export_service
+
+            service = get_export_service()
+            safe_id = task_id[:8] if len(task_id) >= 8 else task_id
+
             if format_type == "word":
-                from app.services.export_service import ExportService
-                file_path = await ExportService.export_to_word(
+                file_path = await service.export_to_word(
                     content=content,
-                    filename=f"proposal_{task_id[:8]}",
+                    filename=f"proposal_{safe_id}.docx",
                 )
             elif format_type == "pdf":
-                from app.services.export_service import ExportService
-                file_path = await ExportService.export_to_pdf(
+                file_path = await service.export_to_pdf(
                     content=content,
-                    filename=f"proposal_{task_id[:8]}",
+                    filename=f"proposal_{safe_id}.pdf",
+                )
+            elif format_type == "pptx":
+                file_path = await service.export_to_pptx(
+                    content=content,
+                    filename=f"proposal_{safe_id}.pptx",
                 )
             else:
                 return SkillResult(success=False, error=f"Unsupported format: {format_type}")

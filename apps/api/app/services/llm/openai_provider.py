@@ -90,6 +90,55 @@ class OpenAILLMService:
             if delta.content:
                 yield delta.content
 
+    async def generate_with_history(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+    ) -> str:
+        """Generate with full multi-turn message history."""
+        api_messages = self._build_history_messages(messages, system_prompt)
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=api_messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        content = response.choices[0].message.content
+        return content or ""
+
+    async def generate_with_history_stream(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str, None]:
+        """Stream with full multi-turn message history."""
+        api_messages = self._build_history_messages(messages, system_prompt)
+        stream = await self._client.chat.completions.create(
+            model=self._model,
+            messages=api_messages,
+            temperature=temperature,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+
+    @staticmethod
+    def _build_history_messages(
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+    ) -> List[Dict[str, str]]:
+        """Build message list from conversation history."""
+        api_messages: List[Dict[str, str]] = []
+        if system_prompt:
+            api_messages.append({"role": "system", "content": system_prompt})
+        api_messages.extend(messages)
+        return api_messages
+
     @staticmethod
     def _build_messages(
         prompt: str,

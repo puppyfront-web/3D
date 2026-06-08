@@ -3,17 +3,40 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.models.workflow import SOPWorkflow
-from app.schemas.common import PaginatedResponse, Response
+from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.workflow import SOPWorkflowCreate, SOPWorkflowOut, SOPWorkflowUpdate
+from app.services.import_service import ImportService
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
+
+
+@router.post("/import", response_model=Response[ImportResponse])
+async def import_workflows(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import SOP workflows from JSON file."""
+    result = await ImportService.parse_file(file, "sop_workflow")
+    for item in result.items:
+        wf = SOPWorkflow(**item)
+        db.add(wf)
+    await db.flush()
+    return Response(
+        data=ImportResponse(
+            imported=result.imported,
+            failed=result.failed,
+            errors=result.errors,
+            message=f"成功导入 {result.imported} 条工作流",
+        ),
+        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    )
 
 
 @router.get("", response_model=PaginatedResponse[SOPWorkflowOut])

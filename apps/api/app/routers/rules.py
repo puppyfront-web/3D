@@ -3,14 +3,14 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.models.rule import QualityRule, TechnicalRule
-from app.schemas.common import PaginatedResponse, Response
+from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.rule import (
     QualityRuleCreate,
     QualityRuleOut,
@@ -19,6 +19,7 @@ from app.schemas.rule import (
     TechnicalRuleOut,
     TechnicalRuleUpdate,
 )
+from app.services.import_service import ImportService
 
 router = APIRouter(prefix="/rules", tags=["rules"])
 
@@ -26,6 +27,28 @@ router = APIRouter(prefix="/rules", tags=["rules"])
 # ---------------------------------------------------------------------------
 # Technical Rules
 # ---------------------------------------------------------------------------
+
+@router.post("/technical/import", response_model=Response[ImportResponse])
+async def import_technical_rules(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import technical rules from JSON or TXT file."""
+    result = await ImportService.parse_file(file, "technical_rule")
+    for item in result.items:
+        rule = TechnicalRule(**item)
+        db.add(rule)
+    await db.flush()
+    return Response(
+        data=ImportResponse(
+            imported=result.imported,
+            failed=result.failed,
+            errors=result.errors,
+            message=f"成功导入 {result.imported} 条技术规则",
+        ),
+        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    )
+
 
 @router.get("/technical", response_model=PaginatedResponse[TechnicalRuleOut])
 async def list_technical_rules(
@@ -104,6 +127,28 @@ async def delete_technical_rule(rule_id: uuid.UUID, db: AsyncSession = Depends(g
 # ---------------------------------------------------------------------------
 # Quality Rules
 # ---------------------------------------------------------------------------
+
+@router.post("/quality/import", response_model=Response[ImportResponse])
+async def import_quality_rules(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import quality rules from JSON or TXT file."""
+    result = await ImportService.parse_file(file, "quality_rule")
+    for item in result.items:
+        rule = QualityRule(**item)
+        db.add(rule)
+    await db.flush()
+    return Response(
+        data=ImportResponse(
+            imported=result.imported,
+            failed=result.failed,
+            errors=result.errors,
+            message=f"成功导入 {result.imported} 条质量规则",
+        ),
+        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    )
+
 
 @router.get("/quality", response_model=PaginatedResponse[QualityRuleOut])
 async def list_quality_rules(

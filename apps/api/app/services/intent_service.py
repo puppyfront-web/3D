@@ -98,13 +98,14 @@ class IntentDetector:
     """Detects user intent and routes to appropriate skill or conversation mode."""
 
     def __init__(self) -> None:
-        self._llm = get_llm_service()
+        self._llm = None
 
     async def detect(
         self,
         message: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         project_context: Optional[Dict[str, Any]] = None,
+        db=None,
     ) -> IntentResult:
         """Analyze a user message and determine the intent.
 
@@ -116,6 +117,8 @@ class IntentDetector:
             return keyword_result
 
         # Slow path: LLM classification
+        if self._llm is None:
+            self._llm = await get_llm_service(db)
         try:
             return await self._llm_classify(message, conversation_history, project_context)
         except Exception:
@@ -139,17 +142,41 @@ class IntentDetector:
                         confidence=confidence,
                         input_data={"user_message": message},
                     )
+        if any(verb in message for verb in ("生成", "画", "绘制", "出")) and any(
+            noun in message for noun in ("图片", "图像", "照片", "插画")
+        ):
+            return IntentResult(
+                intent="run_skill",
+                skill_id="image_generation",
+                confidence=0.7,
+                input_data={
+                    "user_message": message,
+                    "prompt": self._extract_image_prompt(message),
+                },
+            )
         # 再检查 Skill 关键词
         for skill_id, keywords in _SKILL_KEYWORDS.items():
             for kw in keywords:
                 if kw in message:
+                    input_data = {"user_message": message}
+                    if skill_id == "image_generation":
+                        input_data["prompt"] = self._extract_image_prompt(message)
                     return IntentResult(
                         intent="run_skill",
                         skill_id=skill_id,
                         confidence=0.7,
-                        input_data={"user_message": message},
+                        input_data=input_data,
                     )
         return None
+
+    @staticmethod
+    def _extract_image_prompt(message: str) -> str:
+        """Derive an image prompt from a direct image generation request."""
+        prompt = message.strip()
+        for marker in ("生成图片", "图片生成", "生成一张", "生成一个", "生成", "生图", "出图", "效果图", "图片", "图像"):
+            prompt = prompt.replace(marker, " ")
+        prompt = " ".join(prompt.split())
+        return prompt or message.strip()
 
     async def _llm_classify(
         self,

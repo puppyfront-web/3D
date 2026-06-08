@@ -37,6 +37,12 @@ Thumbs.db
 # Storage (local uploads)
 apps/api/storage/
 
+# Local env files
+.env
+apps/api/.env
+apps/web/.env.local
+apps/web/.env.production
+
 # Node
 node_modules/
 .next/
@@ -50,6 +56,10 @@ npm-debug.log*
 # Test coverage
 coverage/
 htmlcov/
+
+# Test artifacts
+test_output.png
+test_image_gen.py
 
 # Claude Code
 .claude/

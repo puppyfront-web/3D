@@ -19,6 +19,13 @@ def create_app() -> FastAPI:
         # Startup: initialize database
         from app.db.init_db import init_db
         await init_db()
+
+        # Register built-in skills on startup (not lazy on first router hit)
+        from app.skills.registry import SkillRegistry
+        registry = SkillRegistry.get_instance()
+        if not registry.list_skills():
+            registry.auto_register()
+
         yield
         # Shutdown: clean up engine connections
         from app.db.session import engine
@@ -57,6 +64,7 @@ def _register_routers(app: FastAPI) -> None:
         cases,
         companies,
         company_profiles,
+        conversations,
         documents,
         exports,
         feedback,
@@ -64,6 +72,7 @@ def _register_routers(app: FastAPI) -> None:
         projects,
         rag,
         rules,
+        settings,
         skills,
         templates,
         users,
@@ -90,6 +99,12 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(feedback.router, prefix=prefix)
     app.include_router(exports.router, prefix=prefix)
     app.include_router(skills.router, prefix=prefix)
+    app.include_router(conversations.router, prefix=prefix)
+    app.include_router(settings.router, prefix=prefix)
+
+    # Mount static file storage for chat attachments (dev)
+    from app.routers.conversations import mount_chat_storage
+    mount_chat_storage(app)
 
 
 # Create the application instance

@@ -510,14 +510,21 @@ class VisualConceptAgent:
         image_service: Optional[Any] = None,
         embedding_service: Optional[Any] = None,
     ):
-        # Lazy import to avoid circular deps at module level
-        from app.services.llm_service import get_llm_service
-        from app.services.image_service import get_image_service
-        from app.services.embedding_service import get_embedding_service
+        self._llm = llm_service
+        self._image = image_service
+        self._embedding = embedding_service
 
-        self._llm = llm_service or get_llm_service()
-        self._image = image_service or get_image_service()
-        self._embedding = embedding_service or get_embedding_service()
+    async def _ensure_services(self, db=None):
+        """Lazily initialize services (needed because __init__ cannot be async)."""
+        if self._llm is None:
+            from app.services.llm_service import get_llm_service
+            self._llm = await get_llm_service(db)
+        if self._image is None:
+            from app.services.image_service import get_image_service
+            self._image = await get_image_service(db)
+        if self._embedding is None:
+            from app.services.embedding_service import get_embedding_service
+            self._embedding = await get_embedding_service(db)
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -533,6 +540,7 @@ class VisualConceptAgent:
 
         Yields SSE-formatted chunks that the frontend can consume directly.
         """
+        await self._ensure_services(db)
         try:
             if ctx.state == "REVIEWING":
                 async for chunk in self._handle_reviewing(user_input, ctx, db):
@@ -696,28 +704,36 @@ class VisualConceptAgent:
         ctx.state = "PLANNING"
         yield _sse_chunk(
             "skill_progress",
-            data={"skill": "visual_strategy", "status": "running", "message": "正在生成视觉策略…"},
+            data={"skill_id": "visual_strategy", "status": "running", "message": "正在生成视觉策略…"},
         )
         strategy = await self._generate_visual_strategy(ctx, db)
         node.visual_strategy = strategy
         yield _sse_chunk("visual_strategy", data=strategy)
+        yield _sse_chunk(
+            "skill_progress",
+            data={"skill_id": "visual_strategy", "status": "completed"},
+        )
 
         # --- PROMPTING ---
         ctx.state = "PROMPTING"
         yield _sse_chunk(
             "skill_progress",
-            data={"skill": "prompt_generation", "status": "running", "message": "正在生成 Prompt…"},
+            data={"skill_id": "prompt_generation", "status": "running", "message": "正在生成 Prompt…"},
         )
         prompts = await self._generate_prompts(ctx, strategy)
         node.positive_prompt = prompts.get("positive_prompt", "")
         node.negative_prompt = prompts.get("negative_prompt", "")
         yield _sse_chunk("text_delta", text=f"正向 Prompt：{node.positive_prompt}\n\n负向 Prompt：{node.negative_prompt}")
+        yield _sse_chunk(
+            "skill_progress",
+            data={"skill_id": "prompt_generation", "status": "completed"},
+        )
 
         # --- GENERATING ---
         ctx.state = "GENERATING"
         yield _sse_chunk(
             "skill_progress",
-            data={"skill": "image_generation", "status": "running", "message": "正在生成概念图…"},
+            data={"skill_id": "image_generation", "status": "running", "message": "正在生成概念图…"},
         )
         image_url = await self._generate_image(node.positive_prompt, node.negative_prompt)
         node.image_url = image_url
@@ -733,6 +749,10 @@ class VisualConceptAgent:
 
         yield _sse_chunk("visual_result", data={"image_url": image_url})
         yield _sse_chunk("quality_check", data=quality)
+        yield _sse_chunk(
+            "skill_progress",
+            data={"skill_id": "image_generation", "status": "completed"},
+        )
 
         # --- REVIEWING ---
         ctx.state = "REVIEWING"

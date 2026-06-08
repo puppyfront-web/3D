@@ -20,8 +20,13 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeft,
+  Settings,
+  Pencil,
+  Trash2,
+  Check,
+  X,
 } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useChat } from "@/lib/chat-context";
 import type { Conversation } from "@/types";
 
@@ -35,13 +40,210 @@ const adminLinks = [
   { label: "技术规则", href: "/admin/technical-rules", icon: Cpu },
   { label: "质量标准", href: "/admin/quality-rules", icon: ShieldCheck },
   { label: "评估记录", href: "/admin/evaluations", icon: ClipboardCheck },
+  { label: "系统设置", href: "/admin/settings", icon: Settings },
 ];
+
+/* ─── Individual conversation item with hover edit/delete ────────── */
+
+function ConversationItem({
+  conv,
+  isActive,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  conv: Conversation;
+  isActive: boolean;
+  onSelect: (id: string) => void;
+  onRename: (id: string, title: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(conv.title);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync title when it changes externally
+  useEffect(() => {
+    if (!editing) setEditValue(conv.title);
+  }, [conv.title, editing]);
+
+  // Auto-focus on edit start
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const handleStartEdit = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setEditing(true);
+      setEditValue(conv.title);
+    },
+    [conv.title]
+  );
+
+  const handleSaveEdit = useCallback(async () => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== conv.title) {
+      await onRename(conv.id, trimmed);
+    }
+    setEditing(false);
+  }, [editValue, conv.id, conv.title, onRename]);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditing(false);
+    setEditValue(conv.title);
+  }, [conv.title]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleSaveEdit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        handleCancelEdit();
+      }
+    },
+    [handleSaveEdit, handleCancelEdit]
+  );
+
+  const handleStartDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDelete(true);
+  }, []);
+
+  const handleConfirmDelete = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      await onDelete(conv.id);
+      setConfirmDelete(false);
+    },
+    [conv.id, onDelete]
+  );
+
+  const handleCancelDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDelete(false);
+  }, []);
+
+  // Confirm delete overlay
+  if (confirmDelete) {
+    return (
+      <div className="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-red-900/30 border border-red-500/30">
+        <span className="text-xs text-red-300 flex-1 truncate">确认删除？</span>
+        <button
+          onClick={handleConfirmDelete}
+          className="p-1 rounded hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors"
+          title="确认删除"
+        >
+          <Check className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={handleCancelDelete}
+          className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-gray-300 transition-colors"
+          title="取消"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  // Inline editing mode
+  if (editing) {
+    return (
+      <div
+        className="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-white/10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <input
+          ref={inputRef}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSaveEdit}
+          className="flex-1 min-w-0 bg-transparent text-sm text-white border-b border-[#00D4FF]/50 focus:outline-none focus:border-[#00D4FF] py-0.5"
+          maxLength={200}
+        />
+        <button
+          onClick={handleSaveEdit}
+          className="p-1 rounded hover:bg-white/10 text-[#00D4FF] transition-colors shrink-0"
+          title="保存"
+        >
+          <Check className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={handleCancelEdit}
+          className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-gray-300 transition-colors shrink-0"
+          title="取消"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  // Normal display with hover actions
+  return (
+    <div
+      onClick={() => onSelect(conv.id)}
+      className={`group flex items-start gap-2.5 w-full px-3 py-2 rounded-lg text-left cursor-pointer transition-all duration-150 ${
+        isActive
+          ? "bg-[#2D5A8E] text-white shadow-sm"
+          : "text-gray-400 hover:bg-white/5 hover:text-gray-200"
+      }`}
+    >
+      <MessageSquare className="h-4 w-4 mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm truncate">{conv.title}</div>
+        {conv.lastMessage && (
+          <div className="text-xs text-gray-500 truncate mt-0.5">
+            {conv.lastMessage.content.slice(0, 40)}
+          </div>
+        )}
+      </div>
+      {/* Hover action buttons — shown on hover, hidden on active state via opacity */}
+      <div
+        className={`shrink-0 flex items-center gap-0.5 transition-opacity ${
+          isActive ? "opacity-0 group-hover:opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
+      >
+        <button
+          onClick={handleStartEdit}
+          className="p-1 rounded hover:bg-white/15 text-gray-400 hover:text-white transition-colors"
+          title="重命名"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+        <button
+          onClick={handleStartDelete}
+          className="p-1 rounded hover:bg-red-500/25 text-gray-400 hover:text-red-400 transition-colors"
+          title="删除"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main Sidebar ─────────────────────────────────────────────── */
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { state, loadConversations, selectConversation, createConversation } =
-    useChat();
+  const {
+    state,
+    loadConversations,
+    selectConversation,
+    createConversation,
+    renameConversation,
+    deleteConversation,
+  } = useChat();
   const [collapsed, setCollapsed] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -65,6 +267,17 @@ export function Sidebar() {
       router.push(`/workspace/chat?conv=${id}`);
     },
     [selectConversation, router]
+  );
+
+  const handleDelete = useCallback(
+    async (id: string) => {
+      // If deleting the active conversation, navigate away
+      if (state.activeConversationId === id) {
+        router.push("/workspace/chat");
+      }
+      await deleteConversation(id);
+    },
+    [deleteConversation, state.activeConversationId, router]
   );
 
   const filtered = state.conversations.filter((c) =>
@@ -153,25 +366,14 @@ export function Sidebar() {
         ) : (
           <div className="space-y-0.5">
             {filtered.map((conv) => (
-              <button
+              <ConversationItem
                 key={conv.id}
-                onClick={() => handleSelectConv(conv.id)}
-                className={`flex items-start gap-2.5 w-full px-3 py-2 rounded-lg text-left transition-all duration-150 ${
-                  state.activeConversationId === conv.id
-                    ? "bg-[#2D5A8E] text-white shadow-sm"
-                    : "text-gray-400 hover:bg-white/5 hover:text-gray-200"
-                }`}
-              >
-                <MessageSquare className="h-4 w-4 mt-0.5 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm truncate">{conv.title}</div>
-                  {conv.lastMessage && (
-                    <div className="text-xs text-gray-500 truncate mt-0.5">
-                      {conv.lastMessage.content.slice(0, 40)}
-                    </div>
-                  )}
-                </div>
-              </button>
+                conv={conv}
+                isActive={state.activeConversationId === conv.id}
+                onSelect={handleSelectConv}
+                onRename={renameConversation}
+                onDelete={handleDelete}
+              />
             ))}
             {filtered.length === 0 && (
               <div className="px-3 py-8 text-center text-xs text-gray-600">

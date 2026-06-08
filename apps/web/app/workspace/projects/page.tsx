@@ -1,35 +1,59 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Plus, Search, Filter, LayoutGrid, List } from "lucide-react";
+import { Plus, Search, Filter, LayoutGrid, List, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProjectCard } from "@/components/workspace/project-card";
-import { mockProjects } from "@/lib/mock-data";
+import { getProjects } from "@/lib/api";
+import type { Project } from "@/types";
 
 export default function ProjectsPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
 
-  const filtered = mockProjects.filter((p) => {
+  const loadProjects = useCallback(async () => {
+    setLoading(true);
+    const res = await getProjects();
+    if (res.success && res.data) {
+      setProjects(res.data);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  const filtered = projects.filter((p) => {
     const matchesSearch =
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.client.toLowerCase().includes(searchQuery.toLowerCase());
+      (p.client || "").toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFilter =
       filterStatus === "all" || p.status === filterStatus;
     return matchesSearch && matchesFilter;
   });
 
   const statusCounts = {
-    all: mockProjects.length,
-    in_progress: mockProjects.filter((p) => p.status === "in_progress").length,
-    proposal_draft: mockProjects.filter((p) => p.status === "proposal_draft").length,
-    review: mockProjects.filter((p) => p.status === "review").length,
-    approved: mockProjects.filter((p) => p.status === "approved").length,
+    all: projects.length,
+    in_progress: projects.filter((p) => p.status === "in_progress").length,
+    proposal_draft: projects.filter((p) => p.status === "proposal_draft").length,
+    review: projects.filter((p) => p.status === "review").length,
+    approved: projects.filter((p) => p.status === "approved").length,
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[#1E3A5F]" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">

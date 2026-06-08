@@ -199,7 +199,7 @@ class ConversationService:
 
         # 3. Detect intent
         intent: IntentResult = await self._intent_detector.detect(
-            user_message, history
+            user_message, history, db=db
         )
 
         logger.info(
@@ -236,11 +236,13 @@ class ConversationService:
         intent: IntentResult,
         history: List[Dict[str, str]],
     ) -> AsyncGenerator[str, None]:
-        """Handle a skill execution intent."""
-        skill_id = intent.skill_id
+        """Handle a skill execution intent.
 
-        # Notify frontend that a skill is starting
-        yield f"data: {json.dumps({'type': 'text_delta', 'text': f'正在执行「{skill_id}」技能...\\n\\n'})}\n\n"
+        If the skill can run (has required inputs), execute it.
+        If not (e.g. no project_id), fall back to conversational LLM response
+        so the user still gets a useful answer instead of an error.
+        """
+        skill_id = intent.skill_id
 
         try:
             from app.skills.base import SkillContext
@@ -250,13 +252,14 @@ class ConversationService:
             from app.services.image_service import get_image_service
 
             registry = SkillRegistry.get_instance()
+            if not registry.list_skills():
+                registry.auto_register()
             if not registry.has(skill_id):
-                yield f"data: {json.dumps({'type': 'text_delta', 'text': f'抱歉，技能「{skill_id}」暂不可用。'})}\n\n"
-                await self.save_message(
-                    db, conversation_id, "assistant",
-                    f"抱歉，技能「{skill_id}」暂不可用。",
-                    auto_commit=True,
-                )
+                # Skill not registered — fall back to conversational
+                async for chunk in self._handle_conversational(
+                    db, conversation_id, intent.input_data.get("user_message", ""), history
+                ):
+                    yield chunk
                 return
 
             # Get conversation to find project_id
@@ -264,7 +267,25 @@ class ConversationService:
             project_id = str(conv.project_id) if conv and conv.project_id else None
 
             # Build input data from intent + history context
+            # Include user_message so skills can work in conversation mode
             input_data = {**intent.input_data}
+            if not input_data.get("user_message") and history:
+                # Get the last user message from history
+                for msg in reversed(history):
+                    if msg.get("role") == "user":
+                        input_data.setdefault("company_info", msg["content"])
+                        input_data.setdefault("requirement_text", msg["content"])
+                        input_data.setdefault("context_text", msg["content"])
+                        break
+            if skill_id == "image_generation" and not input_data.get("prompt"):
+                prompt_source = input_data.get("user_message")
+                if not prompt_source:
+                    for msg in reversed(history):
+                        if msg.get("role") == "user":
+                            prompt_source = msg["content"]
+                            break
+                if prompt_source:
+                    input_data["prompt"] = self._extract_image_prompt(str(prompt_source))
             if project_id:
                 input_data["project_id"] = project_id
 
@@ -272,10 +293,17 @@ class ConversationService:
                 project_id=project_id,
                 user_id=None,
                 db=db,
-                llm_service=get_llm_service(),
-                embedding_service=get_embedding_service(),
-                image_service=get_image_service(),
+                llm_service=await get_llm_service(db),
+                embedding_service=await get_embedding_service(db),
+                image_service=await get_image_service(db),
             )
+
+            # Notify frontend that a skill is starting — send as content block
+            skill = registry.get(skill_id)
+            skill_name = skill.manifest.name if skill else skill_id
+            yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': 'skill_executing'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'content_block_data', 'data': {'type': 'skill_executing', 'data': {'skill_id': skill_id, 'name': skill_name}}})}\n\n"
+            yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
 
             runner = SkillRunner(registry)
             result = await runner.run(skill_id, input_data, context)
@@ -283,10 +311,36 @@ class ConversationService:
             if result.get("success"):
                 output = result.get("output", {})
 
+                # ── Auto-chain: visual_prompt → image_generation ──
+                if skill_id == "visual_prompt" and isinstance(output, dict) and output.get("positive_prompt"):
+                    # Notify frontend that image generation is starting
+                    yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': 'skill_executing'}})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content_block_data', 'data': {'type': 'skill_executing', 'data': {'skill_id': 'image_generation', 'name': '图片生成'}}})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
+
+                    image_input = {
+                        "prompt": output["positive_prompt"],
+                        "negative_prompt": output.get("negative_prompt", ""),
+                        "width": input_data.get("width", 1024),
+                        "height": input_data.get("height", 768),
+                        "style": output.get("visual_strategy", {}).get("concept") if isinstance(output.get("visual_strategy"), dict) else None,
+                    }
+                    if project_id:
+                        image_input["project_id"] = project_id
+
+                    image_result = await runner.run("image_generation", image_input, context)
+                    if image_result.get("success"):
+                        image_output = image_result.get("output", {})
+                        # Merge image URL into the visual_prompt output
+                        output["image_url"] = image_output.get("image_url")
+                        output["image_task_id"] = image_output.get("task_id")
+
+                # Render skill output as readable text for the user
+                content_text = self._render_skill_output(skill_id, output)
+
                 # Create rich content blocks
                 blocks: Dict[str, Any] = {
                     "blocks": [
-                        {"type": "text", "content": f"✅ 技能「{skill_id}」执行完成"},
                         {"type": "skill_progress", "data": {
                             "skill_id": skill_id,
                             "status": "completed",
@@ -305,19 +359,20 @@ class ConversationService:
                 elif skill_id == "export" and isinstance(output, dict):
                     blocks["blocks"].append({"type": "artifact", "data": output})
 
-                summary = f"✅ 技能「{skill_id}」执行完成，耗时 {result.get('duration_ms', 0)}ms"
-                yield f"data: {json.dumps({'type': 'text_delta', 'text': summary})}\n\n"
+                # Stream the content text
+                yield f"data: {json.dumps({'type': 'text_delta', 'text': content_text})}\n\n"
 
-                # Stream content block events
-                last_block = blocks["blocks"][-1]
-                yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': last_block['type']}})}\n\n"
-                yield f"data: {json.dumps({'type': 'content_block_data', 'data': last_block})}\n\n"
-                yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
+                # Stream ALL content blocks (skill_progress completed + result block)
+                # so the frontend receives the completion signal, not just the last block.
+                for block in blocks["blocks"]:
+                    yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': block['type']}})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content_block_data', 'data': block})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
 
                 # Save assistant message
                 await self.save_message(
                     db, conversation_id, "assistant",
-                    content=summary,
+                    content=content_text,
                     content_type="rich",
                     rich_content=blocks,
                     skill_execution_id=result.get("execution_id"),
@@ -325,27 +380,67 @@ class ConversationService:
                     auto_commit=True,
                 )
             else:
-                error_msg = result.get("error", "未知错误")
-                yield f"data: {json.dumps({'type': 'text_delta', 'text': f'❌ 技能执行失败：{error_msg}'})}\n\n"
-                await self.save_message(
-                    db, conversation_id, "assistant",
-                    content=f"技能「{skill_id}」执行失败：{error_msg}",
-                    metadata={"intent": "run_skill", "skill_id": skill_id, "error": error_msg},
-                    auto_commit=True,
+                if skill_id == "image_generation":
+                    error_text = (
+                        "图片生成失败，未收到可展示的图片结果。"
+                        f"\n\n失败原因：{result.get('error') or '缺少必要参数或图片服务不可用'}"
+                    )
+                    yield f"data: {json.dumps({'type': 'text_delta', 'text': error_text})}\n\n"
+                    await self.save_message(
+                        db, conversation_id, "assistant",
+                        content=error_text,
+                        content_type="text",
+                        metadata={
+                            "intent": "run_skill",
+                            "skill_id": skill_id,
+                            "status": "failed",
+                            "error": result.get("error"),
+                        },
+                        auto_commit=True,
+                    )
+                    return
+                # Skill failed (missing inputs etc.) — fall back to conversational LLM
+                logger.info(
+                    "Skill %s failed (%s), falling back to conversational",
+                    skill_id, result.get("error"),
                 )
+                async for chunk in self._handle_conversational(
+                    db, conversation_id, intent.input_data.get("user_message", ""), history
+                ):
+                    yield chunk
 
         except Exception as e:
             logger.exception("Skill execution error in conversation")
-            yield f"data: {json.dumps({'type': 'text_delta', 'text': f'执行出错：{str(e)}'})}\n\n"
-            try:
+            if skill_id == "image_generation":
+                error_text = f"图片生成失败，未收到可展示的图片结果。\n\n失败原因：{e}"
+                yield f"data: {json.dumps({'type': 'text_delta', 'text': error_text})}\n\n"
                 await self.save_message(
                     db, conversation_id, "assistant",
-                    content=f"执行出错：{str(e)}",
-                    metadata={"intent": "run_skill", "skill_id": skill_id, "error": str(e)},
+                    content=error_text,
+                    content_type="text",
+                    metadata={
+                        "intent": "run_skill",
+                        "skill_id": skill_id,
+                        "status": "failed",
+                        "error": str(e),
+                    },
                     auto_commit=True,
                 )
-            except Exception:
-                logger.exception("Failed to save error message")
+                return
+            # Fall back to conversational on any exception
+            async for chunk in self._handle_conversational(
+                db, conversation_id, intent.input_data.get("user_message", ""), history
+            ):
+                yield chunk
+
+    @staticmethod
+    def _extract_image_prompt(message: str) -> str:
+        """Derive an image prompt from direct chat wording."""
+        prompt = message.strip()
+        for marker in ("生成图片", "图片生成", "生成一张", "生成一个", "生成", "生图", "出图", "效果图", "图片", "图像"):
+            prompt = prompt.replace(marker, " ")
+        prompt = " ".join(prompt.split())
+        return prompt or message.strip()
 
     def _load_visual_concept_ctx(self, messages: List[Message]) -> "VisualConceptContext":
         """从消息历史中恢复 VisualConceptContext。"""
@@ -387,6 +482,172 @@ class ConversationService:
             auto_commit=True,
         )
 
+    def _render_skill_output(self, skill_id: str, output: Dict[str, Any]) -> str:
+        """Render skill output into readable text for the user."""
+        if skill_id == "company_analysis":
+            return self._render_company_analysis_output(output)
+        elif skill_id == "proposal_generation":
+            return self._render_proposal_output(output)
+        elif skill_id in ("visual_prompt", "image_generation"):
+            return self._render_visual_output(output)
+        elif skill_id == "export":
+            return self._render_export_output(output)
+        elif skill_id == "case_retrieval":
+            return self._render_case_retrieval_output(output)
+        # Generic fallback
+        return json.dumps(output, ensure_ascii=False, indent=2) if output else "执行完成"
+
+    def _render_company_analysis_output(self, output: Dict[str, Any]) -> str:
+        """Render company analysis as readable text."""
+        lines = []
+
+        analysis = output.get("analysis", output)
+        if isinstance(analysis, str):
+            return analysis
+
+        # Six Views
+        six_views = output.get("six_views") or analysis.get("six_views")
+        if six_views and isinstance(six_views, dict):
+            lines.append("## 企业六看\n")
+            dim_labels = {
+                "backward_history": ("向后看·发展历史", ["founding", "origin", "core_philosophy"]),
+                "forward_planning": ("向前看·发展规划", ["strategy", "product_roadmap", "market_expansion"]),
+                "left_competitors": ("向左看·竞争对手", None),
+                "right_industry": ("向右看·行业情况", ["trends", "market_landscape"]),
+                "upward_policy": ("向上看·政策背景", ["national_policy", "local_policy"]),
+                "downward_niche": ("向下看·生态位", ["core_advantage", "irreplaceability"]),
+            }
+            for key, (label, fields) in dim_labels.items():
+                data = six_views.get(key)
+                if not data:
+                    continue
+                if isinstance(data, dict):
+                    if fields:
+                        parts = [f"  - {f}: {data.get(f, '')}" for f in fields if data.get(f)]
+                    else:
+                        parts = [f"  - {k}: {v}" for k, v in data.items() if v]
+                    if parts:
+                        lines.append(f"**{label}**:")
+                        lines.extend(parts)
+                elif isinstance(data, (list, str)):
+                    lines.append(f"**{label}**: {data}")
+            lines.append("")
+
+        # Technology Architecture
+        tech_arch = output.get("technology_arch") or analysis.get("technology_arch")
+        if tech_arch and isinstance(tech_arch, dict):
+            lines.append("## 技术一张图\n")
+            for layer in tech_arch.get("layers", []):
+                metaphor = layer.get("metaphor", "")
+                metaphor_tag = f"（{metaphor}）" if metaphor else ""
+                lines.append(f"- **{layer.get('name', '')}**{metaphor_tag}: {layer.get('description', '')}")
+            summary = tech_arch.get("core_technology_summary", "")
+            if summary:
+                lines.append(f"\n核心技术总结: {summary}")
+            lines.append("")
+
+        # Project Background
+        proj_bg = output.get("project_background") or analysis.get("project_background")
+        if proj_bg and isinstance(proj_bg, dict):
+            lines.append("## 项目背景\n")
+            bg_labels = {
+                "national_policy": "宏观·国家政策",
+                "city_or_industry": "中观·城市/行业",
+                "project_positioning": "微观·项目定位",
+            }
+            for key, label in bg_labels.items():
+                data = proj_bg.get(key)
+                if not data:
+                    continue
+                if isinstance(data, dict):
+                    title = data.get("title", "")
+                    content = data.get("content", "")
+                    lines.append(f"**{label}**: {title}")
+                    if content:
+                        lines.append(f"  {content}")
+                elif isinstance(data, str):
+                    lines.append(f"**{label}**: {data}")
+            lines.append("")
+
+        # Regular analysis fields
+        for field, label in [
+            ("strengths", "企业优势"), ("weaknesses", "企业劣势"),
+            ("product_service_features", "产品/服务特点"),
+            ("target_audience", "目标客户"), ("communication_goals", "传播目标"),
+            ("visual_preferences", "推荐视觉方向"),
+        ]:
+            val = analysis.get(field)
+            if val:
+                if isinstance(val, list):
+                    lines.append(f"**{label}**: {', '.join(str(v) for v in val)}")
+                else:
+                    lines.append(f"**{label}**: {val}")
+
+        # Missing info
+        missing = analysis.get("missing_info", output.get("missing_info", []))
+        if missing and isinstance(missing, list):
+            lines.append(f"\n⚠️ **待确认**: {', '.join(missing)}")
+
+        return "\n".join(lines) if lines else "企业分析完成，详情见下方卡片。"
+
+    def _render_proposal_output(self, output: Dict[str, Any]) -> str:
+        """Render proposal as readable text."""
+        content = output.get("content", "")
+        if content:
+            return content
+        return "策划案生成完成，详情见下方卡片。"
+
+    def _render_visual_output(self, output: Dict[str, Any]) -> str:
+        """Render visual output as readable text."""
+        lines = []
+        strategy = output.get("visual_strategy", {})
+        if strategy and isinstance(strategy, dict):
+            lines.append("## 视觉策略\n")
+            for key, label in [
+                ("concept", "概念"), ("elements", "核心元素"),
+                ("color_palette", "色彩方案"), ("composition", "构图"),
+                ("mood", "氛围"),
+            ]:
+                val = strategy.get(key)
+                if val:
+                    if isinstance(val, list):
+                        lines.append(f"**{label}**: {', '.join(str(v) for v in val)}")
+                    else:
+                        lines.append(f"**{label}**: {val}")
+
+        pos_prompt = output.get("positive_prompt", "")
+        if pos_prompt:
+            lines.append(f"\n**正向 Prompt**:\n```\n{pos_prompt}\n```")
+        neg_prompt = output.get("negative_prompt", "")
+        if neg_prompt:
+            lines.append(f"\n**负向 Prompt**:\n```\n{neg_prompt}\n```")
+
+        advice = output.get("composition_advice", "")
+        if advice:
+            lines.append(f"\n**构图建议**: {advice}")
+
+        # Image generation result
+        image_url = output.get("image_url")
+        if image_url:
+            lines.append(f"\n✅ **图片已生成**，见下方卡片。")
+
+        return "\n".join(lines) if lines else "视觉方案生成完成。"
+
+    def _render_export_output(self, output: Dict[str, Any]) -> str:
+        return f"方案导出完成: {output.get('filename', '文件已生成')}"
+
+    def _render_case_retrieval_output(self, output: Dict[str, Any]) -> str:
+        cases = output.get("cases", [])
+        if not cases:
+            return "未找到匹配案例。"
+        lines = [f"找到 {len(cases)} 个相关案例:\n"]
+        for i, c in enumerate(cases, 1):
+            if isinstance(c, dict):
+                lines.append(f"{i}. **{c.get('title', '未命名')}** — {c.get('client_name', '')}")
+            else:
+                lines.append(f"{i}. {c}")
+        return "\n".join(lines)
+
     async def _handle_conversational(
         self,
         db: AsyncSession,
@@ -395,7 +656,7 @@ class ConversationService:
         history: List[Dict[str, str]],
     ) -> AsyncGenerator[str, None]:
         """Handle conversational intent with streaming LLM response."""
-        llm = get_llm_service()
+        llm = await get_llm_service(db)
         full_text = ""
 
         async for chunk in llm.generate_with_history_stream(

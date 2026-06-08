@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -28,6 +28,11 @@ class CompanyProfile(Base):
     culture: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     financials: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_analysis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Structured analysis fields (enriched from Six Views / Technology / Background)
+    six_views: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="企业六看结构化分析")
+    technology_arch: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="技术一张图（分层架构）")
+    project_background: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="项目背景（宏观→中观→微观）")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

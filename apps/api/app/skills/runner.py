@@ -40,7 +40,14 @@ class SkillRunner:
 
         # Validate input
         if not skill.validate_input(input_data):
-            return {"success": False, "error": f"Input validation failed for skill: {skill_id}"}
+            required = skill.manifest.input_schema.get("required", [])
+            missing = [k for k in required if k not in input_data]
+            return {
+                "success": False,
+                "error": f"Input validation failed for skill: {skill_id}",
+                "missing_fields": missing,
+                "hint": f"该技能需要关联项目才能执行，缺少: {', '.join(missing)}。请在项目工作台中操作，或先创建/关联一个项目。",
+            }
 
         execution_id = uuid.uuid4()
         started_at = time.monotonic()
@@ -49,16 +56,20 @@ class SkillRunner:
         execution_record = None
         if context.db is not None:
             from app.models.skill import SkillExecution
-            execution_record = SkillExecution(
-                id=execution_id,
-                skill_id=await self._resolve_skill_db_id(skill_id, context),
-                project_id=uuid.UUID(context.project_id) if context.project_id else None,
-                user_id=uuid.UUID(context.user_id) if context.user_id else None,
-                input_json=input_data,
-                status="running",
-            )
-            context.db.add(execution_record)
-            await context.db.flush()
+            skill_db_id = await self._resolve_skill_db_id(skill_id, context)
+            if skill_db_id is not None:
+                execution_record = SkillExecution(
+                    id=execution_id,
+                    skill_id=skill_db_id,
+                    project_id=uuid.UUID(context.project_id) if context.project_id else None,
+                    user_id=uuid.UUID(context.user_id) if context.user_id else None,
+                    input_json=input_data,
+                    status="running",
+                )
+                context.db.add(execution_record)
+                await context.db.flush()
+            else:
+                logger.warning("Skill %s is not seeded in DB; skipping execution log", skill_id)
 
         # Execute
         try:
@@ -79,7 +90,7 @@ class SkillRunner:
                 await context.db.flush()
 
             return {
-                "execution_id": str(execution_id),
+                "execution_id": str(execution_id) if execution_record is not None else None,
                 **result.to_dict(),
             }
 
@@ -95,13 +106,13 @@ class SkillRunner:
                 await context.db.flush()
 
             return {
-                "execution_id": str(execution_id),
+                "execution_id": str(execution_id) if execution_record is not None else None,
                 "success": False,
                 "error": str(e),
                 "duration_ms": elapsed_ms,
             }
 
-    async def _resolve_skill_db_id(self, skill_id: str, context: SkillContext) -> uuid.UUID:
+    async def _resolve_skill_db_id(self, skill_id: str, context: SkillContext) -> Optional[uuid.UUID]:
         """Resolve the string skill_id to the database UUID."""
         from sqlalchemy import select
         from app.models.skill import Skill
@@ -112,5 +123,4 @@ class SkillRunner:
         row = result.scalar_one_or_none()
         if row:
             return row
-        # Fallback: return a nil UUID (skill not in DB yet)
-        return uuid.UUID(int=0)
+        return None

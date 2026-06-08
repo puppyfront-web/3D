@@ -22,6 +22,7 @@ from app.schemas.conversation import (
     ConversationCreate,
     ConversationDetail,
     ConversationOut,
+    ConversationUpdate,
     MessageOut,
 )
 from app.services.conversation_service import ConversationService
@@ -162,6 +163,23 @@ async def archive_conversation(
     conv.status = "archived"
     await db.flush()
     return Response(message="Conversation archived")
+
+
+@router.patch("/{conversation_id}", response_model=Response[ConversationOut])
+async def update_conversation(
+    conversation_id: str,
+    body: ConversationUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a conversation (e.g. rename title)."""
+    conv = await _conv_service.get_conversation_detail(db, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if body.title is not None:
+        conv.title = body.title
+    await db.flush()
+    out = await _conv_with_stats(db, conv)
+    return Response(data=out, message="Conversation updated")
 
 
 # ─── Messages ────────────────────────────────────────────────────

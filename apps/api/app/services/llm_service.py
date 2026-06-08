@@ -1,7 +1,7 @@
 """Abstract LLM service interface and MockLLMService implementation."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from app.core.config import settings
 
@@ -34,8 +34,27 @@ class LLMService(ABC):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-    ):
+    ) -> AsyncGenerator[str, None]:
         """Async generator yielding completion chunks."""
+
+    @abstractmethod
+    async def generate_with_history(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+    ) -> str:
+        """Generate with full multi-turn message history."""
+
+    @abstractmethod
+    async def generate_with_history_stream(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str, None]:
+        """Stream with full multi-turn message history."""
 
 
 class MockLLMService(LLMService):
@@ -93,12 +112,42 @@ class MockLLMService(LLMService):
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-    ):
+    ) -> AsyncGenerator[str, None]:
         """Yield mock completion chunks."""
         text = await self.generate(prompt, system_prompt, temperature)
         words = text.split(" ")
         for i, word in enumerate(words):
             chunk = word if i == 0 else f" {word}"
+            yield chunk
+
+    async def generate_with_history(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+    ) -> str:
+        """Generate with multi-turn history — use last user message for mock."""
+        last_user = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                last_user = msg.get("content", "")
+                break
+        return await self.generate(last_user, system_prompt, temperature, max_tokens)
+
+    async def generate_with_history_stream(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str, None]:
+        """Stream with multi-turn history — use last user message for mock."""
+        last_user = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                last_user = msg.get("content", "")
+                break
+        async for chunk in self.generate_stream(last_user, system_prompt, temperature):
             yield chunk
 
     # -- Mock content generators --
@@ -196,14 +245,34 @@ We recommend scheduling a detailed discovery session to finalize scope and prior
 5. **Risk Assessment:** Low to moderate risk with proper mitigation strategies in place"""
 
 
-def get_llm_service() -> LLMService:
-    """Factory function to create the appropriate LLM service."""
-    if settings.llm_provider == "openai":
+async def get_llm_service(db=None) -> LLMService:
+    """Factory function to create the appropriate LLM service.
+
+    If db session is provided, reads config from database (priority) then .env fallback.
+    If no db session, falls back to .env only (backward compatible).
+    """
+    if db is not None:
+        from app.services.settings_service import SettingsService
+        provider = await SettingsService.get_raw(db, "llm_provider", settings.llm_provider)
+    else:
+        provider = settings.llm_provider
+
+    if provider in ("openai", "custom"):
         from app.services.llm.openai_provider import OpenAILLMService
 
+        if db is not None:
+            from app.services.settings_service import SettingsService
+            api_key = await SettingsService.get_raw(db, "llm_api_key", settings.llm_api_key)
+            base_url = await SettingsService.get_raw(db, "llm_base_url", settings.llm_base_url)
+            model = await SettingsService.get_raw(db, "llm_model", settings.llm_model)
+        else:
+            api_key = settings.llm_api_key
+            base_url = settings.llm_base_url
+            model = settings.llm_model
+
         return OpenAILLMService(
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url or None,
-            model=settings.llm_model,
+            api_key=api_key,
+            base_url=base_url or None,
+            model=model,
         )
     return MockLLMService()
