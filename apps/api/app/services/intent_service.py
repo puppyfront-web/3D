@@ -204,10 +204,16 @@ class IntentDetector:
         msg = message.strip()
         confirm_words = ["确认", "继续", "下一步", "没问题", "可以", "好的", "通过", "ok", "OK"]
         restart_words = ["重新开始", "从头来", "重来", "重置"]
+        modify_hints = ["改", "调", "换", "变", "更", "觉得", "希望", "想要", "再", "一点", "一些", "不过"]
 
         for w in restart_words:
             if w in msg:
                 return "restart"
+
+        # If message contains modify hints, treat as modify regardless of length
+        for w in modify_hints:
+            if w in msg:
+                return "modify"
 
         # If message is short and matches a confirm word, treat as confirm
         if len(msg) <= 20:
