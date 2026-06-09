@@ -572,7 +572,8 @@ export interface ContentBlock {
     | "form"
     | "action_buttons"
     | "context_card"
-    | "parameter_card";
+    | "parameter_card"
+    | "stage_summary";
   content?: string;
   data?: Record<string, unknown>;
 }

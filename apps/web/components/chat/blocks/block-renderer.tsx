@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { ContentBlock } from "@/types";
 import { TextBlock } from "./text-block";
 import { CompanyAnalysisBlock } from "./company-analysis-block";
@@ -13,7 +14,10 @@ import { QualityCheckCard } from "./quality-check-card";
 import { AttachmentBlock } from "./attachment-block";
 import { ContextCardBlock } from "./context-card-block";
 import { ParameterCardBlock } from "./parameter-card-block";
-import { FileText } from "lucide-react";
+import { StageSummaryBlock } from "./stage-summary-block";
+import { MarkdownRenderer } from "../markdown-renderer";
+import { FileText, ChevronDown, ChevronUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface BlockRendererProps {
   block: ContentBlock;
@@ -72,65 +76,117 @@ export function BlockRenderer({ block, onAction }: BlockRendererProps) {
     return <ParameterCardBlock data={block.data || {}} onAction={onAction} />;
   }
 
-  // Proposal section - show metadata card (content is already rendered in message bubble)
+  // Stage summary — compact completion card with timing + metrics
+  if (block.type === "stage_summary") {
+    return <StageSummaryBlock data={block.data || {}} />;
+  }
+
+  // Proposal section — sections overview + missing info + collapsible full content
   if (block.type === "proposal_section") {
     const data = (block.data || {}) as Record<string, unknown>;
-    const missingInfo = Array.isArray(data.missing_info) ? data.missing_info as string[] : [];
-    const sections = Array.isArray(data.sections) ? data.sections as Array<Record<string, unknown>> : [];
+    const missingInfo = Array.isArray(data.missing_info) ? (data.missing_info as string[]) : [];
+    const sections = Array.isArray(data.sections) ? (data.sections as Array<Record<string, unknown>>) : [];
+    const fullContent = typeof data.content === "string" ? data.content : "";
 
-    return (
-      <div className="rounded-lg border border-blue-100 bg-gradient-to-r from-blue-50/60 to-white overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-[#1E3A5F]/5 border-b border-blue-100">
-          <FileText className="h-4 w-4 text-[#1E3A5F]" />
-          <span className="text-sm font-medium text-[#1E3A5F]">策划方案</span>
-        </div>
-
-        <div className="p-4 space-y-3">
-          {/* Sections overview */}
-          {sections.length > 0 && (
-            <div>
-              <div className="text-xs text-gray-500 mb-1.5">章节概览</div>
-              <div className="space-y-1">
-                {sections.map((sec, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 text-[#1E3A5F] text-xs flex items-center justify-center font-medium">
-                      {i + 1}
-                    </span>
-                    <span className="text-gray-700">{String(sec.title || sec.name || `章节 ${i + 1}`)}</span>
-                    {typeof sec.status === "string" && sec.status && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                        sec.status === "approved" ? "bg-green-100 text-green-700" :
-                        sec.status === "review" ? "bg-yellow-100 text-yellow-700" :
-                        "bg-gray-100 text-gray-500"
-                      }`}>
-                        {sec.status}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Missing info warnings */}
-          {missingInfo.length > 0 && (
-            <div>
-              <div className="text-xs text-gray-500 mb-1.5">待确认事项</div>
-              <ul className="space-y-1">
-                {missingInfo.map((item, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-sm text-amber-700">
-                    <span className="flex-shrink-0 mt-0.5">⚠</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    return <ProposalSectionBlock sections={sections} missingInfo={missingInfo} fullContent={fullContent} />;
   }
 
   // Fallback for unknown block types
   return null;
+}
+
+/** Proposal section card with collapsible full content. */
+function ProposalSectionBlock({
+  sections,
+  missingInfo,
+  fullContent,
+}: {
+  sections: Array<Record<string, unknown>>;
+  missingInfo: string[];
+  fullContent: string;
+}) {
+  const [showContent, setShowContent] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-blue-100 bg-gradient-to-r from-blue-50/60 to-white overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-[#1E3A5F]/5 border-b border-blue-100">
+        <FileText className="h-4 w-4 text-[#1E3A5F]" />
+        <span className="text-sm font-medium text-[#1E3A5F]">策划方案</span>
+      </div>
+
+      <div className="p-4 space-y-3">
+        {/* Sections overview */}
+        {sections.length > 0 && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1.5">章节概览</div>
+            <div className="space-y-1">
+              {sections.map((sec, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 text-[#1E3A5F] text-xs flex items-center justify-center font-medium">
+                    {i + 1}
+                  </span>
+                  <span className="text-gray-700">{String(sec.title || sec.name || `章节 ${i + 1}`)}</span>
+                  {typeof sec.status === "string" && sec.status && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                        sec.status === "approved"
+                          ? "bg-green-100 text-green-700"
+                          : sec.status === "review"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {sec.status}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Missing info warnings */}
+        {missingInfo.length > 0 && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1.5">待确认事项</div>
+            <ul className="space-y-1">
+              {missingInfo.map((item, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-sm text-amber-700">
+                  <span className="flex-shrink-0 mt-0.5">⚠</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Collapsible full content */}
+        {fullContent && (
+          <div className="border-t border-blue-100 pt-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-[#1E3A5F] hover:text-[#2D5A8E] gap-1 px-2"
+              onClick={() => setShowContent(!showContent)}
+            >
+              {showContent ? (
+                <>
+                  <ChevronUp className="h-3.5 w-3.5" /> 收起完整策划案
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3.5 w-3.5" /> 查看完整策划案
+                </>
+              )}
+            </Button>
+            {showContent && (
+              <div className="mt-2 rounded-md border border-gray-200 bg-white p-4 max-h-[60vh] overflow-y-auto">
+                <MarkdownRenderer content={fullContent} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

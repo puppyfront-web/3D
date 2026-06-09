@@ -653,6 +653,8 @@ class ConversationService:
         history: List[Dict[str, str]],
     ) -> AsyncGenerator[str, None]:
         """Execute the current pipeline stage, stream results, and pause/advance."""
+        import time
+
         from app.skills.base import SkillContext
         from app.skills.registry import SkillRegistry
         from app.skills.runner import SkillRunner
@@ -661,6 +663,7 @@ class ConversationService:
         from app.services.pipeline_state import PAUSE_STAGES
 
         stage = state.current_stage
+        start_time = time.time()
 
         # Build skill input from pipeline context
         input_data = self._build_stage_input(stage, state, history)
@@ -765,10 +768,12 @@ class ConversationService:
         content_text = self._render_skill_output(skill_id_for_render, all_output)
 
         # Build content blocks
-        blocks = self._build_stage_blocks(stage, all_output, state)
+        duration = int(time.time() - start_time)
+        blocks = self._build_stage_blocks(stage, all_output, state, duration=duration)
 
-        # Stream output
-        yield f"data: {json.dumps({'type': 'text_delta', 'text': content_text})}\n\n"
+        # Stream brief summary instead of full content
+        summary = self._build_stage_summary(stage, stage_display, all_output, duration)
+        yield f"data: {json.dumps({'type': 'text_delta', 'text': summary})}\n\n"
 
         for block in blocks:
             yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': block['type']}})}\n\n"
@@ -827,16 +832,42 @@ class ConversationService:
 
     @staticmethod
     def _build_stage_blocks(
-        stage: str, output: Dict[str, Any], state: PipelineState
+        stage: str, output: Dict[str, Any], state: PipelineState, *, duration: int = 0
     ) -> List[Dict[str, Any]]:
         """Build rich content blocks for a pipeline stage."""
         blocks: List[Dict[str, Any]] = []
 
-        blocks.append({
-            "type": "skill_progress",
-            "data": {"skill_id": stage, "status": "completed"},
-        })
+        # Stage summary block (always first — shows completion status + metrics)
+        summary_data: Dict[str, Any] = {
+            "stage": stage,
+            "status": "completed",
+            "duration": duration,
+        }
+        if stage == "company_analysis":
+            analysis = output.get("analysis", output)
+            missing = output.get("missing_info", analysis.get("missing_info", []))
+            summary_data["metrics"] = {
+                "missing_count": len(missing) if isinstance(missing, list) else 0,
+            }
+        elif stage == "proposal_generation":
+            missing = output.get("missing_info", [])
+            sections = output.get("sections_meta", [])
+            summary_data["metrics"] = {
+                "sections_count": len(sections) if isinstance(sections, list) else 0,
+                "missing_count": len(missing) if isinstance(missing, list) else 0,
+            }
+        elif stage == "visual_generation":
+            images = output.get("images", [])
+            summary_data["metrics"] = {
+                "images_count": len(images) if isinstance(images, list) else 0,
+            }
+        elif stage == "export":
+            summary_data["metrics"] = {
+                "format": output.get("format", "word"),
+            }
+        blocks.append({"type": "stage_summary", "data": summary_data})
 
+        # Stage-specific content blocks
         if stage == "company_analysis" and output:
             blocks.append({"type": "company_analysis_card", "data": output})
 
@@ -847,6 +878,7 @@ class ConversationService:
                 "type": "proposal_section",
                 "data": {
                     "content_type": "text/markdown",
+                    "content": output.get("content", ""),
                     "missing_info": missing if isinstance(missing, list) else [],
                     "sections": sections if isinstance(sections, list) else [],
                 },
@@ -886,6 +918,41 @@ class ConversationService:
             })
 
         return blocks
+
+    @staticmethod
+    def _build_stage_summary(
+        stage: str, stage_display: str, output: Dict[str, Any], duration: int
+    ) -> str:
+        """Build a brief summary text for the pipeline stage (replaces full content streaming)."""
+        lines = [f"✅ **{stage_display}** 完成"]
+
+        if duration >= 60:
+            lines.append(f"⏱ 耗时 {duration // 60} 分 {duration % 60} 秒")
+        else:
+            lines.append(f"⏱ 耗时 {duration} 秒")
+
+        if stage == "proposal_generation":
+            sections = output.get("sections_meta", [])
+            missing = output.get("missing_info", [])
+            if isinstance(sections, list) and sections:
+                lines.append(f"📋 共 {len(sections)} 个章节")
+            if isinstance(missing, list) and missing:
+                lines.append(f"⚠️ {len(missing)} 项待确认")
+
+        elif stage == "company_analysis":
+            missing = output.get("missing_info", [])
+            analysis = output.get("analysis", output)
+            if not missing and isinstance(analysis, dict):
+                missing = analysis.get("missing_info", [])
+            if isinstance(missing, list) and missing:
+                lines.append(f"⚠️ {len(missing)} 项待确认")
+
+        elif stage == "visual_generation":
+            images = output.get("images", [])
+            if isinstance(images, list) and images:
+                lines.append(f"🖼 生成 {len(images)} 张效果图")
+
+        return "\n".join(lines)
 
     @staticmethod
     def _build_export_input(
