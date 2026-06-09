@@ -10,6 +10,7 @@ import {
   Download,
   X,
   Palette,
+  Rocket,
 } from "lucide-react";
 import { getVisualStyles } from "@/lib/api";
 
@@ -55,6 +56,12 @@ const suggestions = [
     title: "方案导出",
     description: "将策划案导出为 Word 或 PDF",
     message: "导出方案文档",
+  },
+  {
+    icon: Rocket,
+    title: "完整方案",
+    description: "从企业解析到导出的端到端方案生成",
+    message: "帮我设计一套完整的3D幕墙方案",
   },
 ];
 
