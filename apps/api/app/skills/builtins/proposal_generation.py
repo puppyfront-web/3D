@@ -104,19 +104,43 @@ class ProposalGenerationSkill(BaseSkill):
                 missing_info=["项目背景", "目标", "预算范围"],
             )
 
-        # Build prompt with optional company profile context
+        # Build prompt with company profile context
         if company_profile:
-            profile_text = json.dumps(company_profile, ensure_ascii=False, indent=2) if isinstance(company_profile, dict) else str(company_profile)
+            # Extract structured sections from company analysis output
+            six_views = company_profile.get("six_views") or (company_profile.get("analysis", {}).get("six_views"))
+            tech_arch = company_profile.get("technology_arch") or (company_profile.get("analysis", {}).get("technology_arch"))
+            proj_bg = company_profile.get("project_background") or (company_profile.get("analysis", {}).get("project_background"))
+            general = company_profile.get("analysis", {})
+
+            context_parts = [
+                "以下是已完成的企业画像分析，请直接引用其中的数据，不要再标注为'缺失'或'需补充'：\n"
+            ]
+
+            if six_views:
+                context_parts.append(f"### 企业六看分析\n{json.dumps(six_views, ensure_ascii=False, indent=2)}\n")
+            if tech_arch:
+                context_parts.append(f"### 技术架构\n{json.dumps(tech_arch, ensure_ascii=False, indent=2)}\n")
+            if proj_bg:
+                context_parts.append(f"### 项目背景\n{json.dumps(proj_bg, ensure_ascii=False, indent=2)}\n")
+            if general:
+                # Include remaining analysis fields (brand, products, etc.)
+                remaining = {k: v for k, v in general.items() if k not in ("six_views", "technology_arch", "project_background")}
+                if remaining:
+                    context_parts.append(f"### 综合分析\n{json.dumps(remaining, ensure_ascii=False, indent=2)}\n")
+
+            context_block = "\n".join(context_parts)
             user_prompt = (
-                f"以下是已完成的企业画像分析：\n\n{profile_text}\n\n"
-                f"请基于以上企业画像，结合以下项目需求生成策划案：\n\n{requirement_text}"
+                f"{context_block}\n"
+                f"---\n\n项目需求：{requirement_text}\n\n"
+                "重要：以上六看分析、技术架构、项目背景已经由企业解析模块生成，"
+                "请在策划案中直接引用这些已有数据，不要重复标注为'需进一步确认'。"
+                "只有真正缺失的信息（如具体报价、工期、屏幕参数）才标注'需进一步确认'。"
             )
         else:
             user_prompt = requirement_text
 
         prompt = f"""为以下需求生成一份专业策划方案：
 
-需求描述：
 {user_prompt}
 
 请按10章标准结构生成策划案（Markdown 格式），每章体现对应分析维度：
