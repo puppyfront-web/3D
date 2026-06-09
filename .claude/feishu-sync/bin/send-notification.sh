@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # .claude/feishu-sync/bin/send-notification.sh
 # Called by Claude Code hooks to send notifications to Feishu.
-# Multi-session aware: uses project basename as session ID.
+# Multi-session aware, uses interactive card format.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +30,7 @@ if [[ ${#CONTENT} -gt 1000 ]]; then
   CONTENT="${CONTENT:0:997}..."
 fi
 
-# Format the message (includes project prefix)
+# Format the message as interactive card JSON
 MSG="$(format_notification "$TYPE" "$CONTENT")"
 
 # Update session state
@@ -55,8 +55,8 @@ case "$TYPE" in
     ;;
 esac
 
-# Send to Feishu
-RESPONSE="$(lark-cli im +messages-send --chat-id "$CHAT_ID" --text "$MSG" --as bot 2>&1 || true)"
+# Send to Feishu as interactive card
+RESPONSE="$(lark-cli im +messages-send --chat-id "$CHAT_ID" --msg-type interactive --content "$MSG" --as bot 2>&1 || true)"
 
 # Extract and save message_id
 MSG_ID=""
@@ -68,4 +68,4 @@ if [[ -n "$MSG_ID" ]]; then
   set_state "last_feishu_msg_id" "$MSG_ID"
 fi
 
-echo "✅ Notification sent to Feishu (type=$TYPE, session=$(current_session_id))"
+echo "✅ Card notification sent to Feishu (type=$TYPE, session=$(current_session_id))"
