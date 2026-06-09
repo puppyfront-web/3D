@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.conversation import Conversation, Message
 from app.services.intent_service import IntentDetector, IntentResult
 from app.services.llm_service import get_llm_service
+from app.services.pipeline_state import PipelineState
 
 logger = logging.getLogger(__name__)
 
@@ -505,6 +506,13 @@ class ConversationService:
             if msg.metadata_json and "state" in msg.metadata_json:
                 return VisualConceptContext.from_dict(msg.metadata_json)
         return VisualConceptContext()
+
+    def _load_pipeline_state(self, messages: List[Message]) -> Optional[PipelineState]:
+        """Recover pipeline state from the most recent assistant message metadata."""
+        for msg in reversed(messages):
+            if msg.metadata_json and "pipeline" in msg.metadata_json:
+                return PipelineState.from_dict(msg.metadata_json)
+        return None
 
     async def _handle_visual_concept(
         self,
