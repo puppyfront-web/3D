@@ -52,6 +52,17 @@ _VISUAL_CONCEPT_KEYWORDS: Dict[str, List[str]] = {
     ],
 }
 
+_PIPELINE_KEYWORDS_HIGH = [
+    "设计一套3D幕墙方案", "做一套完整方案", "从零开始做方案",
+    "端到端方案", "全流程", "从头到尾做", "帮我设计方案",
+    "完整方案", "全套方案",
+]
+
+_PIPELINE_KEYWORDS_MEDIUM = [
+    "3D幕墙方案", "LED方案设计", "裸眼3D方案", "数字展示方案",
+    "媒体立面方案", "策划全套",
+]
+
 _SYSTEM_PROMPT = """你是 3D 展示幕墙 AI 专家系统的意图识别模块。
 根据用户消息判断意图，返回 JSON。
 
@@ -154,6 +165,21 @@ class IntentDetector:
                     "prompt": self._extract_image_prompt(message),
                 },
             )
+        # Check for SOP pipeline intent
+        for kw in _PIPELINE_KEYWORDS_HIGH:
+            if kw in message:
+                return IntentResult(
+                    intent="sop_pipeline",
+                    confidence=0.85,
+                    input_data={"user_message": message},
+                )
+        for kw in _PIPELINE_KEYWORDS_MEDIUM:
+            if kw in message:
+                return IntentResult(
+                    intent="sop_pipeline",
+                    confidence=0.7,
+                    input_data={"user_message": message},
+                )
         # 再检查 Skill 关键词
         for skill_id, keywords in _SKILL_KEYWORDS.items():
             for kw in keywords:
@@ -168,6 +194,29 @@ class IntentDetector:
                         input_data=input_data,
                     )
         return None
+
+    @staticmethod
+    def classify_pipeline_action(message: str) -> str:
+        """Classify user action when pipeline is paused.
+
+        Returns: "confirm" | "modify" | "restart"
+        """
+        msg = message.strip()
+        confirm_words = ["确认", "继续", "下一步", "没问题", "可以", "好的", "通过", "ok", "OK"]
+        restart_words = ["重新开始", "从头来", "重来", "重置"]
+
+        for w in restart_words:
+            if w in msg:
+                return "restart"
+
+        # If message is short and matches a confirm word, treat as confirm
+        if len(msg) <= 20:
+            for w in confirm_words:
+                if w in msg:
+                    return "confirm"
+
+        # Otherwise treat as modify feedback
+        return "modify"
 
     @staticmethod
     def _extract_image_prompt(message: str) -> str:
