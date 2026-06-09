@@ -87,11 +87,13 @@ class ProposalGenerationSkill(BaseSkill):
             return await self._execute_db_mode(input_data, context)
 
         # --- Mode 2: Conversation mode ---
-        return await self._execute_chat_mode(requirement_text, context)
+        company_profile = input_data.get("company_profile")
+        return await self._execute_chat_mode(requirement_text, company_profile, context)
 
     async def _execute_chat_mode(
         self,
         requirement_text: str,
+        company_profile: Any,
         context: SkillContext,
     ) -> SkillResult:
         """Generate proposal from conversation context, no DB dependency."""
@@ -102,10 +104,20 @@ class ProposalGenerationSkill(BaseSkill):
                 missing_info=["项目背景", "目标", "预算范围"],
             )
 
+        # Build prompt with optional company profile context
+        if company_profile:
+            profile_text = json.dumps(company_profile, ensure_ascii=False, indent=2) if isinstance(company_profile, dict) else str(company_profile)
+            user_prompt = (
+                f"以下是已完成的企业画像分析：\n\n{profile_text}\n\n"
+                f"请基于以上企业画像，结合以下项目需求生成策划案：\n\n{requirement_text}"
+            )
+        else:
+            user_prompt = requirement_text
+
         prompt = f"""为以下需求生成一份专业策划方案：
 
 需求描述：
-{requirement_text}
+{user_prompt}
 
 请按10章标准结构生成策划案（Markdown 格式），每章体现对应分析维度：
 
