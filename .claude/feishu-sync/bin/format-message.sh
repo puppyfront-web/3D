@@ -1,30 +1,96 @@
 #!/usr/bin/env bash
 # .claude/feishu-sync/bin/format-message.sh
-# Shared message formatting functions. Sourced by other scripts.
-# Usage: source "$(dirname "$0")/format-message.sh"
+# Shared message formatting functions for multi-session support.
+# Sourced by other scripts.
 
 SYNC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SESSIONS_FILE="$SYNC_DIR/state/sessions.json"
 
-# Read a field from session_state.json
-# Args: $1 = field name (dot notation supported via jq)
-get_state() {
-  local field="$1"
-  local state_file="$SYNC_DIR/state/session_state.json"
-  if [[ -f "$state_file" ]]; then
-    jq -r ".$field // empty" "$state_file" 2>/dev/null || echo ""
-  else
-    echo ""
+# Ensure sessions.json exists
+ensure_sessions_file() {
+  if [[ ! -f "$SESSIONS_FILE" ]]; then
+    echo '{"sessions":{}}' > "$SESSIONS_FILE"
   fi
 }
 
-# Update a field in session_state.json
+# Get current session ID from project directory
+current_session_id() {
+  basename "$(pwd)"
+}
+
+# Read a field from current session
+# Args: $1 = field name
+get_state() {
+  local field="$1"
+  local sid
+  sid="$(current_session_id)"
+  ensure_sessions_file
+  jq -r ".sessions[\"$sid\"].$field // empty" "$SESSIONS_FILE" 2>/dev/null || echo ""
+}
+
+# Read a field from a specific session
+# Args: $1 = session_id, $2 = field name
+get_session_state() {
+  local sid="$1"
+  local field="$2"
+  ensure_sessions_file
+  jq -r ".sessions[\"$sid\"].$field // empty" "$SESSIONS_FILE" 2>/dev/null || echo ""
+}
+
+# Update a field in current session
 # Args: $1 = field name, $2 = value
 set_state() {
   local field="$1"
   local value="$2"
-  local state_file="$SYNC_DIR/state/session_state.json"
-  local tmp="${state_file}.tmp"
-  jq --arg v "$value" ".$field = \$v" "$state_file" > "$tmp" && mv "$tmp" "$state_file"
+  local sid
+  sid="$(current_session_id)"
+  local tmp="${SESSIONS_FILE}.tmp"
+  ensure_sessions_file
+  jq --arg sid "$sid" --arg v "$value" "
+    .sessions[\"$sid\"] = (.sessions[\"$sid\"] // {\"project\": \"$sid\", \"status\": \"idle\"}) |
+    .sessions[\"$sid\"].$field = \$v
+  " "$SESSIONS_FILE" > "$tmp" && mv "$tmp" "$SESSIONS_FILE"
+}
+
+# Get the most recently updated session ID
+# Returns: session_id or empty
+latest_session_id() {
+  ensure_sessions_file
+  jq -r '[.sessions | to_entries[] | select(.value.status != "idle" and .value.status != "stopped")] | sort_by(.value.last_update) | last | .key // empty' "$SESSIONS_FILE" 2>/dev/null || echo ""
+}
+
+# List all active (non-idle) sessions
+# Returns: formatted list string
+list_active_sessions() {
+  ensure_sessions_file
+  local count
+  count="$(jq '[.sessions | to_entries[] | select(.value.status != "idle" and .value.status != "stopped")] | length' "$SESSIONS_FILE" 2>/dev/null || echo 0)"
+
+  if [[ "$count" -eq 0 ]]; then
+    echo "💤 没有活跃的 Claude Code 会话"
+    return
+  fi
+
+  local msg="📊 活跃会话 (${count}个)：\n"
+  local idx=1
+  while IFS= read -r entry; do
+    local sid status task last_update emoji
+    sid="$(echo "$entry" | jq -r '.key')"
+    status="$(echo "$entry" | jq -r '.value.status // "unknown"')"
+    task="$(echo "$entry" | jq -r '.value.current_task // "无任务"')"
+    last_update="$(echo "$entry" | jq -r '.value.last_update // ""')"
+    case "$status" in
+      working) emoji="🔄" ;;
+      waiting) emoji="⏸️" ;;
+      error)   emoji="❌" ;;
+      *)       emoji="❓" ;;
+    esac
+    msg="${msg}  ${idx}. ${emoji} [${sid}] ${task}\n"
+    idx=$((idx + 1))
+  done < <(jq -c '.sessions | to_entries[] | select(.value.status != "idle" and .value.status != "stopped") | sort_by(.value.last_update)' "$SESSIONS_FILE" 2>/dev/null)
+
+  msg="${msg}\n💡 回复 \"1 继续\" 或 \"@${sid} 进度\" 指定会话"
+  echo "$msg"
 }
 
 # Get current timestamp for display
@@ -32,13 +98,13 @@ now_display() {
   date +"%Y-%m-%d %H:%M:%S"
 }
 
-# Format a notification message
+# Format a notification message with project prefix
 # Args: $1 = type (notification|stop), $2 = message content
 format_notification() {
   local type="$1"
   local content="$2"
   local project
-  project="$(basename "$(pwd)")"
+  project="$(current_session_id)"
   local task
   task="$(get_state current_task)"
   local time
@@ -49,20 +115,19 @@ format_notification() {
 
   case "$type" in
     notification)
-      # Detect notification subtype from content
       if echo "$content" | grep -qiE "等待|确认|confirm|waiting"; then
-        header="⏸️ 等待确认"
+        header="⏸️ [${project}] 等待确认"
         body="❓ ${content}"
       elif echo "$content" | grep -qiE "错误|失败|error|fail"; then
-        header="❌ 任务中断"
+        header="❌ [${project}] 任务中断"
         body="📋 任务：${task:-未指定}\n⚠️ ${content}"
       else
-        header="🚀 Claude Code 通知"
+        header="🚀 [${project}]"
         body="📋 ${content}"
       fi
       ;;
     stop)
-      header="✅ Claude Code 已停止"
+      header="✅ [${project}] 已停止"
       if [[ -n "$task" ]]; then
         body="📋 最近任务：${task}"
       else
@@ -70,36 +135,32 @@ format_notification() {
       fi
       ;;
     *)
-      header="📢 Claude Code"
+      header="📢 [${project}]"
       body="$content"
       ;;
   esac
 
-  # Assemble full message
-  local msg
-  msg="${header}\n\n${body}\n📁 项目：${project}\n⏰ ${time}"
+  local msg="${header}\n\n${body}\n⏰ ${time}"
   msg="${msg}\n\n---\n💡 回复指令：继续 | 进度 | 停下来 | 或输入具体需求"
 
   echo "$msg"
 }
 
-# Format a status reply (sent when user queries progress)
+# Format a status reply for a specific session
+# Args: $1 = session_id (optional, defaults to current)
 format_status_reply() {
-  local state_file="$SYNC_DIR/state/session_state.json"
-
-  if [[ ! -f "$state_file" ]]; then
-    echo "⚠️ 无会话状态"
-    return
+  local sid="${1:-}"
+  if [[ -z "$sid" ]]; then
+    sid="$(current_session_id)"
   fi
 
-  local status
-  status="$(jq -r '.status // "unknown"' "$state_file")"
-  local task
-  task="$(jq -r '.current_task // "无"' "$state_file")"
-  local summary
-  summary="$(jq -r '.last_output_summary // ""' "$state_file")"
-  local last_update
-  last_update="$(jq -r '.last_update // ""' "$state_file")"
+  ensure_sessions_file
+
+  local status task summary last_update
+  status="$(jq -r ".sessions[\"$sid\"].status // \"unknown\"" "$SESSIONS_FILE")"
+  task="$(jq -r ".sessions[\"$sid\"].current_task // \"无\"" "$SESSIONS_FILE")"
+  summary="$(jq -r ".sessions[\"$sid\"].last_output_summary // \"\"" "$SESSIONS_FILE")"
+  last_update="$(jq -r ".sessions[\"$sid\"].last_update // \"\"" "$SESSIONS_FILE")"
 
   local status_emoji="❓"
   case "$status" in
@@ -109,7 +170,7 @@ format_status_reply() {
     idle)    status_emoji="💤" ;;
   esac
 
-  local msg="📊 当前进度 — $(basename "$(pwd)")\n\n"
+  local msg="📊 [${sid}] 当前进度\n\n"
   msg="${msg}${status_emoji} 状态：${status}\n"
   msg="${msg}📋 任务：${task}\n"
 
@@ -117,9 +178,8 @@ format_status_reply() {
     msg="${msg}📝 最近操作：${summary}\n"
   fi
 
-  # Show todos if available
   local todo_count
-  todo_count="$(jq '.todos | length' "$state_file" 2>/dev/null || echo 0)"
+  todo_count="$(jq ".sessions[\"$sid\"].todos | length" "$SESSIONS_FILE" 2>/dev/null || echo 0)"
   if [[ "$todo_count" -gt 0 ]]; then
     msg="${msg}\n"
     while IFS= read -r todo_json; do
@@ -132,7 +192,7 @@ format_status_reply() {
         *)           t_emoji="⏳" ;;
       esac
       msg="${msg}${t_emoji} ${t_content}\n"
-    done < <(jq -c '.todos[]' "$state_file" 2>/dev/null)
+    done < <(jq -c ".sessions[\"$sid\"].todos[]" "$SESSIONS_FILE" 2>/dev/null)
   fi
 
   msg="${msg}\n⏰ 更新于：${last_update:-未知}"

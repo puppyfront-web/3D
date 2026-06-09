@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # .claude/feishu-sync/bin/poll-commands.sh
 # Polls Feishu for new messages and writes parsed commands to the queue.
-# Usage: poll-commands.sh [--count N]
+# Multi-session aware: routes commands to the correct session.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYNC_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$SYNC_DIR/config.json"
-STATE_FILE="$SYNC_DIR/state/session_state.json"
+SESSIONS_FILE="$SYNC_DIR/state/sessions.json"
 QUEUE_FILE="$SYNC_DIR/queue/commands.jsonl"
+
+# Source formatting utilities
+source "$SCRIPT_DIR/format-message.sh"
 
 # Read config
 CHAT_ID=""
@@ -29,19 +32,18 @@ fi
 
 # Get last polled timestamp
 LAST_TS="0"
-if [[ -f "$STATE_FILE" ]]; then
-  LAST_TS="$(jq -r '.last_polled_msg_ts // "0"' "$STATE_FILE")"
+if [[ -f "$SESSIONS_FILE" ]]; then
+  LAST_TS="$(jq -r '.last_polled_msg_ts // "0"' "$SESSIONS_FILE")"
 fi
 
 # Fetch recent messages from Feishu
 MESSAGES=""
-MESSAGES="$(lark-cli im +chat-messages-list --chat-id "$CHAT_ID" --page-size "$FETCH_COUNT" --format json 2>/dev/null || echo '{"items":[]}')"
+MESSAGES="$(lark-cli im +chat-messages-list --chat-id "$CHAT_ID" --page-size "$FETCH_COUNT" 2>/dev/null || echo '{"items":[]}')"
 
 # Parse messages and find new commands
 NEW_COUNT=0
 LATEST_TS="$LAST_TS"
 
-# Process each message
 while IFS= read -r msg; do
   [[ -z "$msg" ]] && continue
 
@@ -62,7 +64,7 @@ while IFS= read -r msg; do
     LATEST_TS="$msg_ts"
   fi
 
-  # Skip bot messages (we only want human commands)
+  # Skip bot messages
   if [[ "$sender_type" == "bot" ]]; then
     continue
   fi
@@ -72,14 +74,14 @@ while IFS= read -r msg; do
     continue
   fi
 
-  # Filter by allowed users (if configured)
+  # Filter by allowed users
   if [[ -n "$ALLOWED_USERS" && -n "$sender_id" ]]; then
     if ! echo ",$ALLOWED_USERS," | grep -q ",$sender_id,"; then
       continue
     fi
   fi
 
-  # Extract text content from body JSON
+  # Extract text content
   text=""
   text="$(echo "$body_content" | jq -r '.text // empty' 2>/dev/null || echo "$body_content")"
 
@@ -88,15 +90,29 @@ while IFS= read -r msg; do
     continue
   fi
 
-  # Skip messages that look like bot responses (contain specific markers)
-  if echo "$text" | grep -qE "^(🚀|✅|❌|⏸️|📊|📢|💡)"; then
+  # Skip bot response markers
+  if echo "$text" | grep -qE "^(🚀|✅|❌|⏸️|📊|📢|💡|💤|🤖)"; then
     continue
   fi
 
   # Parse command type
   cmd_type="requirement"
   cmd_parsed="null"
+  cmd_session="auto"
   cmd_id="cmd_$(date +%s)_$((RANDOM % 1000))"
+
+  # Check for session targeting: "1 xxx" or "@项目名 xxx"
+  if echo "$text" | grep -qiE "^[0-9]+ "; then
+    # "1 继续" format - extract session number
+    target_num="$(echo "$text" | grep -oE "^[0-9]+")"
+    cmd_session="idx:${target_num}"
+    text="$(echo "$text" | sed "s/^[0-9]* //")"
+  elif echo "$text" | grep -qiE "^@"; then
+    # "@项目名 指令" format
+    target_name="$(echo "$text" | sed 's/^@//;s/ .*//')"
+    cmd_session="name:${target_name}"
+    text="$(echo "$text" | sed 's/^@[^ ]* //')"
+  fi
 
   # Short commands
   case "$text" in
@@ -126,13 +142,21 @@ while IFS= read -r msg; do
       ;;
   esac
 
-  # Status queries
-  if echo "$text" | grep -qiE "^(进度|状态|status|progress|现在|当前|在干嘛|怎么样了|做了什么)"; then
-    cmd_type="status_query"
-    cmd_parsed='"status_query"'
+  # Session listing commands
+  if echo "$text" | grep -qiE "^(会话|sessions|列表|全部)"; then
+    cmd_type="session_list"
+    cmd_parsed='"session_list"'
   fi
 
-  # Flow control (has keywords but not exact match)
+  # Status queries
+  if [[ "$cmd_type" == "requirement" ]]; then
+    if echo "$text" | grep -qiE "^(进度|状态|status|progress|现在|当前|在干嘛|怎么样了|做了什么)"; then
+      cmd_type="status_query"
+      cmd_parsed='"status_query"'
+    fi
+  fi
+
+  # Flow control
   if [[ "$cmd_type" == "requirement" ]]; then
     if echo "$text" | grep -qiE "^(先做|跳过|优先|先|skip|做|任务)"; then
       cmd_type="flow_control"
@@ -147,7 +171,8 @@ while IFS= read -r msg; do
       --arg ts "$local_ts" \
       --arg type "$cmd_type" \
       --arg raw "$text" \
-      '{id: $id, ts: $ts, type: $type, raw: $raw, status: "pending"}'
+      --arg session "$cmd_session" \
+      '{id: $id, ts: $ts, type: $type, raw: $raw, session: $session, status: "pending"}'
   else
     jq -nc \
       --arg id "$cmd_id" \
@@ -155,7 +180,8 @@ while IFS= read -r msg; do
       --arg type "$cmd_type" \
       --arg raw "$text" \
       --argjson parsed "$cmd_parsed" \
-      '{id: $id, ts: $ts, type: $type, raw: $raw, parsed: $parsed, status: "pending"}'
+      --arg session "$cmd_session" \
+      '{id: $id, ts: $ts, type: $type, raw: $raw, parsed: $parsed, session: $session, status: "pending"}'
   fi >> "$QUEUE_FILE"
 
   NEW_COUNT=$((NEW_COUNT + 1))
@@ -163,8 +189,10 @@ while IFS= read -r msg; do
 done < <(echo "$MESSAGES" | jq -c '.items[] // empty' 2>/dev/null)
 
 # Update last polled timestamp
-if [[ -f "$STATE_FILE" && "$LATEST_TS" != "$LAST_TS" ]]; then
-  jq --arg ts "$LATEST_TS" '.last_polled_msg_ts = $ts' "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+ensure_sessions_file
+if [[ "$LATEST_TS" != "$LAST_TS" ]]; then
+  local tmp="${SESSIONS_FILE}.tmp"
+  jq --arg ts "$LATEST_TS" '.last_polled_msg_ts = $ts' "$SESSIONS_FILE" > "$tmp" && mv "$tmp" "$SESSIONS_FILE"
 fi
 
 echo "✅ Polled: ${NEW_COUNT} new command(s) found"

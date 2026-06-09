@@ -62,26 +62,15 @@ cat > "$CONFIG_FILE" <<EOF
 }
 EOF
 
-# Initialize session state
-cat > "$STATE_DIR/session_state.json" <<'EOF'
-{
-  "session_id": "",
-  "project": "",
-  "current_task": "",
-  "status": "idle",
-  "started_at": "",
-  "last_update": "",
-  "todos": [],
-  "last_output_summary": "",
-  "last_feishu_msg_id": "",
-  "last_polled_msg_ts": "0"
-}
+# Initialize sessions registry
+cat > "$STATE_DIR/sessions.json" <<'EOF'
+{"sessions":{},"last_polled_msg_ts":"0"}
 EOF
 
 echo ""
 echo "✅ 配置完成！"
 echo "   config.json: $CONFIG_FILE"
-echo "   session_state.json: $STATE_DIR/session_state.json"
+echo "   sessions.json: $STATE_DIR/sessions.json"
 echo ""
 echo "发送测试消息..."
 TEST_MSG=$'🤖 Claude Code 飞书同步插件已连接\n\n后续你可以在这里查看工作状态并发送远程指令。'
