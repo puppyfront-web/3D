@@ -407,6 +407,10 @@ class VisualConceptContext:
     current_node_id: Optional[str] = None
     current_branch_id: str = "main"
 
+    # Auto-filled from project context
+    auto_filled: Dict[str, str] = field(default_factory=dict)
+    project_context_loaded: bool = False
+
     def should_ask_more(self) -> bool:
         return self.ask_round < self.max_ask_rounds
 
@@ -472,6 +476,8 @@ class VisualConceptContext:
             "version_tree": self.version_tree.to_dict() if self.version_tree else None,
             "current_node_id": self.current_node_id,
             "current_branch_id": self.current_branch_id,
+            "auto_filled": self.auto_filled,
+            "project_context_loaded": self.project_context_loaded,
         }
 
     @classmethod
@@ -484,9 +490,42 @@ class VisualConceptContext:
         ctx.missing_info = data.get("missing_info", [])
         ctx.current_node_id = data.get("current_node_id")
         ctx.current_branch_id = data.get("current_branch_id", "main")
+        ctx.auto_filled = data.get("auto_filled", {})
+        ctx.project_context_loaded = data.get("project_context_loaded", False)
         if data.get("version_tree"):
             ctx.version_tree = VersionTree.from_dict(data["version_tree"])
         return ctx
+
+
+# ---------------------------------------------------------------------------
+# Parameter card constants — 预定义选项，避免 LLM 追问
+# ---------------------------------------------------------------------------
+
+FIELD_LABELS: Dict[str, str] = {
+    "scene": "使用场景",
+    "visual_style": "视觉风格",
+    "screen_type": "屏幕类型",
+    "brand_or_theme": "品牌/主题",
+    "color_tone": "色调",
+    "target_audience": "目标受众",
+}
+
+FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
+    "scene": [
+        {"label": "品牌发布会", "value": "品牌发布会"},
+        {"label": "商场展示", "value": "商场展示"},
+        {"label": "户外广告", "value": "户外广告"},
+        {"label": "展厅互动", "value": "展厅互动"},
+        {"label": "企业大堂", "value": "企业大堂"},
+    ],
+    "visual_style": [
+        {"label": "科技感", "value": "科技感"},
+        {"label": "国潮风", "value": "国潮风"},
+        {"label": "简约商务", "value": "简约商务"},
+        {"label": "未来主义", "value": "未来主义"},
+        {"label": "自然生态", "value": "自然生态"},
+    ],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +574,7 @@ class VisualConceptAgent:
         user_input: str,
         ctx: VisualConceptContext,
         db: Optional[Any] = None,
+        project_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """Route *user_input* to the correct handler based on ``ctx.state``.
 
@@ -542,6 +582,35 @@ class VisualConceptAgent:
         """
         await self._ensure_services(db)
         try:
+            # --- Auto-fill from project context on first COLLECTING entry ---
+            if (
+                ctx.state == "COLLECTING"
+                and not ctx.project_context_loaded
+                and project_id
+                and db
+            ):
+                project_ctx = await self._load_project_context(project_id, db)
+                if project_ctx:
+                    # Emit context card to show user what was auto-loaded
+                    yield _sse_chunk("context_card", data=project_ctx)
+                    # Merge auto-filled fields into requirement
+                    for fname, fval in project_ctx.get("auto_filled", {}).items():
+                        ctx.requirement.merge_field(fname, fval)
+                    ctx.auto_filled = project_ctx.get("auto_filled", {})
+                    ctx.project_context_loaded = True
+
+                    # If context provides all critical fields, skip to pipeline
+                    if not ctx.requirement.get_missing_critical_fields():
+                        ctx.requirement.raw_input = (
+                            f"{ctx.requirement.raw_input}\n{user_input}".strip()
+                            if ctx.requirement.raw_input
+                            else user_input
+                        )
+                        ctx.create_initial_node()
+                        async for chunk in self._run_full_pipeline(ctx, db):
+                            yield chunk
+                        return
+
             if ctx.state == "REVIEWING":
                 async for chunk in self._handle_reviewing(user_input, ctx, db):
                     yield chunk
@@ -606,10 +675,21 @@ class VisualConceptAgent:
         if missing and ctx.should_ask_more():
             ctx.ask_round += 1
             ctx.missing_info = missing
-            ask_text = await self._generate_ask_question(ctx, missing)
-            buttons = self._generate_quick_replies(missing)
-            yield _sse_chunk("text_delta", text=ask_text)
-            yield _sse_chunk("action_buttons", data={"buttons": buttons})
+            # Send a structured parameter card (no LLM question needed)
+            yield _sse_chunk("text_delta", text="请补充关键信息：")
+            yield _sse_chunk(
+                "parameter_card",
+                data={
+                    "missing_fields": [
+                        {
+                            "field": f,
+                            "label": FIELD_LABELS.get(f, f),
+                            "options": FIELD_OPTIONS.get(f, []),
+                        }
+                        for f in missing
+                    ],
+                },
+            )
             yield _sse_chunk("done")
             return
 
@@ -739,7 +819,7 @@ class VisualConceptAgent:
         node.image_url = image_url
         node.image_metadata = {
             "width": 1024,
-            "height": 768,
+            "height": 576,
         }
 
         # Quality check
@@ -864,7 +944,7 @@ class VisualConceptAgent:
         image_url = await self._image.generate_image_url(
             prompt=positive_prompt,
             width=1024,
-            height=768,
+            height=576,
         )
         return image_url
 
@@ -883,3 +963,95 @@ class VisualConceptAgent:
             system_prompt="你是一位视觉质量审核专家。检查生成结果是否满足需求。只返回 JSON。",
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Project context auto-loader
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _load_project_context(
+        project_id: str,
+        db: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Load company profile + visual style from project to auto-fill requirement.
+
+        Returns a dict suitable for emitting as context_card + merging into requirement,
+        or None if no useful context could be loaded.
+        """
+        from sqlalchemy import select
+        from app.models.project import Project
+        from app.models.company_profile import CompanyProfile
+        from app.models.visual import VisualStyle
+
+        result: Dict[str, Any] = {
+            "company_name": None,
+            "industry": None,
+            "visual_style": None,
+            "colors": None,
+            "auto_filled": {},
+        }
+
+        try:
+            # Load project with company
+            stmt = select(Project).where(Project.id == uuid.UUID(project_id))
+            proj_res = await db.execute(stmt)
+            project = proj_res.scalar_one_or_none()
+            if not project:
+                return None
+
+            company = project.company
+            if company:
+                result["company_name"] = company.name
+                result["industry"] = company.industry
+                result["auto_filled"]["brand_or_theme"] = company.name
+                if company.industry:
+                    result["auto_filled"]["target_audience"] = f"{company.industry}行业目标客户"
+
+            # Load company profile
+            if company:
+                cp_stmt = select(CompanyProfile).where(
+                    CompanyProfile.company_id == company.id
+                )
+                cp_res = await db.execute(cp_stmt)
+                profile = cp_res.scalar_one_or_none()
+                if profile:
+                    # Derive scene from project background if available
+                    pb = profile.project_background
+                    if isinstance(pb, dict) and pb.get("project_positioning"):
+                        pos = pb["project_positioning"]
+                        if isinstance(pos, dict) and pos.get("content"):
+                            result["auto_filled"]["scene"] = pos["content"][:30]
+
+            # Load first visual style as default
+            vs_stmt = select(VisualStyle).where(VisualStyle.is_active.is_(True)).limit(1)
+            vs_res = await db.execute(vs_stmt)
+            style = vs_res.scalar_one_or_none()
+            if style:
+                result["visual_style"] = style.name
+                result["auto_filled"]["visual_style"] = style.name
+                colors = {}
+                if style.primary_color:
+                    colors["primary"] = style.primary_color
+                if style.secondary_color:
+                    colors["secondary"] = style.secondary_color
+                if style.accent_color:
+                    colors["accent"] = style.accent_color
+                if colors:
+                    result["colors"] = colors
+                    # Derive color_tone from palette
+                    result["auto_filled"]["color_tone"] = (
+                        f"以{style.primary_color}为主色调"
+                    )
+
+            # Default screen type
+            result["auto_filled"]["screen_type"] = "裸眼3D"
+
+            # Only return if we got something useful
+            if not result["auto_filled"]:
+                return None
+
+            return result
+
+        except Exception:
+            logger.warning("Failed to load project context for visual concept", exc_info=True)
+            return None

@@ -324,13 +324,8 @@ class ConversationService:
             if result.get("success"):
                 output = result.get("output", {})
 
-                # ── Auto-chain: visual_prompt → image_generation ──
+                # ── Auto-chain: visual_prompt → image_generation (2 variations) ──
                 if skill_id == "visual_prompt" and isinstance(output, dict) and output.get("positive_prompt"):
-                    # Notify frontend that image generation is starting
-                    yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': 'skill_executing'}})}\n\n"
-                    yield f"data: {json.dumps({'type': 'content_block_data', 'data': {'type': 'skill_executing', 'data': {'skill_id': 'image_generation', 'name': '图片生成'}}})}\n\n"
-                    yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
-
                     image_input = {
                         "prompt": output["positive_prompt"],
                         "negative_prompt": output.get("negative_prompt", ""),
@@ -341,12 +336,19 @@ class ConversationService:
                     if project_id:
                         image_input["project_id"] = project_id
 
-                    image_result = await runner.run("image_generation", image_input, context)
-                    if image_result.get("success"):
-                        image_output = image_result.get("output", {})
-                        # Merge image URL into the visual_prompt output
-                        output["image_url"] = image_output.get("image_url")
-                        output["image_task_id"] = image_output.get("task_id")
+                    # Generate 2 variations for comparison
+                    collected_images: list[dict] = []
+                    for _idx in range(2):
+                        image_result = await runner.run("image_generation", image_input, context)
+                        if image_result.get("success"):
+                            img_url = image_result.get("output", {}).get("image_url")
+                            if img_url:
+                                collected_images.append({"url": img_url})
+
+                    if collected_images:
+                        output["images"] = collected_images
+                        # Keep single image_url for backward compat
+                        output["image_url"] = collected_images[0]["url"]
 
                 # Render skill output as readable text for the user
                 content_text = self._render_skill_output(skill_id, output)
@@ -517,11 +519,15 @@ class ConversationService:
         history = await self.get_history(db, conversation_id)
         ctx = self._load_visual_concept_ctx(history)
 
+        # Load project_id from conversation for context auto-fill
+        conv = await self.get_conversation_detail(db, str(conversation_id))
+        project_id = str(conv.project_id) if conv and conv.project_id else None
+
         if ctx.state == "COLLECTING" and not ctx.requirement.raw_input:
             ctx.requirement.raw_input = user_message
 
         agent = VisualConceptAgent()
-        async for chunk in agent.handle_message(user_message, ctx, db):
+        async for chunk in agent.handle_message(user_message, ctx, db, project_id=project_id):
             yield chunk
 
         # Save context to assistant message metadata

@@ -570,7 +570,9 @@ export interface ContentBlock {
     | "artifact"
     | "attachment"
     | "form"
-    | "action_buttons";
+    | "action_buttons"
+    | "context_card"
+    | "parameter_card";
   content?: string;
   data?: Record<string, unknown>;
 }

@@ -433,9 +433,9 @@ class TestVisualConceptAgent:
             if c.startswith("data:") and '"text_delta"' in c
         ]
         assert len(text_deltas) > 0
-        # Should also have action_buttons with quick replies
-        buttons = [c for c in chunks if '"action_buttons"' in c]
-        assert len(buttons) == 1
+        # Should have parameter_card (replaced action_buttons)
+        param_cards = [c for c in chunks if '"parameter_card"' in c]
+        assert len(param_cards) == 1
 
     @pytest.mark.asyncio
     async def test_collecting_ask_increments_round(self):
@@ -826,3 +826,176 @@ class TestVisualConceptIntegration:
         node = restored.get_current_node()
         assert node.positive_prompt is not None
         assert node.image_url is not None
+
+
+# ---------------------------------------------------------------------------
+# Tests for project context auto-fill and parameter card
+# ---------------------------------------------------------------------------
+
+
+class TestProjectContextAutoFill:
+    """Test auto-loading project context and skipping COLLECTING."""
+
+    @staticmethod
+    def _make_agent_with_pipeline():
+        """Build agent with full pipeline mocks."""
+        mock_llm = AsyncMock()
+        mock_image = AsyncMock()
+        mock_image.generate_image_url = AsyncMock(return_value="https://img.test/concept.png")
+        mock_embedding = AsyncMock()
+
+        call_count = [0]
+
+        async def mock_generate_json(**kwargs):
+            call_count[0] += 1
+            n = call_count[0]
+            if n == 1:
+                return {"scene": "品牌发布会", "screen_type": "裸眼3D", "visual_style": "科技感", "brand_or_theme": "测试", "missing_fields": []}
+            elif n == 2:
+                return {"style": "赛博科技风", "color_tone": "深蓝渐变", "composition": "纵深透视", "key_elements": ["悬浮粒子"], "focus": "产品居中", "mood": "未来科技感", "notes": "", "citations": []}
+            elif n == 3:
+                return {"positive_prompt": "test prompt", "negative_prompt": "bad"}
+            return {"items": [{"item": "场景", "status": "✅", "note": "匹配"}]}
+
+        mock_llm.generate_json = AsyncMock(side_effect=mock_generate_json)
+        mock_llm.generate = AsyncMock(return_value="请问？")
+
+        return VisualConceptAgent(llm_service=mock_llm, image_service=mock_image, embedding_service=mock_embedding), mock_llm, mock_image
+
+    @staticmethod
+    def _make_agent_minimal():
+        """Build agent with minimal mocks (parse only)."""
+        mock_llm = AsyncMock()
+        mock_image = AsyncMock()
+        mock_image.generate_image_url = AsyncMock(return_value="https://img.test/concept.png")
+        mock_embedding = AsyncMock()
+        return VisualConceptAgent(llm_service=mock_llm, image_service=mock_image, embedding_service=mock_embedding), mock_llm, mock_image
+
+    @pytest.mark.asyncio
+    async def test_auto_fill_skips_collecting(self):
+        """When project context provides scene + visual_style, skip to pipeline."""
+        agent, _, _ = self._make_agent_with_pipeline()
+
+        mock_data = {
+            "company_name": "测试科技公司", "industry": "科技", "visual_style": "科技感",
+            "colors": {"primary": "#00D4FF"},
+            "auto_filled": {"scene": "品牌发布会", "visual_style": "科技感", "brand_or_theme": "测试科技公司", "screen_type": "裸眼3D"},
+        }
+
+        async def mock_load(pid, db):
+            return mock_data
+
+        # Assign directly on instance — shadows class @staticmethod
+        agent._load_project_context = mock_load
+
+        ctx = VisualConceptContext()
+        chunks = []
+        async for chunk in agent.handle_message("生成概念图", ctx, db=AsyncMock(), project_id="test-project-id"):
+            chunks.append(chunk)
+
+        assert ctx.state in ("REVIEWING", "COMPLETED")
+        assert len([c for c in chunks if '"context_card"' in c]) == 1
+        assert ctx.requirement.scene == "品牌发布会"
+        assert ctx.requirement.visual_style == "科技感"
+        assert ctx.project_context_loaded is True
+
+    @pytest.mark.asyncio
+    async def test_auto_fill_partial_shows_parameter_card(self):
+        """When project context provides only visual_style, show parameter_card for missing scene."""
+        agent, mock_llm, _ = self._make_agent_minimal()
+
+        async def mock_load(pid, db):
+            return {"company_name": "测试公司", "visual_style": "国潮风", "auto_filled": {"visual_style": "国潮风", "brand_or_theme": "测试公司", "screen_type": "裸眼3D"}}
+
+        mock_llm.generate_json = AsyncMock(return_value={"scene": None, "visual_style": "国潮风", "missing_fields": ["scene"]})
+
+        # Assign directly on instance — shadows class @staticmethod
+        agent._load_project_context = mock_load
+
+        ctx = VisualConceptContext()
+        chunks = []
+        async for chunk in agent.handle_message("生成概念图", ctx, db=AsyncMock(), project_id="test-id"):
+            chunks.append(chunk)
+
+        assert ctx.state == "COLLECTING"
+        assert len([c for c in chunks if '"context_card"' in c]) == 1
+        assert len([c for c in chunks if '"parameter_card"' in c]) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_project_id_behaves_as_before(self):
+        """Without project_id, agent behaves like before (no auto-fill)."""
+        agent, mock_llm, _ = self._make_agent_minimal()
+        mock_llm.generate_json = AsyncMock(return_value={"scene": None, "visual_style": None, "missing_fields": ["scene", "visual_style"]})
+
+        ctx = VisualConceptContext()
+        chunks = []
+        async for chunk in agent.handle_message("做一个裸眼3D", ctx):
+            chunks.append(chunk)
+
+        assert len([c for c in chunks if '"context_card"' in c]) == 0
+        assert ctx.project_context_loaded is False
+        assert ctx.auto_filled == {}
+        assert len([c for c in chunks if '"parameter_card"' in c]) == 1
+
+    @pytest.mark.asyncio
+    async def test_context_card_emitted_on_load(self):
+        """Context card SSE chunk is emitted before pipeline starts."""
+        agent, _, _ = self._make_agent_with_pipeline()
+
+        async def mock_load(pid, db):
+            return {"company_name": "测试公司", "visual_style": "科技感", "colors": {"primary": "#1E3A5F"}, "auto_filled": {"scene": "品牌发布会", "visual_style": "科技感"}}
+
+        # Assign directly on instance — shadows class @staticmethod
+        agent._load_project_context = mock_load
+
+        ctx = VisualConceptContext()
+        chunks = []
+        async for chunk in agent.handle_message("出图", ctx, db=AsyncMock(), project_id="p1"):
+            chunks.append(chunk)
+
+        context_idx = next(i for i, c in enumerate(chunks) if '"context_card"' in c)
+        result_idx = next((i for i, c in enumerate(chunks) if '"visual_result"' in c), -1)
+        if result_idx >= 0:
+            assert context_idx < result_idx, "context_card should come before visual_result"
+
+    @pytest.mark.asyncio
+    async def test_image_dimensions_16_9(self):
+        """Verify image generation uses 16:9 (1024x576)."""
+        agent, _, mock_image = self._make_agent_with_pipeline()
+        ctx = VisualConceptContext()
+        async for _ in agent.handle_message("品牌发布会，科技感概念图", ctx):
+            pass
+
+        mock_image.generate_image_url.assert_awaited_once()
+        call_kwargs = mock_image.generate_image_url.call_args
+        assert call_kwargs.kwargs.get("width") == 1024 or call_kwargs[1].get("width") == 1024
+        assert call_kwargs.kwargs.get("height") == 576 or call_kwargs[1].get("height") == 576
+
+        node = ctx.get_current_node()
+        assert node.image_metadata["width"] == 1024
+        assert node.image_metadata["height"] == 576
+
+    @pytest.mark.asyncio
+    async def test_auto_filled_fields_tracked_in_context(self):
+        """auto_filled dict and project_context_loaded are persisted through serialization."""
+        agent, _, _ = self._make_agent_with_pipeline()
+
+        async def mock_load(pid, db):
+            return {"company_name": "A公司", "visual_style": "简约商务", "auto_filled": {"scene": "展厅互动", "visual_style": "简约商务"}}
+
+        # Assign directly on instance — shadows class @staticmethod
+        agent._load_project_context = mock_load
+
+        ctx = VisualConceptContext()
+        async for _ in agent.handle_message("出图", ctx, db=AsyncMock(), project_id="p1"):
+            pass
+
+        assert ctx.project_context_loaded is True
+        assert ctx.auto_filled.get("visual_style") == "简约商务"
+        assert ctx.auto_filled.get("scene") == "展厅互动"
+
+        data = ctx.to_dict()
+        restored = VisualConceptContext.from_dict(data)
+        assert restored.project_context_loaded is True
+        assert restored.auto_filled["visual_style"] == "简约商务"
+

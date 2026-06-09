@@ -48,7 +48,7 @@ class ImageGenerationSkill(BaseSkill):
         prompt = input_data["prompt"]
         negative_prompt = input_data.get("negative_prompt", "")
         width = input_data.get("width", 1024)
-        height = input_data.get("height", 768)
+        height = input_data.get("height", 576)
         style = input_data.get("style")
 
         if context.image_service is None:
