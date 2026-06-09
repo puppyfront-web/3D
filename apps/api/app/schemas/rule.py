@@ -4,12 +4,13 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
 # --- Technical Rule ---
 
-class TechnicalRuleBase(BaseModel):
+class TechnicalRuleBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     category: str = Field(..., max_length=100)
     description: Optional[str] = None
@@ -22,7 +23,7 @@ class TechnicalRuleCreate(TechnicalRuleBase):
     pass
 
 
-class TechnicalRuleUpdate(BaseModel):
+class TechnicalRuleUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     category: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
@@ -36,13 +37,10 @@ class TechnicalRuleOut(TechnicalRuleBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 # --- Quality Rule ---
 
-class QualityRuleBase(BaseModel):
+class QualityRuleBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     category: str = Field(..., max_length=100)
     description: Optional[str] = None
@@ -55,7 +53,7 @@ class QualityRuleCreate(QualityRuleBase):
     pass
 
 
-class QualityRuleUpdate(BaseModel):
+class QualityRuleUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     category: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
@@ -68,6 +66,3 @@ class QualityRuleOut(QualityRuleBase):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

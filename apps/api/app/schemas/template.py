@@ -4,12 +4,13 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
 # --- Prompt Template ---
 
-class PromptTemplateBase(BaseModel):
+class PromptTemplateBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
     category: str = Field(..., max_length=100)
@@ -22,7 +23,7 @@ class PromptTemplateCreate(PromptTemplateBase):
     pass
 
 
-class PromptTemplateUpdate(BaseModel):
+class PromptTemplateUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
     category: Optional[str] = Field(None, max_length=100)
@@ -36,13 +37,10 @@ class PromptTemplateOut(PromptTemplateBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 # --- Proposal Template ---
 
-class ProposalTemplateBase(BaseModel):
+class ProposalTemplateBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
     category: str = Field(..., max_length=100)
@@ -54,7 +52,7 @@ class ProposalTemplateCreate(ProposalTemplateBase):
     pass
 
 
-class ProposalTemplateUpdate(BaseModel):
+class ProposalTemplateUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
     category: Optional[str] = Field(None, max_length=100)
@@ -66,6 +64,3 @@ class ProposalTemplateOut(ProposalTemplateBase):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

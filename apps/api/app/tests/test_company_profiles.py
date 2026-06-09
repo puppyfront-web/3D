@@ -22,7 +22,7 @@ class TestCompanyProfileCRUD:
         assert response.status_code == 201
         data = response.json()["data"]
         assert data["strengths"] == "Strong R&D"
-        assert data["market_position"] == "Challenger"
+        assert data["marketPosition"] == "Challenger"
 
     @pytest.mark.asyncio
     async def test_get_profile_by_company(self, client, sample_company_id):

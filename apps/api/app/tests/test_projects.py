@@ -163,4 +163,4 @@ async def test_projects_pagination(client, sample_company_id, sample_user_id):
     data = response.json()
     assert len(data["items"]) <= 2
     assert data["page"] == 1
-    assert data["page_size"] == 2
+    assert data["pageSize"] == 2

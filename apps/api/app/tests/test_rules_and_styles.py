@@ -140,7 +140,7 @@ class TestVisualStyles:
         assert response.status_code == 201
         data = response.json()["data"]
         assert data["name"] == "Cyberpunk Tech"
-        assert data["primary_color"] == "#00D4FF"
+        assert data["primaryColor"] == "#00D4FF"
         return data["id"]
 
     @pytest.mark.asyncio
@@ -175,7 +175,7 @@ class TestVisualStyles:
         )
         assert response.status_code == 200
         assert response.json()["data"]["name"] == "New Style"
-        assert response.json()["data"]["accent_color"] == "#00FF00"
+        assert response.json()["data"]["accentColor"] == "#00FF00"
 
     @pytest.mark.asyncio
     async def test_delete_visual_style(self, client):

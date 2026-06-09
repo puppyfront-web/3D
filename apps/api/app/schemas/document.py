@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
-class DocumentBase(BaseModel):
+class DocumentBase(APIBaseModel):
     title: Optional[str] = Field(None, max_length=500)
 
 
@@ -15,12 +16,12 @@ class DocumentCreate(DocumentBase):
     project_id: Optional[uuid.UUID] = None
 
 
-class DocumentUpdate(BaseModel):
+class DocumentUpdate(APIBaseModel):
     title: Optional[str] = Field(None, max_length=500)
     status: Optional[str] = Field(None, max_length=50)
 
 
-class DocumentOut(BaseModel):
+class DocumentOut(APIBaseModel):
     id: uuid.UUID
     project_id: Optional[uuid.UUID] = None
     filename: str
@@ -34,11 +35,8 @@ class DocumentOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
 
-
-class DocumentUploadResponse(BaseModel):
+class DocumentUploadResponse(APIBaseModel):
     """Response after a successful document upload."""
 
     id: uuid.UUID
@@ -51,7 +49,7 @@ class DocumentUploadResponse(BaseModel):
     message: str = "Document uploaded successfully"
 
 
-class DocumentIndexResponse(BaseModel):
+class DocumentIndexResponse(APIBaseModel):
     """Response after indexing a document."""
 
     document_id: uuid.UUID
@@ -60,14 +58,14 @@ class DocumentIndexResponse(BaseModel):
     message: str = "Document indexed successfully"
 
 
-class DocumentBatchIndexRequest(BaseModel):
+class DocumentBatchIndexRequest(APIBaseModel):
     """Request body for batch indexing."""
 
     document_ids: Optional[List[uuid.UUID]] = None
     project_id: Optional[uuid.UUID] = None
 
 
-class DocumentBatchIndexResponse(BaseModel):
+class DocumentBatchIndexResponse(APIBaseModel):
     """Response after batch indexing."""
 
     total: int

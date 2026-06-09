@@ -4,13 +4,14 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
 # ── Reference image sub-model ──
 
 
-class ReferenceImage(BaseModel):
+class ReferenceImage(APIBaseModel):
     """A reference image attached to a case."""
 
     url: str
@@ -26,7 +27,7 @@ class ReferenceImage(BaseModel):
 # ── CRUD schemas ──
 
 
-class CaseBase(BaseModel):
+class CaseBase(APIBaseModel):
     title: str = Field(..., max_length=500)
     client_name: str = Field(..., max_length=255)
     industry: Optional[str] = Field(None, max_length=100)
@@ -46,7 +47,7 @@ class CaseCreate(CaseBase):
     is_published: bool = False
 
 
-class CaseUpdate(BaseModel):
+class CaseUpdate(APIBaseModel):
     title: Optional[str] = Field(None, max_length=500)
     client_name: Optional[str] = Field(None, max_length=255)
     industry: Optional[str] = Field(None, max_length=100)
@@ -71,11 +72,8 @@ class CaseOut(CaseBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
 
-
-class CaseQualityScore(BaseModel):
+class CaseQualityScore(APIBaseModel):
     """Quality score for a case study."""
 
     case_id: uuid.UUID

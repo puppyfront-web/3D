@@ -65,7 +65,7 @@ class TestPromptTemplates:
         )
         assert response.status_code == 200
         assert response.json()["data"]["name"] == "After Update"
-        assert response.json()["data"]["template_text"] == "new text"
+        assert response.json()["data"]["templateText"] == "new text"
 
     @pytest.mark.asyncio
     async def test_delete_prompt_template(self, client):

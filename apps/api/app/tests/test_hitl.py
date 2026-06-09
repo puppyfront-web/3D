@@ -173,7 +173,7 @@ class TestSectionStatusAPI:
         )
         assert response.status_code == 200
         data = response.json()["data"]
-        meta = data["sections_meta"]
+        meta = data["sectionsMeta"]
         section_1 = next(s for s in meta if s["order"] == 1)
         assert section_1["status"] == "approved"
         assert section_1["reviewed_by"] == "admin"
@@ -189,7 +189,7 @@ class TestSectionStatusAPI:
         )
         assert response.status_code == 200
         data = response.json()["data"]
-        section_2 = next(s for s in data["sections_meta"] if s["order"] == 2)
+        section_2 = next(s for s in data["sectionsMeta"] if s["order"] == 2)
         assert section_2["status"] == "review"
         assert section_2["reviewed_by"] is None
         assert section_2["reviewed_at"] is None
@@ -208,7 +208,7 @@ class TestSectionStatusAPI:
             json={"status": "draft"},
         )
         assert response.status_code == 200
-        section_1 = next(s for s in response.json()["data"]["sections_meta"] if s["order"] == 1)
+        section_1 = next(s for s in response.json()["data"]["sectionsMeta"] if s["order"] == 1)
         assert section_1["status"] == "draft"
         assert section_1["reviewed_by"] is None
         assert section_1["reviewed_at"] is None
@@ -283,8 +283,8 @@ class TestOutputUpdateAPI:
         )
         assert response.status_code == 200
         data = response.json()["data"]
-        assert len(data["sections_meta"]) == 1
-        assert data["sections_meta"][0]["title"] == "新章节"
+        assert len(data["sectionsMeta"]) == 1
+        assert data["sectionsMeta"][0]["title"] == "新章节"
 
     @pytest.mark.asyncio
     async def test_update_nonexistent_output(self, client):

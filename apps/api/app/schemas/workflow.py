@@ -4,20 +4,21 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
 # ── Enhanced step sub-models ──
 
 
-class SOPStepRule(BaseModel):
+class SOPStepRule(APIBaseModel):
     """A rule within an SOP step."""
 
     type: str = Field(default="general", description="general 或 custom")
     description: str
 
 
-class SOPStepPrompt(BaseModel):
+class SOPStepPrompt(APIBaseModel):
     """A numbered analysis question within an SOP step."""
 
     number: int
@@ -25,7 +26,7 @@ class SOPStepPrompt(BaseModel):
     purpose: str = ""
 
 
-class SOPStep(BaseModel):
+class SOPStep(APIBaseModel):
     """A single step in an SOP workflow."""
 
     order: int
@@ -40,7 +41,7 @@ class SOPStep(BaseModel):
     dependencies: List[str] = Field(default_factory=list, description="依赖的步骤名称")
 
 
-class PipelineStage(BaseModel):
+class PipelineStage(APIBaseModel):
     """A pipeline stage definition."""
 
     stage: str = Field(description="阶段标识，如 enterprise_understanding")
@@ -51,7 +52,7 @@ class PipelineStage(BaseModel):
 # ── CRUD schemas ──
 
 
-class SOPWorkflowBase(BaseModel):
+class SOPWorkflowBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
     version: str = Field(default="1.0", max_length=50)
@@ -66,7 +67,7 @@ class SOPWorkflowCreate(SOPWorkflowBase):
     pass
 
 
-class SOPWorkflowUpdate(BaseModel):
+class SOPWorkflowUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
     version: Optional[str] = Field(None, max_length=50)
@@ -79,6 +80,3 @@ class SOPWorkflowOut(SOPWorkflowBase):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

@@ -4,19 +4,20 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
 # ── Structured analysis sub-models ──
 
 
-class SixViewDimension(BaseModel):
+class SixViewDimension(APIBaseModel):
     """Single dimension of the Enterprise Six Views (企业六看)."""
 
     content: Dict[str, Any] = Field(default_factory=dict)
 
 
-class SixViews(BaseModel):
+class SixViews(APIBaseModel):
     """Enterprise Six Views structured analysis."""
 
     backward_history: Optional[Dict[str, str]] = Field(
@@ -39,7 +40,7 @@ class SixViews(BaseModel):
     )
 
 
-class TechnologyLayer(BaseModel):
+class TechnologyLayer(APIBaseModel):
     """A single layer in the technology architecture."""
 
     name: str
@@ -48,7 +49,7 @@ class TechnologyLayer(BaseModel):
     metaphor: str = Field("", description="拟人化比喻，如「神经网络」「指挥大脑」")
 
 
-class TechnologyArchitecture(BaseModel):
+class TechnologyArchitecture(APIBaseModel):
     """Technology One-Page (技术一张图) layered architecture."""
 
     layers: List[TechnologyLayer] = Field(default_factory=list)
@@ -56,14 +57,14 @@ class TechnologyArchitecture(BaseModel):
     visual_metaphor: str = ""
 
 
-class BackgroundLevel(BaseModel):
+class BackgroundLevel(APIBaseModel):
     """A single level in the project background hierarchy."""
 
     title: str = ""
     content: str = ""
 
 
-class ProjectBackground(BaseModel):
+class ProjectBackground(APIBaseModel):
     """Three-level project background (项目背景)."""
 
     national_policy: Optional[BackgroundLevel] = Field(None, description="宏观：国家政策")
@@ -74,7 +75,7 @@ class ProjectBackground(BaseModel):
 # ── CRUD schemas ──
 
 
-class CompanyProfileBase(BaseModel):
+class CompanyProfileBase(APIBaseModel):
     strengths: Optional[str] = None
     weaknesses: Optional[str] = None
     market_position: Optional[str] = None
@@ -103,11 +104,8 @@ class CompanyProfileOut(CompanyProfileBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
 
-
-class CompanyAnalysisRequest(BaseModel):
+class CompanyAnalysisRequest(APIBaseModel):
     """Request to trigger AI-powered company analysis."""
 
     company_id: uuid.UUID

@@ -4,13 +4,14 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 from app.schemas.company import CompanyOut
 from app.schemas.user import UserOut
 
 
-class ProjectBase(BaseModel):
+class ProjectBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
     priority: Optional[str] = Field(None, max_length=50)
@@ -22,7 +23,7 @@ class ProjectCreate(ProjectBase):
     status: str = Field(default="draft", max_length=50)
 
 
-class ProjectUpdate(BaseModel):
+class ProjectUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
     company_id: Optional[uuid.UUID] = None
@@ -41,9 +42,6 @@ class ProjectOut(ProjectBase):
     company: Optional[CompanyOut] = None
     owner: Optional[UserOut] = None
 
-    class Config:
-        from_attributes = True
 
-
-class ProjectStatusUpdate(BaseModel):
+class ProjectStatusUpdate(APIBaseModel):
     status: str = Field(..., max_length=50, description="New status value")

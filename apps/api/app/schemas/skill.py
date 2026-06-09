@@ -2,10 +2,10 @@
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from app.schemas.common import APIBaseModel
 
 
-class SkillManifestOut(BaseModel):
+class SkillManifestOut(APIBaseModel):
     """Skill manifest returned in API responses."""
     skill_id: str
     name: str
@@ -19,7 +19,7 @@ class SkillManifestOut(BaseModel):
     version: str = "1.0.0"
 
 
-class SkillOut(BaseModel):
+class SkillOut(APIBaseModel):
     """Full skill record from database."""
     id: str
     skill_id: str
@@ -34,14 +34,14 @@ class SkillOut(BaseModel):
     status: str
 
 
-class SkillExecuteRequest(BaseModel):
+class SkillExecuteRequest(APIBaseModel):
     """Request body for executing a skill."""
     input_data: Dict[str, Any]
     project_id: Optional[str] = None
     user_id: Optional[str] = None
 
 
-class SkillExecutionOut(BaseModel):
+class SkillExecutionOut(APIBaseModel):
     """Skill execution record."""
     id: str
     skill_id: str

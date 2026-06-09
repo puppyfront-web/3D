@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
-class CompanyBase(BaseModel):
+class CompanyBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     industry: Optional[str] = Field(None, max_length=100)
     website: Optional[str] = Field(None, max_length=500)
@@ -19,7 +20,7 @@ class CompanyCreate(CompanyBase):
     pass
 
 
-class CompanyUpdate(BaseModel):
+class CompanyUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     industry: Optional[str] = Field(None, max_length=100)
     website: Optional[str] = Field(None, max_length=500)
@@ -31,6 +32,3 @@ class CompanyOut(CompanyBase):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

@@ -4,21 +4,22 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
-class GenerationTaskCreate(BaseModel):
+class GenerationTaskCreate(APIBaseModel):
     project_id: uuid.UUID
     type: str = Field(..., max_length=100)
     prompt_used: Optional[str] = None
 
 
-class GenerationTaskUpdate(BaseModel):
+class GenerationTaskUpdate(APIBaseModel):
     status: Optional[str] = Field(None, max_length=50)
     error_message: Optional[str] = None
 
 
-class GenerationOutputCreate(BaseModel):
+class GenerationOutputCreate(APIBaseModel):
     task_id: uuid.UUID
     content_type: str = Field(default="text/plain", max_length=100)
     content: str
@@ -28,7 +29,7 @@ class GenerationOutputCreate(BaseModel):
     used_sop_version: Optional[str] = Field(None, max_length=50)
 
 
-class GenerationOutputOut(BaseModel):
+class GenerationOutputOut(APIBaseModel):
     id: uuid.UUID
     task_id: uuid.UUID
     content_type: str
@@ -43,11 +44,11 @@ class GenerationOutputOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
 
-
-class GenerationTaskOut(BaseModel):
+class GenerationTaskOut(APIBaseModel):
+    model_config = {
+        "protected_namespaces": (),  # Allow "model_used" field without warning
+    }
     id: uuid.UUID
     project_id: uuid.UUID
     type: str
@@ -61,11 +62,8 @@ class GenerationTaskOut(BaseModel):
     updated_at: datetime
     outputs: Optional[List[GenerationOutputOut]] = None
 
-    class Config:
-        from_attributes = True
 
-
-class ProposalGenerationRequest(BaseModel):
+class ProposalGenerationRequest(APIBaseModel):
     """Request to generate a proposal via the agent pipeline."""
 
     project_id: uuid.UUID
@@ -76,7 +74,7 @@ class ProposalGenerationRequest(BaseModel):
     additional_instructions: Optional[str] = None
 
 
-class VisualPromptRequest(BaseModel):
+class VisualPromptRequest(APIBaseModel):
     """Request to generate a visual design prompt."""
 
     project_id: uuid.UUID
@@ -86,7 +84,7 @@ class VisualPromptRequest(BaseModel):
     height: Optional[int] = None
 
 
-class DirectImageRequest(BaseModel):
+class DirectImageRequest(APIBaseModel):
     """Request to directly generate an image from a prompt (no project required)."""
 
     prompt: str = Field(..., min_length=1, max_length=4000)
@@ -95,14 +93,14 @@ class DirectImageRequest(BaseModel):
     height: Optional[int] = None
 
 
-class ProposalContentUpdate(BaseModel):
+class ProposalContentUpdate(APIBaseModel):
     """Update proposal content (human edit) or sections metadata."""
 
     content: Optional[str] = None
     sections_meta: Optional[List[dict]] = None
 
 
-class ProposalSectionStatusUpdate(BaseModel):
+class ProposalSectionStatusUpdate(APIBaseModel):
     """Update a single section's review status."""
 
     status: str = Field(..., pattern=r"^(draft|review|approved)$")

@@ -27,7 +27,7 @@ async def test_create_case(client, sample_project_id):
     data = response.json()
     assert data["success"] is True
     assert data["data"]["title"] == "Test Case Study"
-    assert data["data"]["quality_score"] is None
+    assert data["data"]["qualityScore"] is None
     return data["data"]["id"]
 
 
@@ -62,7 +62,7 @@ async def test_list_cases_by_project(client, sample_project_id):
     assert response.status_code == 200
     data = response.json()
     for item in data["items"]:
-        assert item["project_id"] == str(sample_project_id)
+        assert item["projectId"] == str(sample_project_id)
 
 
 @pytest.mark.asyncio
@@ -85,7 +85,7 @@ async def test_update_case(client, sample_project_id):
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["title"] == "Updated Case Title"
-    assert data["data"]["is_published"] is True
+    assert data["data"]["isPublished"] is True
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,7 @@ async def test_update_quality_score(client, sample_project_id):
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["data"]["quality_score"] == 92.5
+    assert data["data"]["qualityScore"] == 92.5
 
 
 @pytest.mark.asyncio

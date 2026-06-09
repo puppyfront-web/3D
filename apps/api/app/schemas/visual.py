@@ -4,13 +4,14 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
 # ── Design specification sub-models ──
 
 
-class MaterialCategory(BaseModel):
+class MaterialCategory(APIBaseModel):
     """A material category within a design specification."""
 
     name: str = Field(description="材质类别标识，如 wood_elements")
@@ -18,28 +19,28 @@ class MaterialCategory(BaseModel):
     coverage: str = Field(default="", description="占比，如 30%")
 
 
-class MaterialSpec(BaseModel):
+class MaterialSpec(APIBaseModel):
     """Material specification parameters (材质规范)."""
 
     style: str = Field(default="", description="风格名称，如 北欧风")
     categories: List[MaterialCategory] = Field(default_factory=list)
 
 
-class ColorTemperature(BaseModel):
+class ColorTemperature(APIBaseModel):
     """Color temperature specification."""
 
     range: str = Field(default="", description="色温范围，如 2700K-3000K")
     description: str = Field(default="", description="色温描述，如 暖白到柔白")
 
 
-class LightingLayer(BaseModel):
+class LightingLayer(APIBaseModel):
     """A lighting layer specification."""
 
     type: str = Field(description="ambient / task / accent")
     description: str = ""
 
 
-class LightingSpec(BaseModel):
+class LightingSpec(APIBaseModel):
     """Lighting specification parameters (灯光规范)."""
 
     overall_atmosphere: str = Field(default="", description="整体氛围")
@@ -51,7 +52,7 @@ class LightingSpec(BaseModel):
 # ── CRUD schemas ──
 
 
-class VisualStyleBase(BaseModel):
+class VisualStyleBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
     primary_color: str = Field(default="#1a73e8", max_length=20)
@@ -70,7 +71,7 @@ class VisualStyleCreate(VisualStyleBase):
     pass
 
 
-class VisualStyleUpdate(BaseModel):
+class VisualStyleUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
     primary_color: Optional[str] = Field(None, max_length=20)
@@ -78,7 +79,7 @@ class VisualStyleUpdate(BaseModel):
     accent_color: Optional[str] = Field(None, max_length=20)
     background_color: Optional[str] = Field(None, max_length=20)
     font_primary: Optional[str] = Field(None, max_length=100)
-    font_secondary: Optional[str] = Field(None, max_length=100)
+    font_secondary: Optional[str] = Field(None, max_length=20)
     layout: Optional[str] = Field(None, max_length=50)
     brand_guidelines: Optional[str] = None
     material_spec: Optional[MaterialSpec] = None
@@ -89,6 +90,3 @@ class VisualStyleOut(VisualStyleBase):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from app.schemas.common import APIBaseModel
+from pydantic import Field
 
 
-class FeedbackCreate(BaseModel):
+class FeedbackCreate(APIBaseModel):
     project_id: uuid.UUID
     generation_task_id: Optional[uuid.UUID] = None
     rating: int = Field(..., ge=1, le=5)
@@ -15,13 +16,13 @@ class FeedbackCreate(BaseModel):
     category: Optional[str] = Field(None, max_length=100)
 
 
-class FeedbackUpdate(BaseModel):
+class FeedbackUpdate(APIBaseModel):
     rating: Optional[int] = Field(None, ge=1, le=5)
     comment: Optional[str] = None
     category: Optional[str] = Field(None, max_length=100)
 
 
-class FeedbackOut(BaseModel):
+class FeedbackOut(APIBaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     user_id: uuid.UUID
@@ -31,6 +32,3 @@ class FeedbackOut(BaseModel):
     category: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

@@ -30,9 +30,9 @@ class TestDocumentCRUD:
         )
         assert response.status_code == 201
         data = response.json()["data"]
-        assert data["original_filename"] == "test.txt"
-        assert data["content_type"] == "text/plain"
-        assert data["file_size"] == len(file_content)
+        assert data["originalFilename"] == "test.txt"
+        assert data["contentType"] == "text/plain"
+        assert data["fileSize"] == len(file_content)
         return data["id"]
 
     @pytest.mark.asyncio
@@ -48,7 +48,7 @@ class TestDocumentCRUD:
         assert response.status_code == 200
         data = response.json()
         assert data["total"] >= 1
-        filenames = [d["original_filename"] for d in data["items"]]
+        filenames = [d["originalFilename"] for d in data["items"]]
         assert "list_test.txt" in filenames
 
     @pytest.mark.asyncio
@@ -62,7 +62,7 @@ class TestDocumentCRUD:
 
         response = await client.get(f"/api/v1/documents/{doc_id}")
         assert response.status_code == 200
-        assert response.json()["data"]["original_filename"] == "get_test.txt"
+        assert response.json()["data"]["originalFilename"] == "get_test.txt"
 
     @pytest.mark.asyncio
     async def test_delete_document(self, client, sample_project_id):
@@ -93,7 +93,7 @@ class TestDocumentCRUD:
         )
         assert response.status_code == 200
         for item in response.json()["items"]:
-            assert item["project_id"] == str(sample_project_id)
+            assert item["projectId"] == str(sample_project_id)
 
     @pytest.mark.asyncio
     async def test_get_nonexistent_document(self, client):
