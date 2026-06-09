@@ -376,7 +376,7 @@ export default function ProposalPage() {
       </div>
 
       {/* Agent Panel */}
-      <AgentPanel isOpen={agentOpen} onClose={() => setAgentOpen(false)} />
+      <AgentPanel isOpen={agentOpen} onClose={() => setAgentOpen(false)} projectId={projectId} />
     </div>
   );
 }

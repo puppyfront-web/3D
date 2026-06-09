@@ -19,6 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
+  DialogClose,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,7 +32,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Search, Eye, Edit3, Copy, Trash2, FileText, Loader2 } from "lucide-react";
-import { getProposalTemplates, importProposalTemplates } from "@/lib/api";
+import {
+  getProposalTemplates,
+  createProposalTemplate,
+  updateProposalTemplate,
+  deleteProposalTemplate,
+  importProposalTemplates,
+} from "@/lib/api";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
 import type { ProposalTemplate } from "@/types";
 
@@ -38,6 +46,17 @@ export default function ProposalTemplatesPage() {
   const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selected, setSelected] = useState<ProposalTemplate | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Form state
+  const [formName, setFormName] = useState("");
+  const [formCategory, setFormCategory] = useState("");
+  const [formIndustry, setFormIndustry] = useState("");
+  const [formDescription, setFormDescription] = useState("");
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -59,6 +78,100 @@ export default function ProposalTemplatesPage() {
       return res.data;
     }
     throw new Error(res.message || "导入失败");
+  };
+
+  const resetForm = () => {
+    setFormName("");
+    setFormCategory("");
+    setFormIndustry("");
+    setFormDescription("");
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setCreateOpen(true);
+  };
+
+  const openEdit = (tpl: ProposalTemplate) => {
+    setSelected(tpl);
+    setFormName(tpl.name);
+    setFormCategory(tpl.category || "");
+    setFormIndustry(tpl.industry || "");
+    setFormDescription(tpl.description || "");
+    setEditOpen(true);
+  };
+
+  const openDelete = (tpl: ProposalTemplate) => {
+    setSelected(tpl);
+    setDeleteOpen(true);
+  };
+
+  const handleCreate = async () => {
+    if (!formName.trim()) return;
+    setSaving(true);
+    try {
+      const res = await createProposalTemplate({
+        name: formName,
+        category: formCategory,
+        industry: formIndustry,
+        description: formDescription,
+        sections: [],
+      });
+      if (res.success) {
+        setCreateOpen(false);
+        resetForm();
+        await loadTemplates();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!selected || !formName.trim()) return;
+    setSaving(true);
+    try {
+      const res = await updateProposalTemplate(selected.id, {
+        name: formName,
+        category: formCategory,
+        industry: formIndustry,
+        description: formDescription,
+      });
+      if (res.success) {
+        setEditOpen(false);
+        setSelected(null);
+        resetForm();
+        await loadTemplates();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      await deleteProposalTemplate(selected.id);
+      setDeleteOpen(false);
+      setSelected(null);
+      await loadTemplates();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCopy = async (tpl: ProposalTemplate) => {
+    const res = await createProposalTemplate({
+      name: `${tpl.name} (副本)`,
+      category: tpl.category,
+      industry: tpl.industry,
+      description: tpl.description,
+      sections: tpl.sections || [],
+    });
+    if (res.success) {
+      await loadTemplates();
+    }
   };
 
   const filtered = templates.filter((t) =>
@@ -87,46 +200,9 @@ export default function ProposalTemplatesPage() {
             dialogDescription="支持 JSON 格式，含 sections 结构定义。"
             onUpload={handleImport}
           />
-          <Dialog>
-          <DialogTrigger asChild>
-            <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
-              <Plus className="h-4 w-4" /> 新建模板
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>新建方案模板</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>模板名称</Label>
-                  <Input placeholder="输入模板名称" />
-                </div>
-                <div className="space-y-2">
-                  <Label>所属行业</Label>
-                  <Select>
-                    <SelectTrigger><SelectValue placeholder="选择行业" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="政务">政务</SelectItem>
-                      <SelectItem value="工业制造">工业制造</SelectItem>
-                      <SelectItem value="通用">通用</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>分类</Label>
-                <Input placeholder="输入分类" />
-              </div>
-              <div className="space-y-2">
-                <Label>描述</Label>
-                <Textarea rows={3} placeholder="描述模板用途..." />
-              </div>
-              <Button className="w-full bg-[#1E3A5F] hover:bg-[#2D5A8E]">创建模板</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+          <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2" onClick={openCreate}>
+            <Plus className="h-4 w-4" /> 新建模板
+          </Button>
         </div>
       </div>
 
@@ -178,9 +254,9 @@ export default function ProposalTemplatesPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Eye className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Edit3 className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Copy className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]"><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(tpl)}><Edit3 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleCopy(tpl)}><Copy className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]" onClick={() => openDelete(tpl)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -190,6 +266,116 @@ export default function ProposalTemplatesPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>新建方案模板</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>模板名称</Label>
+                <Input placeholder="输入模板名称" value={formName} onChange={(e) => setFormName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>所属行业</Label>
+                <Select value={formIndustry} onValueChange={setFormIndustry}>
+                  <SelectTrigger><SelectValue placeholder="选择行业" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="政务">政务</SelectItem>
+                    <SelectItem value="工业制造">工业制造</SelectItem>
+                    <SelectItem value="科技">科技</SelectItem>
+                    <SelectItem value="汽车">汽车</SelectItem>
+                    <SelectItem value="商业综合体">商业综合体</SelectItem>
+                    <SelectItem value="文旅">文旅</SelectItem>
+                    <SelectItem value="通用">通用</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>分类</Label>
+              <Input placeholder="输入分类" value={formCategory} onChange={(e) => setFormCategory(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>描述</Label>
+              <Textarea rows={3} placeholder="描述模板用途..." value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E]" onClick={handleCreate} disabled={saving || !formName.trim()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 创建模板
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑方案模板</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>模板名称</Label>
+                <Input value={formName} onChange={(e) => setFormName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>所属行业</Label>
+                <Select value={formIndustry} onValueChange={setFormIndustry}>
+                  <SelectTrigger><SelectValue placeholder="选择行业" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="政务">政务</SelectItem>
+                    <SelectItem value="工业制造">工业制造</SelectItem>
+                    <SelectItem value="科技">科技</SelectItem>
+                    <SelectItem value="汽车">汽车</SelectItem>
+                    <SelectItem value="商业综合体">商业综合体</SelectItem>
+                    <SelectItem value="文旅">文旅</SelectItem>
+                    <SelectItem value="通用">通用</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>分类</Label>
+              <Input value={formCategory} onChange={(e) => setFormCategory(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>描述</Label>
+              <Textarea rows={3} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E]" onClick={handleUpdate} disabled={saving || !formName.trim()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            确定要删除模板「{selected?.name}」吗？此操作不可撤销。
+          </p>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button variant="destructive" onClick={handleDelete} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

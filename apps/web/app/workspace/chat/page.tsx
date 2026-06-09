@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { Suspense, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useChat } from "@/lib/chat-context";
 import { MessageList } from "@/components/chat/message-bubble";
@@ -9,7 +9,7 @@ import { WelcomeScreen } from "@/components/chat/welcome-screen";
 import { Badge } from "@/components/ui/badge";
 import { Settings, Loader2, AlertCircle } from "lucide-react";
 
-export default function ChatPage() {
+function ChatContent() {
   const searchParams = useSearchParams();
   const {
     state,
@@ -35,10 +35,8 @@ export default function ChatPage() {
 
   const handleSend = useCallback(
     async (message: string) => {
-      // If no active conversation, create one first then send directly with the new ID
       if (!state.activeConversationId) {
         const id = await createConversation({ title: message.slice(0, 50) });
-        // Pass the new conversation ID directly to avoid stale closure
         sendMessage(message, id);
       } else {
         sendMessage(message);
@@ -49,7 +47,6 @@ export default function ChatPage() {
 
   const hasMessages = state.messages.length > 0 || state.isStreaming;
 
-  // Find active conversation for header
   const activeConv = state.conversations.find(
     (c) => c.id === state.activeConversationId
   );
@@ -107,5 +104,19 @@ export default function ChatPage() {
         isUploading={state.isUploading}
       />
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-6 w-6 animate-spin text-[#1E3A5F]" />
+        </div>
+      }
+    >
+      <ChatContent />
+    </Suspense>
   );
 }

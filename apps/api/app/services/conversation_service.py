@@ -685,6 +685,14 @@ class ConversationService:
             image_service=await get_image_service(db),
         )
 
+        # ── Auto-inject Context Pack for proposal_generation ──
+        if stage == "proposal_generation":
+            await self._enrich_proposal_input(input_data, state, context, project_id)
+
+        # ── Auto-inject visual context for visual_generation ──
+        if stage == "visual_generation":
+            await self._enrich_visual_input(input_data, state, context, project_id)
+
         # Stream stage-start indicator
         stage_names = {
             "company_analysis": "企业解析",
@@ -927,6 +935,288 @@ class ConversationService:
             return {"file_path": file_path, "format": "word"}
         except Exception as e:
             return {"error": str(e)}
+
+    async def _enrich_proposal_input(
+        self,
+        input_data: Dict[str, Any],
+        state: PipelineState,
+        context: "SkillContext",
+        project_id: Optional[str],
+    ) -> None:
+        """Auto-inject Context Pack data into proposal_generation input.
+
+        Calls 5 tools to enrich the input with RAG knowledge, cases, SOP steps,
+        prompt templates, and inferred industry — so the proposal uses real data
+        instead of marking everything as "需进一步确认".
+        """
+        from app.tools.registry import ToolRegistry
+        from app.tools.base import ToolContext
+
+        registry = ToolRegistry.get_instance()
+        tool_ctx = ToolContext(
+            db=context.db,
+            embedding_service=context.embedding_service,
+        )
+
+        company_profile = input_data.get("company_profile", {})
+        company_name = state.project_context.get("company_name", "")
+
+        # ── 1. Infer industry from company_analysis output ──
+        analysis = company_profile.get("analysis", company_profile)
+        industry = ""
+        # Try common field names in company analysis output
+        for key in ("industry", "client_industry", "business_type"):
+            val = analysis.get(key)
+            if val and isinstance(val, str):
+                industry = val
+                break
+        # Fallback: extract from six_views if present
+        if not industry:
+            six_views = analysis.get("six_views", {})
+            right_industry = six_views.get("right_industry", {})
+            if isinstance(right_industry, dict):
+                trends = right_industry.get("trends", "")
+                landscape = right_industry.get("market_landscape", "")
+                industry = trends or landscape
+            elif isinstance(right_industry, str):
+                industry = right_industry
+
+        if industry:
+            input_data["industry"] = industry
+
+        # Build a query string for RAG search
+        requirement = input_data.get("requirement_text", "")
+        rag_query = f"{company_name} {industry} 3D幕墙 策划方案".strip()
+        if requirement and len(requirement) < 100:
+            rag_query = f"{rag_query} {requirement}"
+
+        # ── 2. RAG knowledge_search (vector + keyword) ──
+        chunks_text = ""
+        used_chunks: list = []
+        used_documents: list = []
+        try:
+            ks_tool = registry.get("knowledge_search")
+            if ks_tool:
+                ks_result = await ks_tool.execute(
+                    {"query": rag_query, "top_k": 8, "project_id": project_id or ""},
+                    tool_ctx,
+                )
+                if ks_result.success and ks_result.data.get("chunks"):
+                    ks_chunks = ks_result.data["chunks"]
+                    used_chunks = [c["chunk_id"] for c in ks_chunks if c.get("chunk_id")]
+                    used_documents = list({
+                        c["document_id"] for c in ks_chunks if c.get("document_id")
+                    })
+                    parts = []
+                    for c in ks_chunks:
+                        text = c.get("chunk_text", c.get("text", ""))
+                        source = c.get("document_title", c.get("section_title", ""))
+                        tag = f"（来源: {source}）" if source else ""
+                        parts.append(f"- {text}{tag}")
+                    chunks_text = "\n".join(parts)
+                    logger.info("Pipeline RAG: retrieved %d chunks for proposal", len(ks_chunks))
+        except Exception as e:
+            logger.warning("Pipeline RAG retrieval failed: %s", e)
+
+        # ── 3. case_search by industry ──
+        cases_text = ""
+        used_cases: list = []
+        try:
+            cs_tool = registry.get("case_search")
+            if cs_tool:
+                cs_params: Dict[str, Any] = {"limit": 3}
+                if industry:
+                    cs_params["industry"] = industry
+                cs_result = await cs_tool.execute(cs_params, tool_ctx)
+                if cs_result.success and cs_result.data.get("cases"):
+                    for c in cs_result.data["cases"]:
+                        cases_text += (
+                            f"\n### {c.get('title', '')}\n"
+                            f"客户: {c.get('client_name', '')}\n"
+                            f"挑战: {c.get('challenge', '')}\n"
+                            f"方案: {c.get('solution', '')}\n"
+                            f"成果: {c.get('results', '')}\n"
+                        )
+                        used_cases.append(c.get("id", ""))
+                    logger.info("Pipeline cases: found %d cases", len(cs_result.data["cases"]))
+        except Exception as e:
+            logger.warning("Pipeline case search failed: %s", e)
+
+        # ── 4. sop_load — find matching SOP workflow ──
+        sop_steps_text = ""
+        try:
+            sop_tool = registry.get("sop_load")
+            if sop_tool:
+                # Try loading a proposal-type SOP
+                sop_result = await sop_tool.execute(
+                    {"name_contains": "策划"},
+                    tool_ctx,
+                )
+                if sop_result.success and sop_result.data.get("sop"):
+                    sop_data = sop_result.data["sop"]
+                    if sop_data.get("steps"):
+                        sop_steps_text = json.dumps(sop_data["steps"], ensure_ascii=False, indent=2)
+                    logger.info("Pipeline SOP: loaded '%s'", sop_data.get("name"))
+        except Exception as e:
+            logger.warning("Pipeline SOP load failed: %s", e)
+
+        # ── 5. prompt_template_load — get generation template ──
+        db_template = None
+        try:
+            pt_tool = registry.get("prompt_template_load")
+            if pt_tool:
+                pt_result = await pt_tool.execute({"category": "generation"}, tool_ctx)
+                if pt_result.success and pt_result.data.get("template_text"):
+                    db_template = pt_result.data["template_text"]
+                    logger.info("Pipeline template: loaded generation template")
+        except Exception as e:
+            logger.warning("Pipeline prompt template load failed: %s", e)
+
+        # ── Assemble enriched context into input_data ──
+        context_pack_parts = []
+
+        if chunks_text:
+            context_pack_parts.append(
+                f"### 知识库检索结果（RAG）\n以下是与项目需求相关的知识库文档片段，请直接引用：\n{chunks_text}"
+            )
+        if cases_text:
+            context_pack_parts.append(
+                f"### 参考案例（来自案例库）\n以下是相关案例，必须在策划案中引用并标注来源：\n{cases_text}"
+            )
+        if sop_steps_text:
+            context_pack_parts.append(
+                f"### SOP 工作流步骤\n请按以下 SOP 步骤检查策划案质量：\n{sop_steps_text}"
+            )
+        if db_template:
+            context_pack_parts.append(
+                f"### 策划案 Prompt 模板\n请参考以下模板结构生成策划案：\n{db_template}"
+            )
+
+        if context_pack_parts:
+            input_data["context_pack"] = "\n\n---\n\n".join(context_pack_parts)
+            input_data["used_chunks"] = used_chunks
+            input_data["used_documents"] = used_documents
+            input_data["used_cases"] = used_cases
+            logger.info(
+                "Pipeline enrichment: %d chunks, %d cases, SOP=%s, template=%s",
+                len(used_chunks), len(used_cases),
+                "yes" if sop_steps_text else "no",
+                "yes" if db_template else "no",
+            )
+
+    async def _enrich_visual_input(
+        self,
+        input_data: Dict[str, Any],
+        state: PipelineState,
+        context: "SkillContext",
+        project_id: Optional[str],
+    ) -> None:
+        """Auto-inject visual template + enterprise context into visual_generation stage.
+
+        Loads:
+        1. prompt_template_load (category=visual) — industry style guidelines
+        2. visual_style_match — matching visual styles from the library
+        3. Company analysis six_views / tech_arch — brand narrative + visual metaphors
+        """
+        from app.tools.registry import ToolRegistry
+        from app.tools.base import ToolContext
+
+        registry = ToolRegistry.get_instance()
+        tool_ctx = ToolContext(
+            db=context.db,
+            embedding_service=context.embedding_service,
+        )
+
+        company_output = state.stage_outputs.get("company_analysis", {})
+        analysis = company_output.get("analysis", company_output)
+
+        # ── 1. Load visual prompt template ──
+        visual_template = None
+        try:
+            pt_tool = registry.get("prompt_template_load")
+            if pt_tool:
+                pt_result = await pt_tool.execute({"category": "visual"}, tool_ctx)
+                if pt_result.success and pt_result.data.get("template_text"):
+                    visual_template = pt_result.data["template_text"]
+                    logger.info("Pipeline visual: loaded visual prompt template")
+        except Exception as e:
+            logger.warning("Pipeline visual template load failed: %s", e)
+
+        # ── 2. Load matching visual styles ──
+        style_info = ""
+        try:
+            vs_tool = registry.get("visual_style_match")
+            if vs_tool:
+                vs_result = await vs_tool.execute({"limit": 5}, tool_ctx)
+                if vs_result.success and vs_result.data.get("styles"):
+                    styles = vs_result.data["styles"]
+                    if styles:
+                        parts = []
+                        for s in styles[:3]:  # Top 3 styles
+                            name = s.get("name", "")
+                            desc = s.get("description", "")
+                            primary = s.get("primary_color", "")
+                            parts.append(f"- {name}: {desc}" + (f"（主色: {primary}）" if primary else ""))
+                        style_info = "\n".join(parts)
+                        logger.info("Pipeline visual: loaded %d visual styles", len(styles))
+        except Exception as e:
+            logger.warning("Pipeline visual style match failed: %s", e)
+
+        # ── 3. Extract brand narrative from company analysis ──
+        brand_context = ""
+        six_views = analysis.get("six_views", {})
+        tech_arch = analysis.get("technology_arch", {})
+        if six_views:
+            brand_parts = []
+            backward = six_views.get("backward_history", {})
+            if isinstance(backward, dict):
+                philosophy = backward.get("core_philosophy", "")
+                if philosophy:
+                    brand_parts.append(f"品牌理念: {philosophy}")
+            niche = six_views.get("downward_niche", {})
+            if isinstance(niche, dict):
+                advantage = niche.get("core_advantage", "")
+                if advantage:
+                    brand_parts.append(f"核心优势: {advantage}")
+            if brand_parts:
+                brand_context = "\n".join(brand_parts)
+
+        if tech_arch:
+            tech_parts = []
+            visual_metaphor = tech_arch.get("visual_metaphor", "")
+            if visual_metaphor:
+                tech_parts.append(f"视觉比喻: {visual_metaphor}")
+            for layer in tech_arch.get("layers", []):
+                metaphor = layer.get("metaphor", "")
+                name = layer.get("name", "")
+                if metaphor:
+                    tech_parts.append(f"  {name} → 视觉表达: {metaphor}")
+            if tech_parts:
+                brand_context += ("\n" if brand_context else "") + "\n".join(tech_parts)
+
+        # ── Assemble enriched context ──
+        enrich_parts = []
+        if visual_template:
+            enrich_parts.append(
+                f"### 视觉 Prompt 补充指令（来自模板库）\n{visual_template}"
+            )
+        if style_info:
+            enrich_parts.append(
+                f"### 可用视觉风格（来自风格库）\n{style_info}"
+            )
+        if brand_context:
+            enrich_parts.append(
+                f"### 企业品牌信息（来自企业解析）\n{brand_context}"
+            )
+
+        if enrich_parts:
+            input_data["visual_context_pack"] = "\n\n---\n\n".join(enrich_parts)
+            logger.info(
+                "Pipeline visual enrichment: template=%s, styles=%s, brand=%s",
+                "yes" if visual_template else "no",
+                "yes" if style_info else "no",
+                "yes" if brand_context else "no",
+            )
 
     async def _handle_visual_concept(
         self,

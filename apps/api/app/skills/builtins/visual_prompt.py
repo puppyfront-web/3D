@@ -77,13 +77,16 @@ class VisualPromptSkill(BaseSkill):
             return await self._execute_db_mode(input_data, context)
 
         # --- Mode 2: Conversation mode ---
-        return await self._execute_chat_mode(context_text, style_preferences, context)
+        visual_context_pack = input_data.get("visual_context_pack")
+        return await self._execute_chat_mode(context_text, style_preferences, context, visual_context_pack=visual_context_pack)
 
     async def _execute_chat_mode(
         self,
         context_text: str,
         style_preferences: str,
         context: SkillContext,
+        *,
+        visual_context_pack: str | None = None,
     ) -> SkillResult:
         """Generate visual prompt from conversation context."""
         prompt = f"""为以下需求生成视觉设计方案：
@@ -99,6 +102,14 @@ class VisualPromptSkill(BaseSkill):
 - material_scheme: 材质方案（如有相关信息）
 - lighting_scheme: 灯光方案（如有相关信息）
 - missing_info: 需进一步确认的信息"""
+
+        # Inject visual context pack (template, styles, brand info)
+        if visual_context_pack:
+            prompt += (
+                f"\n\n---\n\n以下是由系统自动加载的视觉参考资料，请充分融入设计方案：\n\n"
+                f"{visual_context_pack}\n\n"
+                "重要：请在 positive_prompt 和 visual_strategy 中体现上述风格指导和品牌信息。"
+            )
 
         result = await context.llm_service.generate_json(
             prompt=prompt,

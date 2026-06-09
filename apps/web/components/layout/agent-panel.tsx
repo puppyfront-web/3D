@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -12,11 +12,14 @@ import {
   FileText,
   BarChart3,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
+import { createConversation, streamChat } from "@/lib/chat-api";
 
 interface AgentPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  projectId?: string;
 }
 
 interface AgentMessage {
@@ -24,58 +27,119 @@ interface AgentMessage {
   role: "assistant" | "user";
   content: string;
   timestamp: string;
+  loading?: boolean;
 }
 
-const initialMessages: AgentMessage[] = [
-  {
-    id: "m1",
-    role: "assistant",
-    content:
-      "您好！我是AI助手，可以帮您优化方案内容、分析数据、生成建议。请问有什么需要帮助的吗？",
-    timestamp: "14:30",
-  },
-];
-
 const suggestions = [
-  { icon: <FileText className="h-3.5 w-3.5" />, text: "优化当前章节内容" },
-  { icon: <BarChart3 className="h-3.5 w-3.5" />, text: "分析竞品数据" },
-  { icon: <Lightbulb className="h-3.5 w-3.5" />, text: "生成改进建议" },
+  { icon: <FileText className="h-3.5 w-3.5" />, text: "优化当前章节内容", prompt: "请帮我优化当前方案的内容" },
+  { icon: <BarChart3 className="h-3.5 w-3.5" />, text: "分析竞品数据", prompt: "请分析相关行业的竞品数据" },
+  { icon: <Lightbulb className="h-3.5 w-3.5" />, text: "生成改进建议", prompt: "请针对当前方案生成改进建议" },
 ];
 
-export function AgentPanel({ isOpen, onClose }: AgentPanelProps) {
-  const [messages, setMessages] = useState<AgentMessage[]>(initialMessages);
+export function AgentPanel({ isOpen, onClose, projectId }: AgentPanelProps) {
+  const [messages, setMessages] = useState<AgentMessage[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      content: "您好！我是AI助手，可以帮您优化方案内容、分析数据、生成建议。请问有什么需要帮助的吗？",
+      timestamp: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+    },
+  ]);
   const [inputValue, setInputValue] = useState("");
+  const [sending, setSending] = useState(false);
+  const conversationIdRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const handleSend = () => {
-    if (!inputValue.trim()) return;
+  const ensureConversation = useCallback(async () => {
+    if (conversationIdRef.current) return conversationIdRef.current;
+    try {
+      const res = await createConversation({
+        projectId,
+        title: "AI 助手对话",
+      });
+      if (res.success && res.data) {
+        conversationIdRef.current = res.data.id;
+        return res.data.id;
+      }
+    } catch {
+      // fallback — will retry on next message
+    }
+    return null;
+  }, [projectId]);
+
+  const handleSend = async (text?: string) => {
+    const content = text || inputValue.trim();
+    if (!content || sending) return;
 
     const userMsg: AgentMessage = {
       id: `m-${Date.now()}`,
       role: "user",
-      content: inputValue,
-      timestamp: new Date().toLocaleTimeString("zh-CN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      content,
+      timestamp: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const aiMsgId = `ai-${Date.now()}`;
+    const aiMsg: AgentMessage = {
+      id: aiMsgId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+      loading: true,
+    };
 
-    setTimeout(() => {
-      const aiMsg: AgentMessage = {
-        id: `m-${Date.now() + 1}`,
-        role: "assistant",
-        content:
-          "收到您的需求，我正在分析相关内容。基于当前方案的数据，我建议从以下几个方面进行优化：\n\n1. 技术架构部分可以增加容灾设计说明\n2. 投资概算建议增加10%的风险储备金\n3. 实施计划中第二阶段与第三阶段之间建议增加联调缓冲期",
-        timestamp: new Date().toLocaleTimeString("zh-CN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-    }, 1000);
-
+    setMessages((prev) => [...prev, userMsg, aiMsg]);
     setInputValue("");
+    setSending(true);
+
+    try {
+      const convId = await ensureConversation();
+      if (!convId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId
+              ? { ...m, loading: false, content: "暂时无法连接AI服务，请稍后再试。" }
+              : m
+          )
+        );
+        setSending(false);
+        return;
+      }
+
+      let fullText = "";
+      const ctrl = streamChat(convId, content, {
+        onTextDelta: (text) => {
+          fullText += text;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId ? { ...m, loading: false, content: fullText } : m
+            )
+          );
+        },
+        onComplete: () => {
+          setSending(false);
+        },
+        onError: (err) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId
+                ? { ...m, loading: false, content: fullText || `请求失败: ${err.message}` }
+                : m
+            )
+          );
+          setSending(false);
+        },
+      });
+      abortRef.current = ctrl;
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId
+            ? { ...m, loading: false, content: "连接失败，请检查网络后重试。" }
+            : m
+        )
+      );
+      setSending(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -109,7 +173,13 @@ export function AgentPanel({ isOpen, onClose }: AgentPanelProps) {
                   : "bg-gray-50 text-gray-700 border border-gray-100"
               }`}
             >
-              {msg.content}
+              {msg.loading ? (
+                <span className="flex items-center gap-1.5 text-gray-400">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 思考中...
+                </span>
+              ) : (
+                msg.content
+              )}
             </div>
             <span className="text-xs text-gray-400 mt-1 px-1">{msg.timestamp}</span>
           </div>
@@ -124,6 +194,8 @@ export function AgentPanel({ isOpen, onClose }: AgentPanelProps) {
             <button
               key={i}
               className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded transition-colors"
+              onClick={() => handleSend(s.prompt)}
+              disabled={sending}
             >
               {s.icon}
               <span>{s.text}</span>
@@ -141,14 +213,16 @@ export function AgentPanel({ isOpen, onClose }: AgentPanelProps) {
           <Input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
             placeholder="输入您的问题..."
             className="flex-1 h-8 text-sm"
+            disabled={sending}
           />
           <Button
-            onClick={handleSend}
+            onClick={() => handleSend()}
             size="icon"
             className="h-8 w-8 bg-[#1E3A5F] hover:bg-[#2D5A8E]"
+            disabled={sending || !inputValue.trim()}
           >
             <Send className="h-3.5 w-3.5" />
           </Button>

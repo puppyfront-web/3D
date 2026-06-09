@@ -88,13 +88,28 @@ class ProposalGenerationSkill(BaseSkill):
 
         # --- Mode 2: Conversation mode ---
         company_profile = input_data.get("company_profile")
-        return await self._execute_chat_mode(requirement_text, company_profile, context)
+        context_pack = input_data.get("context_pack")
+        used_cases = input_data.get("used_cases", [])
+        used_documents = input_data.get("used_documents", [])
+        used_chunks = input_data.get("used_chunks", [])
+        return await self._execute_chat_mode(
+            requirement_text, company_profile, context,
+            context_pack=context_pack,
+            used_cases=used_cases,
+            used_documents=used_documents,
+            used_chunks=used_chunks,
+        )
 
     async def _execute_chat_mode(
         self,
         requirement_text: str,
         company_profile: Any,
         context: SkillContext,
+        *,
+        context_pack: str | None = None,
+        used_cases: list | None = None,
+        used_documents: list | None = None,
+        used_chunks: list | None = None,
     ) -> SkillResult:
         """Generate proposal from conversation context, no DB dependency."""
         if not requirement_text:
@@ -138,6 +153,16 @@ class ProposalGenerationSkill(BaseSkill):
             )
         else:
             user_prompt = requirement_text
+
+        # Inject Context Pack (RAG chunks, cases, SOP, prompt template) if available
+        if context_pack:
+            user_prompt += (
+                f"\n\n---\n\n以下是由系统自动检索的 Context Pack，请充分引用：\n\n{context_pack}\n\n"
+                "重要：请在策划案中引用上述知识库片段和案例，特别是：\n"
+                "- 第8章「参考案例」必须使用上方提供的案例库数据，标注来源\n"
+                "- 第9章「实施建议」参考 SOP 步骤\n"
+                "- 引用知识库内容时标注来源文档\n"
+            )
 
         prompt = f"""为以下需求生成一份专业策划方案：
 
@@ -191,15 +216,30 @@ class ProposalGenerationSkill(BaseSkill):
             max_tokens=4000,
         )
 
-        return SkillResult(
-            success=True,
-            output={
-                "content_type": "text/markdown",
-                "content": proposal_content,
-                "missing_info": ["请核实策划案中的报价和工期信息"],
-            },
-            missing_info=["请核实策划案中的报价和工期信息"],
-        )
+        result_output: Dict[str, Any] = {
+            "content_type": "text/markdown",
+            "content": proposal_content,
+            "missing_info": ["请核实策划案中的报价和工期信息"],
+        }
+
+        result_kwargs: Dict[str, Any] = {
+            "success": True,
+            "output": result_output,
+            "missing_info": ["请核实策划案中的报价和工期信息"],
+        }
+
+        # Include usage tracking if context pack was injected
+        if used_cases:
+            result_output["used_cases"] = used_cases
+            result_kwargs["used_cases"] = used_cases
+        if used_documents:
+            result_output["used_documents"] = used_documents
+            result_kwargs["used_documents"] = used_documents
+        if used_chunks:
+            result_output["used_chunks"] = used_chunks
+            result_kwargs["used_chunks"] = used_chunks
+
+        return SkillResult(**result_kwargs)
 
     async def _execute_db_mode(
         self,

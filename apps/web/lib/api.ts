@@ -227,6 +227,12 @@ export async function exportToPptx(taskId: string): Promise<ApiResponse<{ file_p
   return apiFetch<{ file_path: string }>(`/api/v1/exports/pptx/${taskId}`, { method: "POST" });
 }
 
+export async function getGenerationOutputs(
+  projectId: string,
+): Promise<ApiResponse<Record<string, unknown>[]>> {
+  return unwrapPaginated<Record<string, unknown>>(`/api/v1/generations/tasks?project_id=${projectId}`);
+}
+
 // ============================================================
 // Helpers
 // ============================================================
@@ -391,6 +397,31 @@ export async function deleteSOPWorkflow(id: string): Promise<ApiResponse<null>> 
 
 export async function getProposalTemplates(): Promise<ApiResponse<ProposalTemplate[]>> {
   return unwrapPaginated<ProposalTemplate>("/api/v1/templates/proposals");
+}
+
+export async function createProposalTemplate(
+  data: Partial<ProposalTemplate>,
+): Promise<ApiResponse<ProposalTemplate>> {
+  return apiFetch<ProposalTemplate>("/api/v1/templates/proposals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateProposalTemplate(
+  id: string,
+  data: Partial<ProposalTemplate>,
+): Promise<ApiResponse<ProposalTemplate>> {
+  return apiFetch<ProposalTemplate>(`/api/v1/templates/proposals/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteProposalTemplate(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/templates/proposals/${id}`, { method: "DELETE" });
 }
 
 export async function getPromptTemplates(): Promise<ApiResponse<PromptTemplate[]>> {
