@@ -191,8 +191,8 @@ done < <(echo "$MESSAGES" | jq -c '.data.messages[] // empty' 2>/dev/null)
 # Update last polled timestamp
 ensure_sessions_file
 if [[ "$LATEST_TS" != "$LAST_TS" ]]; then
-  local tmp="${SESSIONS_FILE}.tmp"
-  jq --arg ts "$LATEST_TS" '.last_polled_msg_ts = $ts' "$SESSIONS_FILE" > "$tmp" && mv "$tmp" "$SESSIONS_FILE"
+  POLL_TMP="${SESSIONS_FILE}.tmp"
+  jq --arg ts "$LATEST_TS" '.last_polled_msg_ts = $ts' "$SESSIONS_FILE" > "$POLL_TMP" && mv "$POLL_TMP" "$SESSIONS_FILE"
 fi
 
 echo "✅ Polled: ${NEW_COUNT} new command(s) found"
