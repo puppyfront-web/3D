@@ -33,6 +33,25 @@ async def _get_task_output(task_id: uuid.UUID, db: AsyncSession):
     return task, output
 
 
+def _check_export_eligibility(output: GenerationOutput) -> tuple[bool, list[str]]:
+    """Check if a proposal is eligible for export (all sections approved).
+
+    Returns (is_eligible, list_of_blocker_messages).
+    """
+    blockers: list[str] = []
+    meta = output.sections_meta
+
+    if not meta:
+        # No sections_meta means proposal was generated before HITL was added — allow export
+        return True, []
+
+    for section in meta:
+        if section.get("status") != "approved":
+            blockers.append(f"章节「{section.get('title', '?')}」未审核通过")
+
+    return len(blockers) == 0, blockers
+
+
 @router.post("/word/{task_id}")
 async def export_to_word(
     task_id: uuid.UUID,
@@ -40,6 +59,13 @@ async def export_to_word(
 ):
     """Export a generation task's output as a Word document."""
     task, output = await _get_task_output(task_id, db)
+
+    eligible, blockers = _check_export_eligibility(output)
+    if not eligible:
+        raise HTTPException(
+            status_code=403,
+            detail={"message": "导出前需完成审核", "blockers": blockers},
+        )
 
     try:
         from docx import Document as DocxDocument
@@ -112,6 +138,13 @@ async def export_to_pdf(
 ):
     """Export a generation task's output as a PDF document."""
     task, output = await _get_task_output(task_id, db)
+
+    eligible, blockers = _check_export_eligibility(output)
+    if not eligible:
+        raise HTTPException(
+            status_code=403,
+            detail={"message": "导出前需完成审核", "blockers": blockers},
+        )
 
     try:
         from reportlab.lib.pagesizes import A4
@@ -191,6 +224,13 @@ async def export_to_pptx(
 ):
     """Export a generation task's output as a PowerPoint presentation."""
     task, output = await _get_task_output(task_id, db)
+
+    eligible, blockers = _check_export_eligibility(output)
+    if not eligible:
+        raise HTTPException(
+            status_code=403,
+            detail={"message": "导出前需完成审核", "blockers": blockers},
+        )
 
     try:
         from app.exporters.pptx_exporter import PPTXExporter

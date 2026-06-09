@@ -37,6 +37,9 @@ class GenerationOutputOut(BaseModel):
     used_documents: Optional[List[str]] = None
     used_chunks: Optional[List[str]] = None
     used_sop_version: Optional[str] = None
+    sections_meta: Optional[List[dict]] = None
+    version: int = 1
+    parent_output_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: datetime
 
@@ -90,3 +93,17 @@ class DirectImageRequest(BaseModel):
     negative_prompt: Optional[str] = None
     width: Optional[int] = None
     height: Optional[int] = None
+
+
+class ProposalContentUpdate(BaseModel):
+    """Update proposal content (human edit) or sections metadata."""
+
+    content: Optional[str] = None
+    sections_meta: Optional[List[dict]] = None
+
+
+class ProposalSectionStatusUpdate(BaseModel):
+    """Update a single section's review status."""
+
+    status: str = Field(..., pattern=r"^(draft|review|approved)$")
+    reviewed_by: Optional[str] = None

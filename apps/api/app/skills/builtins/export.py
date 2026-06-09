@@ -51,6 +51,16 @@ class ExportSkill(BaseSkill):
         if not output:
             return SkillResult(success=False, error=f"Generation output not found: {task_id}")
 
+        # Export gate: check all sections are approved
+        sections_meta = output.sections_meta or []
+        if sections_meta:
+            unapproved = [s.get("title", "?") for s in sections_meta if s.get("status") != "approved"]
+            if unapproved:
+                return SkillResult(
+                    success=False,
+                    error=f"导出前需完成审核，以下章节未通过：{', '.join(unapproved)}",
+                )
+
         content = output.content
         if not content:
             return SkillResult(success=False, error="No content to export")

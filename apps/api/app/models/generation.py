@@ -60,6 +60,17 @@ class GenerationOutput(Base):
     used_chunks: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
     used_sop_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
+    # Section-level metadata for human-in-the-loop review
+    sections_meta: Mapped[Optional[list]] = mapped_column(
+        JSON, nullable=True, default=list,
+        comment="[{id, title, order, status, reviewed_by, reviewed_at}]"
+    )
+    version: Mapped[int] = mapped_column(default=1, server_default="1", nullable=False)
+    parent_output_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("generation_outputs.id"), nullable=True,
+        comment="Previous version output ID for version history"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

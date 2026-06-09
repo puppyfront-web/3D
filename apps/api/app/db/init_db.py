@@ -199,9 +199,10 @@ async def seed_database() -> None:
             id=uuid.uuid4(),
             name="通用文案策划 SOP（Base）",
             description="所有行业通用的文案策划标准流程。"
-                        "涵盖企业信息采集、背景分析（宏观/中观/微观）、企业六看画像、质量审核。"
+                        "涵盖企业信息采集、背景分析（宏观/中观/微观）、企业六看画像、"
+                        "策划案生成（10章结构）、质量审核与导出门控。"
                         "行业定制内容通过行业扩展 SOP 叠加。",
-            version="1.0",
+            version="1.1",
             pipeline_stages=[
                 {
                     "stage": "enterprise_understanding",
@@ -214,9 +215,14 @@ async def seed_database() -> None:
                     "description": "从宏观、中观、微观三个层面分析行业与项目背景",
                 },
                 {
+                    "stage": "proposal_creation",
+                    "name": "策划案生成",
+                    "description": "基于企业六看和背景分析，按10章标准结构生成策划案",
+                },
+                {
                     "stage": "quality_review",
                     "name": "质量审核",
-                    "description": "审核文案质量，确保专业性和准确性",
+                    "description": "审核文案质量，执行导出门控检查",
                 },
             ],
             steps=[
@@ -295,20 +301,70 @@ async def seed_database() -> None:
                 },
                 {
                     "order": 4,
+                    "name": "策划案生成",
+                    "description": "基于企业六看画像和背景分析，按10章标准结构生成完整策划案。"
+                                    "每章内容需体现对应六看维度的分析成果。",
+                    "agent": "proposal_generation",
+                    "inputs": ["company_profile", "background_analysis_report",
+                               "case_studies", "sop_rules"],
+                    "outputs": ["proposal_sections", "missing_info", "citations"],
+                    "stage": "proposal_creation",
+                    "rules": [
+                        {"type": "general", "description": "按10章标准结构生成：需求理解、企业解析摘要、项目背景、项目目标、创意主题、方案亮点、视觉方向、参考案例、实施建议、风险与待确认事项"},
+                        {"type": "general", "description": "需求理解章节必须综合六看全部6个维度分析，缺一不可"},
+                        {"type": "general", "description": "项目背景章节必须三级递进：宏观政策→中观行业→微观定位"},
+                        {"type": "general", "description": "项目目标章节必须包含量化指标，至少3条可衡量目标"},
+                        {"type": "general", "description": "创意主题章节必须提供2-3个方向，结合品牌基因和差异化"},
+                        {"type": "general", "description": "参考案例章节必须来自案例库，标注来源，禁止编造"},
+                        {"type": "general", "description": "实施建议章节需包含时间线和资源配置"},
+                        {"type": "general", "description": "风险章节需覆盖技术风险、预算风险、时间风险，预算相关内容标记 require_human_review: true"},
+                    ],
+                    "prompts": [
+                        {"number": 1, "question": "企业六看中最核心的差异化发现是什么？",
+                         "purpose": "为创意主题提供灵感"},
+                        {"number": 2, "question": "客户最关心的项目目标是什么？",
+                         "purpose": "确定策划案重点"},
+                    ],
+                    "dependencies": ["企业六看分析"],
+                },
+                {
+                    "order": 5,
                     "name": "质量审核",
-                    "description": "审核最终文案的质量，确保专业性、准确性和可交付性。",
+                    "description": "审核最终文案的质量，确保专业性、准确性和可交付性。"
+                                    "同时执行导出门控检查，确认所有检查项通过后才允许导出。",
                     "agent": "quality_check",
-                    "inputs": ["company_profile", "all_deliverables"],
+                    "inputs": ["company_profile", "proposal_sections", "all_deliverables"],
                     "outputs": ["review_result"],
                     "stage": "quality_review",
                     "rules": [
-                        {"type": "general", "description": "用真实数据并标明来源，禁止无出处引用"},
-                        {"type": "general", "description": "文案总结避免AI味（模板化表述、空泛总结、过度修饰）"},
-                        {"type": "general", "description": "只分析不判断，不做超出数据支撑范围的结论"},
-                        {"type": "general", "description": "以10年经验策展人视角输出，文案需精炼、逻辑强、专业"},
-                        {"type": "general", "description": "所有报价、工期、技术参数必须标记「需要进一步确认」"},
+                        # 文案质量规则
+                        {"type": "general", "category": "content_quality",
+                         "description": "用真实数据并标明来源，禁止无出处引用"},
+                        {"type": "general", "category": "content_quality",
+                         "description": "文案总结避免AI味（模板化表述、空泛总结、过度修饰）"},
+                        {"type": "general", "category": "content_quality",
+                         "description": "只分析不判断，不做超出数据支撑范围的结论"},
+                        {"type": "general", "category": "content_quality",
+                         "description": "以10年经验策展人视角输出，文案需精炼、逻辑强、专业"},
+                        {"type": "general", "category": "content_quality",
+                         "description": "所有报价、工期、技术参数必须标记「需要进一步确认」"},
+                        # 导出门控规则（管理员可配置）
+                        {"type": "general", "category": "export_gate",
+                         "description": "企业解析是否已确认", "check_item": "企业解析确认"},
+                        {"type": "general", "category": "export_gate",
+                         "description": "是否引用真实案例（无编造）", "check_item": "案例来源验证"},
+                        {"type": "general", "category": "export_gate",
+                         "description": "是否存在未补全的缺失参数", "check_item": "缺失参数检查"},
+                        {"type": "general", "category": "export_gate",
+                         "description": "是否包含未经确认的报价",
+                         "check_item": "报价人工确认", "require_human_review": True},
+                        {"type": "general", "category": "export_gate",
+                         "description": "是否包含未经确认的工期",
+                         "check_item": "工期人工确认", "require_human_review": True},
+                        {"type": "general", "category": "export_gate",
+                         "description": "视觉结果是否已人工确认", "check_item": "视觉效果确认"},
                     ],
-                    "dependencies": [],
+                    "dependencies": ["策划案生成"],
                 },
             ],
             is_active=True,
@@ -321,7 +377,7 @@ async def seed_database() -> None:
             id=uuid.uuid4(),
             name="智能制造行业文案扩展 SOP",
             description="智能制造行业的文案策划定制流程，需与「通用文案策划 SOP（Base）」配合使用。"
-                        "在通用流程（背景分析+六看+质量审核）之间插入行业定制步骤："
+                        "在通用流程（背景分析+六看+策划案生成+质量审核）之间插入行业定制步骤："
                         "核心价值提炼 → 技术一张图 → 产品拆解。"
                         "适用场景：智能制造品牌馆、企业展厅、产线可视化。",
             version="1.0",

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,8 @@ from app.schemas.generation import (
     GenerationTaskCreate,
     GenerationTaskOut,
     GenerationTaskUpdate,
+    ProposalContentUpdate,
+    ProposalSectionStatusUpdate,
 )
 
 router = APIRouter(prefix="/generations", tags=["generations"])
@@ -166,3 +168,64 @@ async def delete_task(task_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         raise NotFoundException("GenerationTask", str(task_id))
     await db.delete(task)
     return Response(message="Generation task deleted")
+
+
+@router.put("/outputs/{output_id}", response_model=Response[GenerationOutputOut])
+async def update_output(
+    output_id: uuid.UUID,
+    body: ProposalContentUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update proposal content or sections metadata (human edit)."""
+    output = await db.get(GenerationOutput, output_id)
+    if not output:
+        raise NotFoundException("GenerationOutput", str(output_id))
+
+    if body.content is not None:
+        output.content = body.content
+    if body.sections_meta is not None:
+        output.sections_meta = body.sections_meta
+
+    await db.flush()
+    await db.refresh(output)
+    return Response(data=GenerationOutputOut.model_validate(output), message="Output updated")
+
+
+@router.patch(
+    "/outputs/{output_id}/sections/{section_order}/status",
+    response_model=Response[GenerationOutputOut],
+)
+async def update_section_status(
+    output_id: uuid.UUID,
+    section_order: int,
+    body: ProposalSectionStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a single section's review status."""
+    output = await db.get(GenerationOutput, output_id)
+    if not output:
+        raise NotFoundException("GenerationOutput", str(output_id))
+
+    sections_meta = output.sections_meta or []
+    if section_order < 1 or section_order > len(sections_meta):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Section order {section_order} out of range (1-{len(sections_meta)})",
+        )
+
+    # Find and update the section (order is 1-based)
+    for section in sections_meta:
+        if section.get("order") == section_order:
+            section["status"] = body.status
+            if body.status == "approved":
+                section["reviewed_by"] = body.reviewed_by or "unknown"
+                section["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+            else:
+                section["reviewed_by"] = None
+                section["reviewed_at"] = None
+            break
+
+    output.sections_meta = sections_meta
+    await db.flush()
+    await db.refresh(output)
+    return Response(data=GenerationOutputOut.model_validate(output), message="Section status updated")

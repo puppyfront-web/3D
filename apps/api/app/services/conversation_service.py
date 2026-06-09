@@ -289,6 +289,19 @@ class ConversationService:
             if project_id:
                 input_data["project_id"] = project_id
 
+            # ── Pre-validation: quick checks before invoking LLM ──
+            quick_response = self._quick_prevalidate(skill_id, input_data)
+            if quick_response:
+                yield f"data: {json.dumps({'type': 'text_delta', 'text': quick_response})}\n\n"
+                await self.save_message(
+                    db, conversation_id, "assistant",
+                    content=quick_response,
+                    content_type="text",
+                    metadata={"intent": "run_skill", "skill_id": skill_id, "prevalidated": True},
+                    auto_commit=True,
+                )
+                return
+
             context = SkillContext(
                 project_id=project_id,
                 user_id=None,
@@ -432,6 +445,46 @@ class ConversationService:
                 db, conversation_id, intent.input_data.get("user_message", ""), history
             ):
                 yield chunk
+
+    @staticmethod
+    def _quick_prevalidate(skill_id: str, input_data: dict) -> str | None:
+        """Rule-based pre-validation for skills — returns a quick response
+        message if required inputs are missing, or None to proceed normally.
+
+        This check does NOT call the LLM; it uses simple string heuristics
+        so the user gets an immediate response.
+        """
+        if skill_id == "company_analysis":
+            company_info = input_data.get("company_info", "") or ""
+            requirement = input_data.get("requirement_text", "") or ""
+            combined = f"{company_info} {requirement}".strip()
+
+            # Strip common trigger phrases to see if any real info remains
+            trigger_phrases = [
+                "帮我进行企业解析", "帮我做企业解析", "进行企业解析",
+                "帮我分析一下企业", "帮我分析企业", "企业解析",
+                "企业分析", "分析一下企业", "分析企业",
+            ]
+            cleaned = combined
+            for phrase in trigger_phrases:
+                cleaned = cleaned.replace(phrase, " ")
+            cleaned = " ".join(cleaned.split()).strip()
+
+            # If nothing meaningful is left, ask for info
+            if len(cleaned) < 2:
+                return (
+                    "请先提供企业的基本信息，我将为您进行专业解析。\n\n"
+                    "至少需要：\n"
+                    "1. **企业名称**（必填）\n\n"
+                    "补充以下信息可获得更精准的分析：\n"
+                    "- 所属行业\n"
+                    "- 主要产品或服务\n"
+                    "- 品牌关键词或调性\n"
+                    "- 本次项目目标\n\n"
+                    "您可以直接输入，例如：*「华为，科技行业，主要做5G通信设备和手机」*"
+                )
+
+        return None
 
     @staticmethod
     def _extract_image_prompt(message: str) -> str:
