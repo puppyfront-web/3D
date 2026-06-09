@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.exceptions import NotFoundException
 from app.db.session import get_db
@@ -226,6 +227,7 @@ async def update_section_status(
             break
 
     output.sections_meta = sections_meta
+    flag_modified(output, "sections_meta")
     await db.flush()
     await db.refresh(output)
     return Response(data=GenerationOutputOut.model_validate(output), message="Section status updated")
