@@ -183,6 +183,8 @@ class CompanyAnalysisSkill(BaseSkill):
         """Run analysis with DB-backed company data."""
         from sqlalchemy import select
         from app.models.project import Company
+        from app.tools.registry import ToolRegistry
+        from app.tools.base import ToolContext
 
         result = await context.db.execute(
             select(Company).where(Company.id == uuid.UUID(company_id))
@@ -191,28 +193,38 @@ class CompanyAnalysisSkill(BaseSkill):
         if not company:
             return SkillResult(success=False, error=f"Company not found: {company_id}")
 
-        # Retrieve related documents if project context available
+        # Retrieve related documents via knowledge_search Tool
+        tool_ctx = ToolContext(db=context.db, embedding_service=context.embedding_service)
+        registry = ToolRegistry.get_instance()
         used_documents: List[str] = []
         used_chunks: List[str] = []
         retrieved_context = ""
         if context.project_id:
             try:
-                from app.rag.retriever import HybridRetriever
-                retriever = HybridRetriever(embedding_service=context.embedding_service)
-                chunks = await retriever.search(
-                    query=f"{company.name} {company.industry or ''}",
-                    top_k=5,
-                    project_id=uuid.UUID(context.project_id),
-                    db=context.db,
-                )
-                retrieved_context = "\n".join([f"- {c.content}" for c in chunks])
-                used_chunks = [c.chunk_id for c in chunks]
-                used_documents = list({c.document_id for c in chunks})
+                ks_tool = registry.get("knowledge_search")
+                if ks_tool:
+                    ks_result = await ks_tool.execute(
+                        {"query": f"{company.name} {company.industry or ''}", "top_k": 5, "project_id": context.project_id},
+                        tool_ctx,
+                    )
+                    if ks_result.success and ks_result.data.get("chunks"):
+                        chunks = ks_result.data["chunks"]
+                        retrieved_context = "\n".join([f"- {c['content']}" for c in chunks if c.get("content")])
+                        used_chunks = [c["chunk_id"] for c in chunks if c.get("chunk_id")]
+                        used_documents = list({c["document_id"] for c in chunks if c.get("document_id")})
             except Exception as e:
                 logger.warning("RAG retrieval failed during company analysis: %s", e)
 
-        # Load prompt template from DB and assemble with framework
-        db_template = await self._load_prompt_template(context, "analysis")
+        # Load prompt template via prompt_template_load Tool
+        db_template = None
+        try:
+            pt_tool = registry.get("prompt_template_load")
+            if pt_tool:
+                pt_result = await pt_tool.execute({"category": "analysis"}, tool_ctx)
+                if pt_result.success:
+                    db_template = pt_result.data.get("template_text")
+        except Exception as e:
+            logger.warning("Prompt template load failed: %s", e)
 
         prompt = self._assemble_prompt(
             default_prompt=self._default_prompt(),

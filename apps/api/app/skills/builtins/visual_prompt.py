@@ -130,7 +130,11 @@ class VisualPromptSkill(BaseSkill):
 
         from sqlalchemy import select
         from app.models.project import Project, Company
-        from app.models.company_profile import CompanyProfile
+        from app.tools.registry import ToolRegistry
+        from app.tools.base import ToolContext
+
+        tool_ctx = ToolContext(db=context.db, embedding_service=context.embedding_service)
+        registry = ToolRegistry.get_instance()
 
         project = await context.db.get(Project, uuid.UUID(project_id))
         if not project:
@@ -140,45 +144,63 @@ class VisualPromptSkill(BaseSkill):
         company_name = company.name if company else "未知企业"
         industry = company.industry if company else "未知行业"
 
-        # Build enterprise context from structured profile
+        # Load company profile via company_profile_load Tool
         enterprise_context = ""
         if company:
-            profile_result = await context.db.execute(
-                select(CompanyProfile).where(CompanyProfile.company_id == company.id)
-            )
-            profile = profile_result.scalar_one_or_none()
-            if profile:
-                # Render Six Views
-                if profile.six_views:
-                    enterprise_context += self._render_six_views_for_visual(profile.six_views)
-                # Render Technology Architecture
-                if profile.technology_arch:
-                    enterprise_context += self._render_tech_for_visual(profile.technology_arch)
+            try:
+                cp_tool = registry.get("company_profile_load")
+                if cp_tool:
+                    cp_result = await cp_tool.execute({"company_id": str(company.id)}, tool_ctx)
+                    if cp_result.success and cp_result.data.get("profile"):
+                        profile = cp_result.data["profile"]
+                        if profile.get("six_views"):
+                            enterprise_context += self._render_six_views_for_visual(profile["six_views"])
+                        if profile.get("technology_arch"):
+                            enterprise_context += self._render_tech_for_visual(profile["technology_arch"])
+            except Exception as e:
+                logger.warning("Company profile load failed: %s", e)
 
-        # Load visual style with design specifications
+        # Load visual style via visual_style_match Tool (by ID or list)
         style_info = ""
         material_and_lighting = ""
         if visual_style_id:
-            from app.models.visual import VisualStyle
-            style = await context.db.get(VisualStyle, uuid.UUID(visual_style_id))
-            if style:
-                style_info = (
-                    f"视觉风格: {style.name}\n"
-                    f"主色: {style.primary_color}\n"
-                    f"辅色: {style.secondary_color}\n"
-                    f"强调色: {style.accent_color}\n"
-                    f"字体: {style.font_primary}\n"
-                    f"布局: {style.layout}\n"
-                    f"品牌指南: {style.brand_guidelines}"
-                )
-                # Include material and lighting specs
-                if style.material_spec:
-                    material_and_lighting += self._render_material_spec(style.material_spec)
-                if style.lighting_spec:
-                    material_and_lighting += self._render_lighting_spec(style.lighting_spec)
+            try:
+                vs_tool = registry.get("visual_style_match")
+                if vs_tool:
+                    vs_result = await vs_tool.execute({"limit": 10}, tool_ctx)
+                    if vs_result.success and vs_result.data.get("styles"):
+                        # Find the matching style by ID
+                        matched = next(
+                            (s for s in vs_result.data["styles"] if s["id"] == visual_style_id),
+                            None,
+                        )
+                        if matched:
+                            style_info = (
+                                f"视觉风格: {matched.get('name', '')}\n"
+                                f"主色: {matched.get('primary_color', '')}\n"
+                                f"辅色: {matched.get('secondary_color', '')}\n"
+                                f"强调色: {matched.get('accent_color', '')}\n"
+                                f"字体: {matched.get('font_primary', '')}\n"
+                                f"布局: {matched.get('layout', '')}\n"
+                                f"品牌指南: {matched.get('brand_guidelines', '')}"
+                            )
+                            if matched.get("material_spec"):
+                                material_and_lighting += self._render_material_spec(matched["material_spec"])
+                            if matched.get("lighting_spec"):
+                                material_and_lighting += self._render_lighting_spec(matched["lighting_spec"])
+            except Exception as e:
+                logger.warning("Visual style load failed: %s", e)
 
-        # Load prompt template and assemble with framework
-        db_template = await self._load_prompt_template(context, "visual")
+        # Load prompt template via prompt_template_load Tool
+        db_template = None
+        try:
+            pt_tool = registry.get("prompt_template_load")
+            if pt_tool:
+                pt_result = await pt_tool.execute({"category": "visual"}, tool_ctx)
+                if pt_result.success:
+                    db_template = pt_result.data.get("template_text")
+        except Exception as e:
+            logger.warning("Prompt template load failed: %s", e)
 
         prompt = self._assemble_prompt(
             default_prompt=self._default_prompt(),

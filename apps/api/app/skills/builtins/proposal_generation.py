@@ -164,6 +164,11 @@ class ProposalGenerationSkill(BaseSkill):
         from sqlalchemy import select
         from app.models.project import Project, Company
         from app.models.company_profile import CompanyProfile
+        from app.tools.registry import ToolRegistry
+        from app.tools.base import ToolContext
+
+        tool_ctx = ToolContext(db=context.db, embedding_service=context.embedding_service)
+        registry = ToolRegistry.get_instance()
 
         project = await context.db.get(Project, uuid.UUID(project_id))
         if not project:
@@ -182,22 +187,15 @@ class ProposalGenerationSkill(BaseSkill):
         # Build enterprise context from structured profile data
         enterprise_context = ""
         if profile:
-            # Render Six Views
             six_views = profile.six_views
             if six_views:
                 enterprise_context += self._render_six_views(six_views)
-
-            # Render Technology Architecture
             tech_arch = profile.technology_arch
             if tech_arch:
                 enterprise_context += self._render_technology_arch(tech_arch)
-
-            # Render Project Background
             proj_bg = profile.project_background
             if proj_bg:
                 enterprise_context += self._render_project_background(proj_bg)
-
-            # Fallback to flat fields if structured data is empty
             if not enterprise_context:
                 if profile.strengths:
                     enterprise_context += f"\n企业优势: {profile.strengths}\n"
@@ -206,48 +204,63 @@ class ProposalGenerationSkill(BaseSkill):
                 if profile.market_position:
                     enterprise_context += f"市场定位: {profile.market_position}\n"
 
-        # Retrieve cases
+        # Retrieve cases via case_search Tool
         used_cases: List[str] = []
         used_documents: List[str] = []
         used_chunks: List[str] = []
         cases_text = ""
 
+        # RAG chunks via knowledge_search Tool
         try:
-            from app.rag.retriever import HybridRetriever
-            retriever = HybridRetriever(embedding_service=context.embedding_service)
-            chunks = await retriever.search(
-                query=f"{company_name} {industry} 策划方案",
-                top_k=8,
-                project_id=project.id,
-                db=context.db,
-            )
-            used_chunks = [c.chunk_id for c in chunks]
-            used_documents = list({c.document_id for c in chunks})
+            ks_tool = registry.get("knowledge_search")
+            if ks_tool:
+                ks_result = await ks_tool.execute(
+                    {"query": f"{company_name} {industry} 策划方案", "top_k": 8, "project_id": str(project.id)},
+                    tool_ctx,
+                )
+                if ks_result.success and ks_result.data.get("chunks"):
+                    ks_chunks = ks_result.data["chunks"]
+                    used_chunks = [c["chunk_id"] for c in ks_chunks if c.get("chunk_id")]
+                    used_documents = list({c["document_id"] for c in ks_chunks if c.get("document_id")})
         except Exception as e:
             logger.warning("RAG retrieval failed: %s", e)
 
-        from app.models.case import Case
-        cases_result = await context.db.execute(
-            select(Case)
-            .where(Case.is_published == True)
-            .order_by(Case.quality_score.desc())
-            .limit(3)
-        )
-        cases = cases_result.scalars().all()
-        for c in cases:
-            cases_text += f"\n### {c.title}\n客户: {c.client_name}\n挑战: {c.challenge}\n方案: {c.solution}\n成果: {c.results}\n"
-            used_cases.append(str(c.id))
+        # Cases via case_search Tool
+        try:
+            cs_tool = registry.get("case_search")
+            if cs_tool:
+                cs_result = await cs_tool.execute({"industry": industry, "limit": 3}, tool_ctx)
+                if cs_result.success and cs_result.data.get("cases"):
+                    for c in cs_result.data["cases"]:
+                        cases_text += f"\n### {c.get('title', '')}\n客户: {c.get('client_name', '')}\n挑战: {c.get('challenge', '')}\n方案: {c.get('solution', '')}\n成果: {c.get('results', '')}\n"
+                        used_cases.append(c.get("id", ""))
+        except Exception as e:
+            logger.warning("Case search failed: %s", e)
 
-        # Load SOP steps if provided
+        # Load SOP steps via sop_load Tool
         sop_steps_text = ""
         if sop_workflow_id:
-            from app.models.workflow import SOPWorkflow
-            sop = await context.db.get(SOPWorkflow, uuid.UUID(sop_workflow_id))
-            if sop and sop.steps:
-                sop_steps_text = json.dumps(sop.steps, ensure_ascii=False, indent=2)
+            try:
+                sop_tool = registry.get("sop_load")
+                if sop_tool:
+                    sop_result = await sop_tool.execute({"sop_id": sop_workflow_id}, tool_ctx)
+                    if sop_result.success and sop_result.data.get("sop"):
+                        sop_data = sop_result.data["sop"]
+                        if sop_data.get("steps"):
+                            sop_steps_text = json.dumps(sop_data["steps"], ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.warning("SOP load failed: %s", e)
 
-        # Load prompt template and assemble with framework
-        db_template = await self._load_prompt_template(context, "generation")
+        # Load prompt template via prompt_template_load Tool
+        db_template = None
+        try:
+            pt_tool = registry.get("prompt_template_load")
+            if pt_tool:
+                pt_result = await pt_tool.execute({"category": "generation", "template_id": template_id}, tool_ctx)
+                if pt_result.success:
+                    db_template = pt_result.data.get("template_text")
+        except Exception as e:
+            logger.warning("Prompt template load failed: %s", e)
 
         prompt = self._assemble_prompt(
             default_prompt=self._default_prompt(),

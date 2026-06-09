@@ -311,122 +311,132 @@ async def assemble_context_pack(
 
     Gathers company profile, retrieved chunks, cases, SOP steps,
     technical rules, and prompt templates into a structured context.
+
+    Uses the Tool layer for all data access instead of direct model queries.
     """
     from app.models.project import Project, Company
-    from app.models.company_profile import CompanyProfile
-    from app.models.rule import TechnicalRule, QualityRule
-    from app.models.template import PromptTemplate
-    from app.models.workflow import SOPWorkflow
+    from app.tools.registry import ToolRegistry
+    from app.tools.base import ToolContext
 
     pid = uuid.UUID(project_id)
 
-    # 1. Load project
+    # 1. Load project (core entity — direct DB)
     project = await db.get(Project, pid)
     if not project:
         return ContextPack(query=query, missing_info=["项目不存在"])
 
-    # 2. Load company profile
+    # 2. Load company (core entity — direct DB)
     company = await db.get(Company, project.company_id)
     company_profile = {}
     if company:
         company_profile["name"] = company.name
         company_profile["industry"] = company.industry
 
-        profile_result = await db.execute(
-            select(CompanyProfile).where(CompanyProfile.company_id == company.id)
-        )
-        profile = profile_result.scalar_one_or_none()
-        if profile:
-            company_profile["strengths"] = profile.strengths
-            company_profile["weaknesses"] = profile.weaknesses
-            company_profile["market_position"] = profile.market_position
-            company_profile["key_products"] = profile.key_products
-            company_profile["six_views"] = profile.six_views
-            company_profile["technology_arch"] = profile.technology_arch
-            company_profile["project_background"] = profile.project_background
+    # Prepare Tool context
+    registry = ToolRegistry.get_instance()
+    tool_ctx = ToolContext(db=db)
 
-    # 3. Run RAG retrieval
+    # 3. Load company profile via Tool
+    if company:
+        try:
+            cp_tool = registry.get("company_profile_load")
+            if cp_tool:
+                cp_result = await cp_tool.execute({"company_id": str(company.id)}, tool_ctx)
+                if cp_result.success and cp_result.data.get("profile"):
+                    p = cp_result.data["profile"]
+                    company_profile.update({
+                        "strengths": p.get("strengths"),
+                        "weaknesses": p.get("weaknesses"),
+                        "market_position": p.get("market_position"),
+                        "key_products": p.get("key_products"),
+                        "six_views": p.get("six_views"),
+                        "technology_arch": p.get("technology_arch"),
+                        "project_background": p.get("project_background"),
+                    })
+        except Exception as e:
+            logger.warning("Company profile Tool failed: %s", e)
+
+    # 4. RAG retrieval via knowledge_search Tool
     retrieved_chunks = []
     try:
-        from app.rag.retriever import HybridRetriever
         from app.services.embedding_service import get_embedding_service
-        retriever = HybridRetriever(embedding_service=get_embedding_service())
-        chunks = await retriever.search(
-            query=query, top_k=10, project_id=pid, db=db,
-        )
-        retrieved_chunks = [c.to_dict() for c in chunks]
+        tool_ctx.embedding_service = get_embedding_service()
+        ks_tool = registry.get("knowledge_search")
+        if ks_tool:
+            ks_result = await ks_tool.execute(
+                {"query": query, "top_k": 10, "project_id": project_id},
+                tool_ctx,
+            )
+            if ks_result.success and ks_result.data.get("chunks"):
+                retrieved_chunks = ks_result.data["chunks"]
     except Exception as e:
         logger.warning("RAG retrieval failed during context pack assembly: %s", e)
 
-    # 4. Load matched cases
+    # 5. Load matched cases via case_search Tool
     case_studies = []
-    if company and company.industry:
-        cases_result = await db.execute(
-            select(Case)
-            .where(Case.is_published == True)
-            .where(Case.industry == company.industry)
-            .order_by(Case.quality_score.desc())
-            .limit(3)
-        )
-    else:
-        cases_result = await db.execute(
-            select(Case)
-            .where(Case.is_published == True)
-            .order_by(Case.quality_score.desc())
-            .limit(3)
-        )
-    for c in cases_result.scalars().all():
-        case_studies.append({
-            "id": str(c.id),
-            "title": c.title,
-            "client_name": c.client_name,
-            "industry": c.industry,
-            "challenge": c.challenge,
-            "solution": c.solution,
-            "results": c.results,
-            "quality_score": c.quality_score,
-        })
+    try:
+        cs_tool = registry.get("case_search")
+        if cs_tool:
+            cs_params = {"limit": 3}
+            if company and company.industry:
+                cs_params["industry"] = company.industry
+            cs_result = await cs_tool.execute(cs_params, tool_ctx)
+            if cs_result.success:
+                case_studies = cs_result.data.get("cases", [])
+    except Exception as e:
+        logger.warning("Case search Tool failed: %s", e)
 
-    # 5. Load SOP steps
+    # 6. Load SOP steps via sop_load Tool
     sop_steps = []
     if sop_workflow_id:
-        sop = await db.get(SOPWorkflow, uuid.UUID(sop_workflow_id))
-        if sop and sop.steps:
-            sop_steps = sop.steps if isinstance(sop.steps, list) else []
+        try:
+            sop_tool = registry.get("sop_load")
+            if sop_tool:
+                sop_result = await sop_tool.execute({"sop_id": sop_workflow_id}, tool_ctx)
+                if sop_result.success and sop_result.data.get("sop"):
+                    sop_steps = sop_result.data["sop"].get("steps", [])
+        except Exception as e:
+            logger.warning("SOP load Tool failed: %s", e)
 
-    # 6. Load technical rules
-    rules_result = await db.execute(
-        select(TechnicalRule).where(TechnicalRule.is_active == True).limit(10)
-    )
-    technical_rules = [
-        {"name": r.name, "rule_text": r.rule_text, "severity": r.severity}
-        for r in rules_result.scalars().all()
-    ]
+    # 7. Load technical rules via tech_rule_query Tool
+    technical_rules = []
+    try:
+        tr_tool = registry.get("tech_rule_query")
+        if tr_tool:
+            tr_result = await tr_tool.execute({"limit": 10}, tool_ctx)
+            if tr_result.success:
+                technical_rules = tr_result.data.get("rules", [])
+    except Exception as e:
+        logger.warning("Tech rule query Tool failed: %s", e)
 
-    # 7. Load quality rules
-    qrules_result = await db.execute(
-        select(QualityRule).where(QualityRule.is_active == True).limit(5)
-    )
-    quality_rules = [
-        {"name": r.name, "rule_text": r.rule_text, "weight": r.weight}
-        for r in qrules_result.scalars().all()
-    ]
+    # 8. Load quality rules via quality_rule_query Tool
+    quality_rules = []
+    try:
+        qr_tool = registry.get("quality_rule_query")
+        if qr_tool:
+            qr_result = await qr_tool.execute({"limit": 5}, tool_ctx)
+            if qr_result.success:
+                quality_rules = qr_result.data.get("rules", [])
+    except Exception as e:
+        logger.warning("Quality rule query Tool failed: %s", e)
 
-    # 8. Load prompt template
+    # 9. Load prompt template via prompt_template_load Tool
     template_text = None
-    if template_id:
-        tpl = await db.get(PromptTemplate, uuid.UUID(template_id))
-        if tpl:
-            template_text = tpl.template_text
-    else:
-        tpl_result = await db.execute(
-            select(PromptTemplate).where(PromptTemplate.is_default == True).limit(1)
-        )
-        tpl = tpl_result.scalar_one_or_none()
-        if tpl:
-            template_text = tpl.template_text
+    try:
+        pt_tool = registry.get("prompt_template_load")
+        if pt_tool:
+            pt_params = {}
+            if template_id:
+                pt_params["template_id"] = template_id
+            else:
+                pt_params["category"] = "generation"
+            pt_result = await pt_tool.execute(pt_params, tool_ctx)
+            if pt_result.success:
+                template_text = pt_result.data.get("template_text")
+    except Exception as e:
+        logger.warning("Prompt template load Tool failed: %s", e)
 
-    # 9. Collect missing info
+    # 10. Collect missing info
     missing_info = []
     if not company_profile.get("strengths"):
         missing_info.append("企业优势信息缺失，需进一步确认")

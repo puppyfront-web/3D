@@ -82,6 +82,16 @@ class BaseSkill(ABC):
         """Return the skill's manifest."""
         return self.manifest
 
+    @staticmethod
+    def _tool_context(context: "SkillContext") -> "ToolContext":
+        """Create a ToolContext from a SkillContext for Tool calls."""
+        from app.tools.base import ToolContext
+        return ToolContext(
+            db=context.db,
+            embedding_service=context.embedding_service,
+            llm_service=context.llm_service,
+        )
+
     async def _load_prompt_template(self, context: SkillContext, category: str) -> str | None:
         """Load a prompt template from the database by category."""
         if context.db is None:
