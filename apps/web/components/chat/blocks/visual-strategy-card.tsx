@@ -4,9 +4,10 @@ import { Palette, Layout, Sparkles, Eye, BookOpen } from "lucide-react";
 
 interface VisualStrategyCardProps {
   data: Record<string, unknown>;
+  onAction?: (value: string, action: string) => void;
 }
 
-export function VisualStrategyCard({ data }: VisualStrategyCardProps) {
+export function VisualStrategyCard({ data, onAction }: VisualStrategyCardProps) {
   const style = data.style ? String(data.style) : null;
   const colorTone = data.color_tone ? String(data.color_tone) : null;
   const composition = data.composition ? String(data.composition) : null;
@@ -70,12 +71,16 @@ export function VisualStrategyCard({ data }: VisualStrategyCardProps) {
               <div className="text-xs text-gray-500 mb-1">核心元素</div>
               <div className="flex flex-wrap gap-1.5">
                 {keyElements.map((el, i) => (
-                  <span
+                  <button
                     key={i}
-                    className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200"
+                    onClick={() => onAction?.(el, "quick_reply")}
+                    className="inline-block px-2 py-0.5 rounded-full text-xs font-medium
+                               bg-violet-50 text-violet-700 border border-violet-200
+                               hover:bg-violet-100 hover:border-violet-300 cursor-pointer
+                               transition-colors"
                   >
                     {el}
-                  </span>
+                  </button>
                 ))}
               </div>
             </div>

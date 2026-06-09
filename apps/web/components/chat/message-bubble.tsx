@@ -1,18 +1,20 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import type { ChatMessage, ContentBlock } from "@/types";
 import { BlockRenderer } from "@/components/chat/blocks/block-renderer";
 import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
 import { VersionTreeDrawer } from "@/components/chat/version-tree-drawer";
 import { useVisualConcept } from "@/lib/visual-concept-context";
+import { useChat } from "@/lib/chat-context";
 import { Bot, User } from "lucide-react";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  onAction?: (value: string, action: string) => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onAction }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
 
@@ -76,7 +78,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           return (
             <div className="mt-2 space-y-2">
               {filteredBlocks.map((block, i) => (
-                <BlockRenderer key={i} block={block} />
+                <BlockRenderer key={i} block={block} onAction={onAction} />
               ))}
 
               {/* Version tree drawer trigger for visual concept messages */}
@@ -131,12 +133,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 interface StreamingBubbleProps {
   text: string;
   blocks: ContentBlock[];
+  onAction?: (value: string, action: string) => void;
 }
 
-export function StreamingBubble({ text, blocks }: StreamingBubbleProps) {
-  // During streaming: show skill_executing (active thinking), hide skill_progress (running)
+export function StreamingBubble({ text, blocks, onAction }: StreamingBubbleProps) {
+  // During streaming: hide skill_executing (redundant with streaming text) and skill_progress (running)
   // After completion: MessageBubble hides skill_executing entirely
   const displayBlocks = blocks.filter((b) => {
+    if (b.type === "skill_executing") return false;
     if (b.type === "skill_progress" && (b.data as Record<string, unknown>)?.status === "running") return false;
     return true;
   });
@@ -154,7 +158,7 @@ export function StreamingBubble({ text, blocks }: StreamingBubbleProps) {
         {displayBlocks.length > 0 && (
           <div className="mt-2 space-y-2">
             {displayBlocks.map((block, i) => (
-              <BlockRenderer key={i} block={block} />
+              <BlockRenderer key={i} block={block} onAction={onAction} />
             ))}
           </div>
         )}
@@ -178,6 +182,12 @@ export function MessageList({
   isStreaming,
 }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { sendMessage, state } = useChat();
+
+  const onBlockAction = useCallback((value: string, action: string) => {
+    if (state.isStreaming) return;
+    sendMessage(value);
+  }, [sendMessage, state.isStreaming]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
@@ -187,10 +197,10 @@ export function MessageList({
     <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6">
       <div className="max-w-3xl mx-auto space-y-4">
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <MessageBubble key={msg.id} message={msg} onAction={onBlockAction} />
         ))}
         {isStreaming && (
-          <StreamingBubble text={streamingText} blocks={streamingBlocks} />
+          <StreamingBubble text={streamingText} blocks={streamingBlocks} onAction={onBlockAction} />
         )}
         <div ref={bottomRef} />
       </div>

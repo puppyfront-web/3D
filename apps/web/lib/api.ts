@@ -119,6 +119,34 @@ export async function updateProposalSection(
   });
 }
 
+export async function updateSectionStatus(
+  outputId: string,
+  sectionOrder: number,
+  reviewStatus: "draft" | "review" | "approved"
+): Promise<ApiResponse<Record<string, unknown>>> {
+  return apiFetch<Record<string, unknown>>(
+    `/api/v1/generations/outputs/${outputId}/sections/${sectionOrder}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status: reviewStatus }),
+    }
+  );
+}
+
+export async function exportProposal(
+  outputId: string,
+  format: "word" | "pdf" | "pptx"
+): Promise<Blob> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/exports/${format}/${outputId}`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Export failed" }));
+    throw new Error(err.detail?.message || err.detail || "Export failed");
+  }
+  return res.blob();
+}
+
 export async function generateProposal(projectId: string): Promise<ApiResponse<Proposal>> {
   return apiFetch<Proposal>("/api/v1/agents/proposal", {
     method: "POST",

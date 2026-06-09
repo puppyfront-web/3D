@@ -14,9 +14,10 @@ import { AttachmentBlock } from "./attachment-block";
 
 interface BlockRendererProps {
   block: ContentBlock;
+  onAction?: (value: string, action: string) => void;
 }
 
-export function BlockRenderer({ block }: BlockRendererProps) {
+export function BlockRenderer({ block, onAction }: BlockRendererProps) {
   // Skip text blocks that are just the message content (already rendered in bubble)
   if (block.type === "text") {
     return <TextBlock content={block.content || ""} />;
@@ -35,7 +36,7 @@ export function BlockRenderer({ block }: BlockRendererProps) {
   }
 
   if (block.type === "action_buttons") {
-    return <ActionButtonsBlock data={block.data || {}} />;
+    return <ActionButtonsBlock data={block.data || {}} onAction={onAction} />;
   }
 
   if (block.type === "artifact") {
@@ -51,7 +52,7 @@ export function BlockRenderer({ block }: BlockRendererProps) {
   }
 
   if (block.type === "visual_strategy") {
-    return <VisualStrategyCard data={block.data || {}} />;
+    return <VisualStrategyCard data={block.data || {}} onAction={onAction} />;
   }
 
   if (block.type === "quality_check") {

@@ -276,7 +276,7 @@ export default function SOPWorkflowsPage() {
 
                 <div className="space-y-3 ml-7">
                   {(wf.steps ?? []).map((step, i) => (
-                    <div key={step.id} className="flex items-start gap-4">
+                    <div key={i} className="flex items-start gap-4">
                       <div className="flex flex-col items-center">
                         <div className="w-8 h-8 rounded-full bg-[#1E3A5F] text-white flex items-center justify-center text-xs font-medium">
                           {i + 1}

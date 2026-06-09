@@ -8,6 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   FileText,
   Edit3,
   Save,
@@ -22,9 +28,18 @@ import {
   PanelRightClose,
   Clock,
   Loader2,
+  CheckCircle2,
+  CircleDot,
+  RotateCcw,
 } from "lucide-react";
 import { AgentPanel } from "@/components/layout/agent-panel";
-import { getProposal, generateProposal, updateProposalSection } from "@/lib/api";
+import {
+  getProposal,
+  generateProposal,
+  updateProposalSection,
+  updateSectionStatus,
+  exportProposal,
+} from "@/lib/api";
 import type { Proposal } from "@/types";
 
 export default function ProposalPage() {
@@ -105,6 +120,43 @@ export default function ProposalPage() {
     return "草稿";
   };
 
+  const handleSectionStatus = async (sectionOrder: number, newStatus: "draft" | "review" | "approved") => {
+    if (!proposal?.id) return;
+    const res = await updateSectionStatus(proposal.id, sectionOrder, newStatus);
+    if (res.success && res.data) {
+      const updatedMeta = (res.data as Record<string, unknown>)?.sections_meta as Array<Record<string, unknown>> | undefined;
+      if (updatedMeta && proposal) {
+        setProposal({
+          ...proposal,
+          sections: proposal.sections.map((s): Proposal["sections"][number] => {
+            const meta = updatedMeta.find((m) => m.order === s.order);
+            const newStatus = (meta?.status as "draft" | "review" | "approved") || s.status;
+            return meta ? { ...s, status: newStatus } : s;
+          }),
+        });
+      }
+    }
+  };
+
+  const approvedCount = proposal?.sections.filter((s) => s.status === "approved").length ?? 0;
+  const totalCount = proposal?.sections.length ?? 0;
+  const allApproved = totalCount > 0 && approvedCount === totalCount;
+
+  const handleExport = async (format: "word" | "pdf" | "pptx") => {
+    if (!proposal?.id) return;
+    try {
+      const blob = await exportProposal(proposal.id, format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `proposal.${format === "word" ? "docx" : format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "导出失败");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -158,12 +210,42 @@ export default function ProposalPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Review progress */}
+            {totalCount > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-500 mr-2">
+                <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#10B981] rounded-full transition-all"
+                    style={{ width: `${(approvedCount / totalCount) * 100}%` }}
+                  />
+                </div>
+                <span>{approvedCount}/{totalCount} 已审核</span>
+              </div>
+            )}
             <Button variant="outline" size="sm" className="gap-1">
               <Copy className="h-3.5 w-3.5" /> 复制
             </Button>
-            <Button variant="outline" size="sm" className="gap-1">
-              <Download className="h-3.5 w-3.5" /> 导出
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  disabled={!allApproved}
+                  title={!allApproved ? `${totalCount - approvedCount} 个章节未审核` : undefined}
+                >
+                  <Download className="h-3.5 w-3.5" /> 导出
+                  {!allApproved && (
+                    <span className="text-[10px] text-amber-500 ml-1">({totalCount - approvedCount}未审)</span>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => handleExport("word")}>Word (.docx)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport("pdf")}>PDF</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport("pptx")}>PPTX</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               variant="ghost"
               size="sm"
@@ -197,9 +279,41 @@ export default function ProposalPage() {
                   <h3 className="text-base font-semibold text-[#1A1A2E] flex-1">
                     {section.order}. {section.title}
                   </h3>
-                  <Badge variant="outline" className={`text-xs ${statusColor(section.status)}`}>
-                    {statusLabel(section.status)}
-                  </Badge>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="outline-none"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Badge
+                          variant="outline"
+                          className={`text-xs cursor-pointer hover:opacity-80 transition-opacity ${statusColor(section.status)}`}
+                        >
+                          {statusLabel(section.status)}
+                        </Badge>
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => handleSectionStatus(section.order, "approved")}
+                        className="gap-2 text-green-600"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" /> 通过审核
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleSectionStatus(section.order, "review")}
+                        className="gap-2 text-amber-600"
+                      >
+                        <CircleDot className="h-3.5 w-3.5" /> 标记审核中
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleSectionStatus(section.order, "draft")}
+                        className="gap-2 text-gray-500"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" /> 退回草稿
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   {editingSection !== section.id && expandedSections.includes(section.id) && (
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button
