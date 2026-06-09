@@ -38,7 +38,7 @@ fi
 
 # Fetch recent messages from Feishu
 MESSAGES=""
-MESSAGES="$(lark-cli im +chat-messages-list --chat-id "$CHAT_ID" --page-size "$FETCH_COUNT" 2>/dev/null || echo '{"items":[]}')"
+MESSAGES="$(lark-cli im +chat-messages-list --chat-id "$CHAT_ID" --page-size "$FETCH_COUNT" --as bot 2>/dev/null || echo '{"data":{"messages":[]}}')"
 
 # Parse messages and find new commands
 NEW_COUNT=0
@@ -50,22 +50,22 @@ while IFS= read -r msg; do
   msg_id="$(echo "$msg" | jq -r '.message_id // empty')"
   msg_ts="$(echo "$msg" | jq -r '.create_time // "0"')"
   sender_type="$(echo "$msg" | jq -r '.sender.sender_type // empty')"
-  sender_id="$(echo "$msg" | jq -r '.sender.sender_id.open_id // empty' 2>/dev/null || echo "")"
+  sender_id="$(echo "$msg" | jq -r '.sender.id // empty' 2>/dev/null || echo "")"
   msg_type="$(echo "$msg" | jq -r '.msg_type // empty')"
-  body_content="$(echo "$msg" | jq -r '.body.content // empty' 2>/dev/null || echo "")"
+  body_content="$(echo "$msg" | jq -r '.content // empty' 2>/dev/null || echo "")"
 
-  # Skip old messages
-  if [[ "$msg_ts" -le "$LAST_TS" ]] 2>/dev/null; then
+  # Skip old messages (string comparison works for "YYYY-MM-DD HH:MM" format)
+  if [[ "$msg_ts" == "$LAST_TS" || "$msg_ts" < "$LAST_TS" ]]; then
     continue
   fi
 
   # Update latest timestamp
-  if [[ "$msg_ts" -gt "$LATEST_TS" ]] 2>/dev/null; then
+  if [[ -z "$LATEST_TS" || "$LATEST_TS" == "0" || "$msg_ts" > "$LATEST_TS" ]]; then
     LATEST_TS="$msg_ts"
   fi
 
-  # Skip bot messages
-  if [[ "$sender_type" == "bot" ]]; then
+  # Skip bot/app messages
+  if [[ "$sender_type" == "app" || "$sender_type" == "bot" ]]; then
     continue
   fi
 
@@ -186,7 +186,7 @@ while IFS= read -r msg; do
 
   NEW_COUNT=$((NEW_COUNT + 1))
 
-done < <(echo "$MESSAGES" | jq -c '.items[] // empty' 2>/dev/null)
+done < <(echo "$MESSAGES" | jq -c '.data.messages[] // empty' 2>/dev/null)
 
 # Update last polled timestamp
 ensure_sessions_file
