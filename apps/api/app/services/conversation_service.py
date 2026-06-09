@@ -198,6 +198,16 @@ class ConversationService:
         messages = await self.get_history(db, conv_uuid)
         history = self.build_message_history(messages)
 
+        # 2.5 Check for paused pipeline that needs resuming
+        pipeline_state = self._load_pipeline_state(messages)
+        if pipeline_state and pipeline_state.status == "paused":
+            logger.info("Resuming paused pipeline at stage: %s", pipeline_state.current_stage)
+            async for chunk in self._handle_sop_pipeline_resume(
+                db, conv_uuid, user_message, pipeline_state, history
+            ):
+                yield chunk
+            return
+
         # 3. Detect intent
         intent: IntentResult = await self._intent_detector.detect(
             user_message, history, db=db
@@ -211,7 +221,12 @@ class ConversationService:
         )
 
         # 4. Route based on intent
-        if intent.intent == "run_skill" and intent.skill_id:
+        if intent.intent == "sop_pipeline" and intent.skill_id is None:
+            async for chunk in self._handle_sop_pipeline(
+                db, conv_uuid, user_message, intent, history
+            ):
+                yield chunk
+        elif intent.intent == "run_skill" and intent.skill_id:
             async for chunk in self._handle_skill_execution(
                 db, conv_uuid, intent, history
             ):
@@ -513,6 +528,405 @@ class ConversationService:
             if msg.metadata_json and "pipeline" in msg.metadata_json:
                 return PipelineState.from_dict(msg.metadata_json)
         return None
+
+    async def _handle_sop_pipeline_resume(
+        self,
+        db: AsyncSession,
+        conversation_id: uuid.UUID,
+        user_message: str,
+        state: PipelineState,
+        history: List[Dict[str, str]],
+    ) -> AsyncGenerator[str, None]:
+        """Resume a paused pipeline based on user action (confirm/modify/restart)."""
+        from app.services.intent_service import IntentDetector
+
+        action = IntentDetector.classify_pipeline_action(user_message)
+
+        if action == "restart":
+            state.reset()
+            confirm_text = "🔄 已重置方案流程，重新从企业解析开始...\n\n"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': confirm_text})}\n\n"
+            async for chunk in self._execute_pipeline_stage(
+                db, conversation_id, state, history
+            ):
+                yield chunk
+            return
+
+        if action == "confirm":
+            stage_names = {
+                "company_analysis": "企业画像",
+                "proposal_generation": "策划案",
+                "visual_generation": "视觉方案",
+            }
+            current_name = stage_names.get(state.current_stage, state.current_stage)
+            confirm_text = f"✅ **{current_name}** 已确认，进入下一阶段...\n\n"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': confirm_text})}\n\n"
+
+            next_stage = state.advance()
+            if next_stage is None:
+                done_text = "🎉 方案流程已全部完成！所有产物已保存。"
+                yield f"data: {json.dumps({'type': 'text_delta', 'text': done_text})}\n\n"
+                await self.save_message(
+                    db, conversation_id, "assistant",
+                    content=confirm_text + done_text, content_type="text",
+                    metadata=state.to_dict(), auto_commit=True,
+                )
+                return
+
+            async for chunk in self._execute_pipeline_stage(
+                db, conversation_id, state, history
+            ):
+                yield chunk
+            return
+
+        # action == "modify"
+        state.project_context["modify_feedback"] = user_message
+        modify_text = f"📝 收到修改意见，正在重新生成...\n\n"
+        yield f"data: {json.dumps({'type': 'text_delta', 'text': modify_text})}\n\n"
+        state.status = "running"
+        async for chunk in self._execute_pipeline_stage(
+            db, conversation_id, state, history
+        ):
+            yield chunk
+
+    async def _handle_sop_pipeline(
+        self,
+        db: AsyncSession,
+        conversation_id: uuid.UUID,
+        user_message: str,
+        intent: IntentResult,
+        history: List[Dict[str, str]],
+    ) -> AsyncGenerator[str, None]:
+        """Launch a full SOP pipeline: company_analysis -> proposal -> visual -> export."""
+        # Quick pre-check: does the user message contain any entity info?
+        has_entity = len(user_message) > 10
+        if not has_entity:
+            prompt_text = (
+                "请提供以下信息，我将为您启动完整的方案设计流程：\n\n"
+                "1. **企业名称**（必填）\n"
+                "2. 所属行业\n"
+                "3. 项目需求简述\n\n"
+                "例如：*「给华为科技公司设计一套3D展示幕墙方案，用于新品发布会」*"
+            )
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': prompt_text})}\n\n"
+            await self.save_message(
+                db, conversation_id, "assistant",
+                content=prompt_text, content_type="text",
+                auto_commit=True,
+            )
+            return
+
+        # Initialize pipeline state
+        state = PipelineState()
+        state.project_context = {
+            "user_message": user_message,
+            "company_name": self._extract_company_name(user_message),
+        }
+
+        # Execute Stage 1: company_analysis
+        async for chunk in self._execute_pipeline_stage(
+            db, conversation_id, state, history
+        ):
+            yield chunk
+
+    @staticmethod
+    def _extract_company_name(message: str) -> str:
+        """Extract likely company name from user message. Simple heuristic for MVP."""
+        import re
+        patterns = [
+            r"给\s*(\S{2,10}?(?:公司|集团|科技|股份|有限))",
+            r"为\s*(\S{2,10}?(?:公司|集团|科技|股份|有限))",
+            r"帮\s*(\S{2,10}?(?:公司|集团|科技|股份|有限))",
+            r"(\S{2,8})的.*(?:方案|幕墙|展示)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, message)
+            if m:
+                return m.group(1)
+        return ""
+
+    async def _execute_pipeline_stage(
+        self,
+        db: AsyncSession,
+        conversation_id: uuid.UUID,
+        state: PipelineState,
+        history: List[Dict[str, str]],
+    ) -> AsyncGenerator[str, None]:
+        """Execute the current pipeline stage, stream results, and pause/advance."""
+        from app.skills.base import SkillContext
+        from app.skills.registry import SkillRegistry
+        from app.skills.runner import SkillRunner
+        from app.services.embedding_service import get_embedding_service
+        from app.services.image_service import get_image_service
+        from app.services.pipeline_state import PAUSE_STAGES
+
+        stage = state.current_stage
+
+        # Build skill input from pipeline context
+        input_data = self._build_stage_input(stage, state, history)
+
+        # Get project_id from conversation
+        conv = await self.get_conversation_detail(db, str(conversation_id))
+        project_id = str(conv.project_id) if conv and conv.project_id else None
+        if project_id:
+            input_data["project_id"] = project_id
+
+        # Prepare context
+        registry = SkillRegistry.get_instance()
+        if not registry.list_skills():
+            registry.auto_register()
+
+        context = SkillContext(
+            project_id=project_id,
+            user_id=None,
+            db=db,
+            llm_service=await get_llm_service(db),
+            embedding_service=await get_embedding_service(db),
+            image_service=await get_image_service(db),
+        )
+
+        # Stream stage-start indicator
+        stage_names = {
+            "company_analysis": "企业解析",
+            "proposal_generation": "策划案生成",
+            "visual_generation": "视觉方案生成",
+            "export": "方案导出",
+        }
+        stage_display = stage_names.get(stage, stage)
+        progress_text = f"🔄 **{stage_display}** 阶段开始执行...\n\n"
+        yield f"data: {json.dumps({'type': 'text_delta', 'text': progress_text})}\n\n"
+
+        # Execute skill(s)
+        runner = SkillRunner(registry)
+        all_output: Dict[str, Any] = {}
+
+        if stage == "visual_generation":
+            vp_result = await runner.run("visual_prompt", input_data, context)
+            if vp_result.get("success"):
+                all_output = vp_result.get("output", {})
+                collected_images: list = []
+                for _ in range(2):
+                    img_input = {
+                        "prompt": all_output.get("positive_prompt", ""),
+                        "negative_prompt": all_output.get("negative_prompt", ""),
+                        "width": input_data.get("width", 1024),
+                        "height": input_data.get("height", 768),
+                    }
+                    if project_id:
+                        img_input["project_id"] = project_id
+                    img_result = await runner.run("image_generation", img_input, context)
+                    if img_result.get("success"):
+                        url = img_result.get("output", {}).get("image_url")
+                        if url:
+                            collected_images.append({"url": url})
+                if collected_images:
+                    all_output["images"] = collected_images
+                    all_output["image_url"] = collected_images[0]["url"]
+        elif stage == "export":
+            export_input = self._build_export_input(state, project_id)
+            if export_input.get("task_id"):
+                result = await runner.run("export", export_input, context)
+                if result.get("success"):
+                    all_output = result.get("output", {})
+                else:
+                    all_output = await self._fallback_export(state, context, project_id)
+            else:
+                all_output = await self._fallback_export(state, context, project_id)
+        else:
+            skill_id = stage
+            result = await runner.run(skill_id, input_data, context)
+            if result.get("success"):
+                all_output = result.get("output", {})
+            else:
+                error_msg = result.get("error", "执行失败")
+                error_text = f"❌ **{stage_display}** 执行失败：{error_msg}\n\n请尝试重新描述需求。"
+                yield f"data: {json.dumps({'type': 'text_delta', 'text': error_text})}\n\n"
+                state.status = "failed"
+                await self.save_message(
+                    db, conversation_id, "assistant",
+                    content=error_text, content_type="text",
+                    metadata=state.to_dict(), auto_commit=True,
+                )
+                return
+
+        # Save stage output
+        state.stage_outputs[stage] = all_output
+
+        # Render output text
+        skill_id_for_render = "visual_prompt" if stage == "visual_generation" else stage
+        content_text = self._render_skill_output(skill_id_for_render, all_output)
+
+        # Build content blocks
+        blocks = self._build_stage_blocks(stage, all_output, state)
+
+        # Stream output
+        yield f"data: {json.dumps({'type': 'text_delta', 'text': content_text})}\n\n"
+
+        for block in blocks:
+            yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': block['type']}})}\n\n"
+            yield f"data: {json.dumps({'type': 'content_block_data', 'data': block})}\n\n"
+            yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
+
+        # Pause or complete
+        if stage in PAUSE_STAGES:
+            state.pause()
+        else:
+            state.advance()
+
+        # Save assistant message with pipeline state
+        await self.save_message(
+            db, conversation_id, "assistant",
+            content=content_text, content_type="rich",
+            rich_content={"blocks": blocks},
+            metadata=state.to_dict(), auto_commit=True,
+        )
+
+    @staticmethod
+    def _build_stage_input(
+        stage: str, state: PipelineState, history: List[Dict[str, str]]
+    ) -> Dict[str, Any]:
+        """Build skill input data from pipeline state and history."""
+        user_msg = state.project_context.get("user_message", "")
+
+        if stage == "company_analysis":
+            return {
+                "company_info": user_msg,
+                "company_name": state.project_context.get("company_name", ""),
+            }
+
+        elif stage == "proposal_generation":
+            company_output = state.stage_outputs.get("company_analysis", {})
+            return {
+                "requirement_text": user_msg,
+                "company_profile": company_output,
+                "company_info": user_msg,
+            }
+
+        elif stage == "visual_generation":
+            proposal_output = state.stage_outputs.get("proposal_generation", {})
+            company_output = state.stage_outputs.get("company_analysis", {})
+            return {
+                "user_message": user_msg,
+                "proposal_context": proposal_output,
+                "visual_direction": company_output.get("recommended_visual_direction", ""),
+                "style": state.project_context.get("visual_style"),
+            }
+
+        elif stage == "export":
+            return {}
+
+        return {"user_message": user_msg}
+
+    @staticmethod
+    def _build_stage_blocks(
+        stage: str, output: Dict[str, Any], state: PipelineState
+    ) -> List[Dict[str, Any]]:
+        """Build rich content blocks for a pipeline stage."""
+        blocks: List[Dict[str, Any]] = []
+
+        blocks.append({
+            "type": "skill_progress",
+            "data": {"skill_id": stage, "status": "completed"},
+        })
+
+        if stage == "company_analysis" and output:
+            blocks.append({"type": "company_analysis_card", "data": output})
+
+        elif stage == "proposal_generation" and output:
+            missing = output.get("missing_info", [])
+            sections = output.get("sections_meta", [])
+            blocks.append({
+                "type": "proposal_section",
+                "data": {
+                    "content_type": "text/markdown",
+                    "missing_info": missing if isinstance(missing, list) else [],
+                    "sections": sections if isinstance(sections, list) else [],
+                },
+            })
+
+        elif stage == "visual_generation" and output:
+            blocks.append({"type": "visual_result", "data": output})
+
+        elif stage == "export" and output:
+            blocks.append({"type": "artifact", "data": output})
+
+        # Action buttons for pause stages
+        if stage == "company_analysis":
+            blocks.append({
+                "type": "action_buttons",
+                "data": {"buttons": [
+                    {"label": "✓ 确认企业画像，继续", "value": "确认继续", "action": "quick_reply"},
+                    {"label": "↻ 重新生成", "value": "重新生成企业解析", "action": "quick_reply"},
+                ]},
+            })
+        elif stage == "proposal_generation":
+            blocks.append({
+                "type": "action_buttons",
+                "data": {"buttons": [
+                    {"label": "✓ 确认策划案，继续", "value": "确认继续", "action": "quick_reply"},
+                    {"label": "✎ 我有修改意见", "value": "修改策划案", "action": "quick_reply"},
+                ]},
+            })
+        elif stage == "visual_generation":
+            blocks.append({
+                "type": "action_buttons",
+                "data": {"buttons": [
+                    {"label": "使用方案 A", "value": "使用第一张效果图", "action": "quick_reply"},
+                    {"label": "使用方案 B", "value": "使用第二张效果图", "action": "quick_reply"},
+                    {"label": "两个都用", "value": "两张都可以继续", "action": "quick_reply"},
+                ]},
+            })
+
+        return blocks
+
+    @staticmethod
+    def _build_export_input(
+        state: PipelineState, project_id: Optional[str]
+    ) -> Dict[str, Any]:
+        """Build export skill input from accumulated pipeline outputs."""
+        proposal_output = state.stage_outputs.get("proposal_generation", {})
+        task_id = proposal_output.get("output_id") or proposal_output.get("task_id")
+
+        if task_id:
+            return {"task_id": str(task_id), "format": "word"}
+
+        return {"task_id": "", "format": "word"}
+
+    async def _fallback_export(
+        self,
+        state: PipelineState,
+        context: "SkillContext",
+        project_id: Optional[str],
+    ) -> Dict[str, Any]:
+        """Direct export when no GenerationOutput record exists (pipeline chat mode)."""
+        try:
+            from app.services.export_service import get_export_service
+
+            proposal_output = state.stage_outputs.get("proposal_generation", {})
+            content = proposal_output.get("content", proposal_output.get("proposal_text", ""))
+
+            if not content:
+                company_output = state.stage_outputs.get("company_analysis", {})
+                parts = []
+                if company_output:
+                    parts.append("# 企业解析\n")
+                    parts.append(str(company_output.get("summary", "")))
+                if proposal_output:
+                    parts.append("\n# 策划方案\n")
+                    parts.append(str(proposal_output))
+                content = "\n".join(parts)
+
+            if not content:
+                return {"error": "No content to export"}
+
+            service = get_export_service()
+            file_path = await service.export_to_word(
+                content=content,
+                filename=f"pipeline_{state.started_at[:10]}.docx",
+            )
+            return {"file_path": file_path, "format": "word"}
+        except Exception as e:
+            return {"error": str(e)}
 
     async def _handle_visual_concept(
         self,
