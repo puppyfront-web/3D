@@ -360,7 +360,7 @@ async def assemble_context_pack(
     retrieved_chunks = []
     try:
         from app.services.embedding_service import get_embedding_service
-        tool_ctx.embedding_service = get_embedding_service()
+        tool_ctx.embedding_service = await get_embedding_service(db=db)
         ks_tool = registry.get("knowledge_search")
         if ks_tool:
             ks_result = await ks_tool.execute(

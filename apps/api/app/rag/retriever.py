@@ -69,11 +69,23 @@ class HybridRetriever:
         quality_weight: float = 0.2,
         reuse_weight: float = 0.2,
     ):
-        self._embedding_service = embedding_service or get_embedding_service()
+        self._embedding_service = embedding_service
         self.vector_weight = vector_weight
         self.keyword_weight = keyword_weight
         self.quality_weight = quality_weight
         self.reuse_weight = reuse_weight
+
+    async def _get_embedding_service(
+        self, db: Optional[AsyncSession] = None
+    ) -> EmbeddingService:
+        """Lazy-initialise the embedding service (async factory).
+
+        When *db* is provided the service reads its configuration from the
+        database (admin UI settings) first, falling back to .env defaults.
+        """
+        if self._embedding_service is None:
+            self._embedding_service = await get_embedding_service(db=db)
+        return self._embedding_service
 
     async def search(
         self,
@@ -155,7 +167,8 @@ class HybridRetriever:
     ) -> List[RetrievalResult]:
         """Perform pgvector cosine similarity search on document chunks."""
         try:
-            query_embedding = await self._embedding_service.embed_text(query)
+            svc = await self._get_embedding_service(db=db)
+            query_embedding = await svc.embed_text(query)
         except Exception:
             # Embedding failed — skip vector search
             return []

@@ -1,12 +1,18 @@
 """OpenAI-compatible LLM provider using the openai Python SDK."""
 
+import asyncio
 import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+import httpx
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
+
+# Default timeout for LLM calls (seconds).
+# Prevents SSE streams from hanging indefinitely when the API is unreachable.
+_LLM_TIMEOUT = 60
 
 
 class OpenAILLMService:
@@ -21,6 +27,7 @@ class OpenAILLMService:
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
+            timeout=httpx.Timeout(_LLM_TIMEOUT, connect=10.0),
         )
         self._model = model
 
@@ -53,12 +60,16 @@ class OpenAILLMService:
             prompt,
             system_prompt or "You are a helpful assistant that responds in JSON format.",
         )
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-            temperature=temperature,
-            response_format={"type": "json_object"},
-        )
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+        except Exception as e:
+            logger.error("OpenAI generate_json call failed: %s", e)
+            raise
         content = response.choices[0].message.content or "{}"
         try:
             return json.loads(content)
@@ -86,6 +97,8 @@ class OpenAILLMService:
             stream=True,
         )
         async for chunk in stream:
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
             if delta.content:
                 yield delta.content
@@ -123,6 +136,8 @@ class OpenAILLMService:
             stream=True,
         )
         async for chunk in stream:
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta
             if delta.content:
                 yield delta.content

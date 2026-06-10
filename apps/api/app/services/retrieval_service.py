@@ -4,6 +4,8 @@ import time
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.embedding_service import EmbeddingService, get_embedding_service
 
 
@@ -53,7 +55,15 @@ class HybridRetrievalService(RetrievalService):
     """Hybrid retrieval combining keyword matching and vector similarity."""
 
     def __init__(self, embedding_service: Optional[EmbeddingService] = None):
-        self._embedding_service = embedding_service or get_embedding_service()
+        self._embedding_service = embedding_service
+
+    async def _get_embedding_service(
+        self, db: Optional[AsyncSession] = None
+    ) -> EmbeddingService:
+        """Resolve the embedding service, reading config from the database."""
+        if self._embedding_service is None:
+            self._embedding_service = await get_embedding_service(db=db)
+        return self._embedding_service
 
     async def search(
         self,
@@ -61,6 +71,7 @@ class HybridRetrievalService(RetrievalService):
         top_k: int = 5,
         project_id: Optional[str] = None,
         retrieval_type: str = "hybrid",
+        db: Optional[AsyncSession] = None,
     ) -> List[RetrievalResult]:
         """Perform hybrid search over document chunks.
 
@@ -70,7 +81,8 @@ class HybridRetrievalService(RetrievalService):
         start = time.monotonic()
 
         # Generate query embedding for vector search
-        query_embedding = await self._embedding_service.embed_text(query)
+        svc = await self._get_embedding_service(db)
+        query_embedding = await svc.embed_text(query)
 
         # Mock results — in production these come from the database
         mock_results = self._generate_mock_results(query, top_k)
@@ -82,6 +94,7 @@ class HybridRetrievalService(RetrievalService):
         self,
         document_id: str,
         chunks: List[dict],
+        db: Optional[AsyncSession] = None,
     ) -> int:
         """Index chunks by generating embeddings for each.
 
@@ -89,7 +102,8 @@ class HybridRetrievalService(RetrievalService):
         """
         texts = [chunk.get("content", "") for chunk in chunks]
         if texts:
-            embeddings = await self._embedding_service.embed_texts(texts)
+            svc = await self._get_embedding_service(db)
+            embeddings = await svc.embed_texts(texts)
             # In production: store embeddings in document_chunks table
             return len(embeddings)
         return 0

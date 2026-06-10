@@ -73,7 +73,9 @@ class SkillRunner:
 
         # Execute
         try:
+            logger.info("SkillRunner: calling skill.execute() for %s", skill_id)
             result: SkillResult = await skill.execute(input_data, context)
+            logger.info("SkillRunner: skill.execute() returned for %s (success=%s)", skill_id, result.success)
             elapsed_ms = int((time.monotonic() - started_at) * 1000)
             result.duration_ms = elapsed_ms
 

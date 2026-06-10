@@ -8,8 +8,8 @@ class TextChunker:
 
     def __init__(
         self,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        chunk_size: int = 800,
+        chunk_overlap: int = 100,
         separator: str = "\n\n",
     ):
         self.chunk_size = chunk_size

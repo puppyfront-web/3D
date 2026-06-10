@@ -19,12 +19,20 @@ class DocumentIndexer:
     def __init__(
         self,
         embedding_service: Optional[EmbeddingService] = None,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        chunk_size: int = 800,
+        chunk_overlap: int = 100,
     ):
-        self._embedding_service = embedding_service or get_embedding_service()
+        self._embedding_service = embedding_service
         self._chunker = TextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         self._parser = DocumentParser()
+
+    async def _get_embedding_service(
+        self, db: AsyncSession
+    ) -> EmbeddingService:
+        """Resolve the embedding service, reading config from the database."""
+        if self._embedding_service is None:
+            self._embedding_service = await get_embedding_service(db=db)
+        return self._embedding_service
 
     async def index_document(
         self,
@@ -54,9 +62,10 @@ class DocumentIndexer:
             document.chunk_count = 0
             return 0
 
-        # Generate embeddings
+        # Generate embeddings (reads provider config from database)
         texts = [c["content"] for c in raw_chunks]
-        embeddings = await self._embedding_service.embed_texts(texts)
+        svc = await self._get_embedding_service(db)
+        embeddings = await svc.embed_texts(texts)
 
         # Persist chunks
         for i, raw in enumerate(raw_chunks):
