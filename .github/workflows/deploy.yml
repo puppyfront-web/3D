@@ -1,0 +1,80 @@
+# ═══════════════════════════════════════════════════════════════
+# 3D Wall AI — 推送到 main 分支时自动部署到阿里云服务器
+#
+# 前置条件:
+#   1. 在 GitHub 仓库 Settings > Secrets 中配置以下 Secret:
+#      - ALIYUN_HOST       : 阿里云服务器公网 IP
+#      - ALIYUN_USER       : SSH 用户名（如 root）
+#      - ALIYUN_SSH_KEY    : SSH 私钥（~/.ssh/id_rsa 内容）
+#      - ALIYUN_DEPLOY_PATH: 项目部署路径（如 /opt/3d-wall）
+#   2. 服务器上已安装 Docker 和 Docker Compose v2
+#   3. 服务器上已配置好 .env 文件
+#
+# 触发条件:
+#   - push 到 main 分支
+#   - 可手动触发（workflow_dispatch）
+# ═══════════════════════════════════════════════════════════════
+
+name: Deploy to Aliyun
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ALIYUN_HOST }}
+          username: ${{ secrets.ALIYUN_USER }}
+          key: ${{ secrets.ALIYUN_SSH_KEY }}
+          script: |
+            set -e
+            echo "══════════════════════════════════════"
+            echo "  自动部署开始 $(date)"
+            echo "══════════════════════════════════════"
+
+            DEPLOY_PATH="${{ secrets.ALIYUN_DEPLOY_PATH }}"
+            cd "${DEPLOY_PATH}"
+
+            # 拉取最新代码
+            echo "[1/4] 拉取代码..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            # 构建并启动
+            echo "[2/4] 构建镜像..."
+            docker compose -f docker-compose.prod.yml build --parallel
+
+            echo "[3/4] 重启服务..."
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # 健康检查
+            echo "[4/4] 健康检查..."
+            sleep 15
+            HEALTHY=$(docker compose -f docker-compose.prod.yml ps --format json 2>/dev/null | \
+              python3 -c "
+            import sys, json
+            h = t = 0
+            for line in sys.stdin:
+                try:
+                    s = json.loads(line)
+                    t += 1
+                    if s.get('Health', s.get('health', '')) == 'healthy': h += 1
+                except: pass
+            print(f'{h}/{t}')
+            " 2>/dev/null || echo "unknown")
+
+            echo "  服务状态: ${HEALTHY}"
+            echo ""
+            echo "══════════════════════════════════════"
+            echo "  ✅ 部署完成 $(date)"
+            echo "══════════════════════════════════════"

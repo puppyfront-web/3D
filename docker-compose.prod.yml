@@ -1,0 +1,97 @@
+# ═══════════════════════════════════════════════════════════════════
+# 生产环境 Docker Compose 配置
+# 使用方式: docker compose -f docker-compose.prod.yml up -d
+# ═══════════════════════════════════════════════════════════════════
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: 3dwall
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # 不暴露端口到宿主机（通过 api 容器内部访问）
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@db:5432/3dwall
+      DB_HOST: db
+      POSTGRES_USER: postgres
+      # App
+      APP_ENV: production
+      APP_SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      APP_DEBUG: "false"
+      API_KEY: ${API_KEY:-}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # Workers
+      API_WORKERS: ${API_WORKERS:-4}
+      # LLM Provider
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      # Embedding Provider
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+      # Image Generation Provider
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-openai}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_BASE_URL: ${IMAGE_BASE_URL:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-dall-e-3}
+      # Storage
+      STORAGE_PATH: /app/storage
+    volumes:
+      - api-storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  pgdata:
+  api-storage:

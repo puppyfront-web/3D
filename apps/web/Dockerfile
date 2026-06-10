@@ -3,18 +3,24 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Accept API URL as build argument
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
 
-ENV NEXT_PUBLIC_API_URL=http://localhost:8000
 RUN npm run build
 
 # Stage 2: Production
 FROM node:20-alpine AS runner
 
 WORKDIR /app
+
+# curl for healthcheck
+RUN apk add --no-cache curl
 
 ENV NODE_ENV=production
 
@@ -31,5 +37,8 @@ EXPOSE 3000
 
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:3000/ || exit 1
 
 CMD ["node", "server.js"]
