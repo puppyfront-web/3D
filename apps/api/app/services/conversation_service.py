@@ -191,59 +191,71 @@ class ConversationService:
         """
         conv_uuid = uuid.UUID(conversation_id)
 
-        # 1. Save user message and commit immediately to release DB lock
-        await self.save_message(db, conv_uuid, "user", user_message, auto_commit=True)
+        try:
+            # 1. Save user message and commit immediately to release DB lock
+            await self.save_message(db, conv_uuid, "user", user_message, auto_commit=True)
 
-        # 2. Load history (after commit, so the new message is visible)
-        messages = await self.get_history(db, conv_uuid)
-        history = self.build_message_history(messages)
+            # 2. Load history (after commit, so the new message is visible)
+            messages = await self.get_history(db, conv_uuid)
+            history = self.build_message_history(messages)
 
-        # 2.5 Check for paused pipeline that needs resuming
-        pipeline_state = self._load_pipeline_state(messages)
-        if pipeline_state and pipeline_state.status == "paused":
-            logger.info("Resuming paused pipeline at stage: %s", pipeline_state.current_stage)
-            async for chunk in self._handle_sop_pipeline_resume(
-                db, conv_uuid, user_message, pipeline_state, history
-            ):
-                yield chunk
-            return
+            # 2.5 Check for paused pipeline that needs resuming
+            pipeline_state = self._load_pipeline_state(messages)
+            if pipeline_state and pipeline_state.status == "paused":
+                logger.info("Resuming paused pipeline at stage: %s", pipeline_state.current_stage)
+                async for chunk in self._handle_sop_pipeline_resume(
+                    db, conv_uuid, user_message, pipeline_state, history
+                ):
+                    yield chunk
+                return
 
-        # 3. Detect intent
-        intent: IntentResult = await self._intent_detector.detect(
-            user_message, history, db=db
-        )
+            # 3. Detect intent
+            intent: IntentResult = await self._intent_detector.detect(
+                user_message, history, db=db
+            )
 
-        logger.info(
-            "Intent detected: %s (skill=%s, confidence=%.2f)",
-            intent.intent,
-            intent.skill_id,
-            intent.confidence,
-        )
+            logger.info(
+                "Intent detected: %s (skill=%s, confidence=%.2f)",
+                intent.intent,
+                intent.skill_id,
+                intent.confidence,
+            )
 
-        # 4. Route based on intent
-        if intent.intent == "sop_pipeline" and intent.skill_id is None:
-            async for chunk in self._handle_sop_pipeline(
-                db, conv_uuid, user_message, intent, history
-            ):
-                yield chunk
-        elif intent.intent == "run_skill" and intent.skill_id:
-            async for chunk in self._handle_skill_execution(
-                db, conv_uuid, intent, history
-            ):
-                yield chunk
-        elif intent.intent == "visual_concept":
-            async for chunk in self._handle_visual_concept(
-                db, conv_uuid, user_message, intent
-            ):
-                yield chunk
-        else:
-            async for chunk in self._handle_conversational(
-                db, conv_uuid, user_message, history
-            ):
-                yield chunk
+            # 4. Route based on intent
+            if intent.intent == "sop_pipeline" and intent.skill_id is None:
+                async for chunk in self._handle_sop_pipeline(
+                    db, conv_uuid, user_message, intent, history
+                ):
+                    yield chunk
+            elif intent.intent == "run_skill" and intent.skill_id:
+                async for chunk in self._handle_skill_execution(
+                    db, conv_uuid, intent, history
+                ):
+                    yield chunk
+            elif intent.intent == "visual_concept":
+                async for chunk in self._handle_visual_concept(
+                    db, conv_uuid, user_message, intent
+                ):
+                    yield chunk
+            else:
+                async for chunk in self._handle_conversational(
+                    db, conv_uuid, user_message, history
+                ):
+                    yield chunk
 
-        # Final done event
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except Exception as e:
+            logger.exception("Unhandled error in process_message_stream")
+            err_str = str(e).lower()
+            if "timeout" in err_str or "timed out" in err_str:
+                error_text = "抱歉，AI 服务响应超时，请稍后重试。"
+            elif "database is locked" in err_str:
+                error_text = "抱歉，系统繁忙，请稍后重试。"
+            else:
+                error_text = f"抱歉，处理您的请求时发生错误：{e}"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': error_text})}\n\n"
+        finally:
+            # Always send the done event so the frontend doesn't hang
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     async def _handle_skill_execution(
         self,
@@ -285,10 +297,17 @@ class ConversationService:
             # Build input data from intent + history context
             # Include user_message so skills can work in conversation mode
             input_data = {**intent.input_data}
-            if not input_data.get("user_message") and history:
+            # Always propagate user_message to company_info/requirement_text
+            # so skills that read those keys can work in conversation mode.
+            if input_data.get("user_message"):
+                input_data.setdefault("company_info", input_data["user_message"])
+                input_data.setdefault("requirement_text", input_data["user_message"])
+                input_data.setdefault("context_text", input_data["user_message"])
+            elif history:
                 # Get the last user message from history
                 for msg in reversed(history):
                     if msg.get("role") == "user":
+                        input_data.setdefault("user_message", msg["content"])
                         input_data.setdefault("company_info", msg["content"])
                         input_data.setdefault("requirement_text", msg["content"])
                         input_data.setdefault("context_text", msg["content"])
@@ -318,53 +337,66 @@ class ConversationService:
                 )
                 return
 
-            context = SkillContext(
-                project_id=project_id,
-                user_id=None,
-                db=db,
-                llm_service=await get_llm_service(db),
-                embedding_service=await get_embedding_service(db),
-                image_service=await get_image_service(db),
-            )
+            # Use a separate DB session for skill execution to avoid
+            # SQLite deadlocks when the SSE stream session holds a
+            # write lock and SkillRunner tries to flush().
+            from app.db.session import async_session_factory
 
-            # Notify frontend that a skill is starting — send as content block
-            skill = registry.get(skill_id)
-            skill_name = skill.manifest.name if skill else skill_id
-            yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': 'skill_executing'}})}\n\n"
-            yield f"data: {json.dumps({'type': 'content_block_data', 'data': {'type': 'skill_executing', 'data': {'skill_id': skill_id, 'name': skill_name}}})}\n\n"
-            yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
+            logger.info("_handle_skill_execution: creating separate DB session for skill %s", skill_id)
+            async with async_session_factory() as skill_db:
+                logger.info("_handle_skill_execution: session created, building context")
+                llm_svc = await get_llm_service(skill_db)
+                logger.info("_handle_skill_execution: LLM service = %s", type(llm_svc).__name__)
+                emb_svc = await get_embedding_service(skill_db)
+                img_svc = await get_image_service(skill_db)
+                context = SkillContext(
+                    project_id=project_id,
+                    user_id=None,
+                    db=skill_db,
+                    llm_service=llm_svc,
+                    embedding_service=emb_svc,
+                    image_service=img_svc,
+                )
 
-            runner = SkillRunner(registry)
-            result = await runner.run(skill_id, input_data, context)
+                # Notify frontend that a skill is starting — send as content block
+                skill = registry.get(skill_id)
+                skill_name = skill.manifest.name if skill else skill_id
+                yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': 'skill_executing'}})}\n\n"
+                yield f"data: {json.dumps({'type': 'content_block_data', 'data': {'type': 'skill_executing', 'data': {'skill_id': skill_id, 'name': skill_name}}})}\n\n"
+                yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
+
+                runner = SkillRunner(registry)
+                result = await runner.run(skill_id, input_data, context)
+
+                # Auto-chain visual_prompt → image_generation within same session
+                if result.get("success") and skill_id == "visual_prompt":
+                    output = result.get("output", {})
+                    if isinstance(output, dict) and output.get("positive_prompt"):
+                        image_input = {
+                            "prompt": output["positive_prompt"],
+                            "negative_prompt": output.get("negative_prompt", ""),
+                            "width": input_data.get("width", 1024),
+                            "height": input_data.get("height", 768),
+                            "style": output.get("visual_strategy", {}).get("concept") if isinstance(output.get("visual_strategy"), dict) else None,
+                        }
+                        if project_id:
+                            image_input["project_id"] = project_id
+                        collected_images: list[dict] = []
+                        for _idx in range(2):
+                            image_result = await runner.run("image_generation", image_input, context)
+                            if image_result.get("success"):
+                                img_url = image_result.get("output", {}).get("image_url")
+                                if img_url:
+                                    collected_images.append({"url": img_url})
+                        if collected_images:
+                            output["images"] = collected_images
+                            output["image_url"] = collected_images[0]["url"]
+
+                # Commit skill execution records
+                await skill_db.commit()
 
             if result.get("success"):
                 output = result.get("output", {})
-
-                # ── Auto-chain: visual_prompt → image_generation (2 variations) ──
-                if skill_id == "visual_prompt" and isinstance(output, dict) and output.get("positive_prompt"):
-                    image_input = {
-                        "prompt": output["positive_prompt"],
-                        "negative_prompt": output.get("negative_prompt", ""),
-                        "width": input_data.get("width", 1024),
-                        "height": input_data.get("height", 768),
-                        "style": output.get("visual_strategy", {}).get("concept") if isinstance(output.get("visual_strategy"), dict) else None,
-                    }
-                    if project_id:
-                        image_input["project_id"] = project_id
-
-                    # Generate 2 variations for comparison
-                    collected_images: list[dict] = []
-                    for _idx in range(2):
-                        image_result = await runner.run("image_generation", image_input, context)
-                        if image_result.get("success"):
-                            img_url = image_result.get("output", {}).get("image_url")
-                            if img_url:
-                                collected_images.append({"url": img_url})
-
-                    if collected_images:
-                        output["images"] = collected_images
-                        # Keep single image_url for backward compat
-                        output["image_url"] = collected_images[0]["url"]
 
                 # Render skill output as readable text for the user
                 content_text = self._render_skill_output(skill_id, output)
@@ -475,7 +507,8 @@ class ConversationService:
         if skill_id == "company_analysis":
             company_info = input_data.get("company_info", "") or ""
             requirement = input_data.get("requirement_text", "") or ""
-            combined = f"{company_info} {requirement}".strip()
+            user_msg = input_data.get("user_message", "") or ""
+            combined = f"{company_info} {requirement} {user_msg}".strip()
 
             # Strip common trigger phrases to see if any real info remains
             trigger_phrases = [
@@ -679,22 +712,9 @@ class ConversationService:
         if not registry.list_skills():
             registry.auto_register()
 
-        context = SkillContext(
-            project_id=project_id,
-            user_id=None,
-            db=db,
-            llm_service=await get_llm_service(db),
-            embedding_service=await get_embedding_service(db),
-            image_service=await get_image_service(db),
-        )
-
-        # ── Auto-inject Context Pack for proposal_generation ──
-        if stage == "proposal_generation":
-            await self._enrich_proposal_input(input_data, state, context, project_id)
-
-        # ── Auto-inject visual context for visual_generation ──
-        if stage == "visual_generation":
-            await self._enrich_visual_input(input_data, state, context, project_id)
+        # Use a separate DB session for skill execution to avoid
+        # SQLite deadlocks when the SSE stream session holds a write lock.
+        from app.db.session import async_session_factory
 
         # Stream stage-start indicator
         stage_names = {
@@ -707,58 +727,105 @@ class ConversationService:
         progress_text = f"🔄 **{stage_display}** 阶段开始执行...\n\n"
         yield f"data: {json.dumps({'type': 'text_delta', 'text': progress_text})}\n\n"
 
-        # Execute skill(s)
-        runner = SkillRunner(registry)
+        # Execute skill(s) in a separate DB session.
+        # Capture results/error inside the block, but do NOT call
+        # save_message(db, ...) inside it — SQLite allows only one
+        # writer at a time and skill_db may hold uncommitted writes.
         all_output: Dict[str, Any] = {}
+        stage_error: Optional[str] = None
 
-        if stage == "visual_generation":
-            vp_result = await runner.run("visual_prompt", input_data, context)
-            if vp_result.get("success"):
-                all_output = vp_result.get("output", {})
-                collected_images: list = []
-                for _ in range(2):
-                    img_input = {
-                        "prompt": all_output.get("positive_prompt", ""),
-                        "negative_prompt": all_output.get("negative_prompt", ""),
-                        "width": input_data.get("width", 1024),
-                        "height": input_data.get("height", 768),
-                    }
-                    if project_id:
-                        img_input["project_id"] = project_id
-                    img_result = await runner.run("image_generation", img_input, context)
-                    if img_result.get("success"):
-                        url = img_result.get("output", {}).get("image_url")
-                        if url:
-                            collected_images.append({"url": url})
-                if collected_images:
-                    all_output["images"] = collected_images
-                    all_output["image_url"] = collected_images[0]["url"]
-        elif stage == "export":
-            export_input = self._build_export_input(state, project_id)
-            if export_input.get("task_id"):
-                result = await runner.run("export", export_input, context)
-                if result.get("success"):
-                    all_output = result.get("output", {})
+        async with async_session_factory() as skill_db:
+            context = SkillContext(
+                project_id=project_id,
+                user_id=None,
+                db=skill_db,
+                llm_service=await get_llm_service(skill_db),
+                embedding_service=await get_embedding_service(skill_db),
+                image_service=await get_image_service(skill_db),
+            )
+
+            # ── Auto-inject Context Pack for proposal_generation ──
+            if stage == "proposal_generation":
+                await self._enrich_proposal_input(input_data, state, context, project_id)
+
+            # ── Auto-inject visual context for visual_generation ──
+            if stage == "visual_generation":
+                await self._enrich_visual_input(input_data, state, context, project_id)
+
+            runner = SkillRunner(registry)
+
+            try:
+                if stage == "visual_generation":
+                    vp_result = await runner.run("visual_prompt", input_data, context)
+                    if vp_result.get("success"):
+                        all_output = vp_result.get("output", {})
+                        collected_images: list = []
+                        for _ in range(2):
+                            img_input = {
+                                "prompt": all_output.get("positive_prompt", ""),
+                                "negative_prompt": all_output.get("negative_prompt", ""),
+                                "width": input_data.get("width", 1024),
+                                "height": input_data.get("height", 768),
+                            }
+                            if project_id:
+                                img_input["project_id"] = project_id
+                            img_result = await runner.run("image_generation", img_input, context)
+                            if img_result.get("success"):
+                                url = img_result.get("output", {}).get("image_url")
+                                if url:
+                                    collected_images.append({"url": url})
+                        if collected_images:
+                            all_output["images"] = collected_images
+                            all_output["image_url"] = collected_images[0]["url"]
+                    else:
+                        stage_error = vp_result.get("error", "执行失败")
+                elif stage == "export":
+                    export_input = self._build_export_input(state, project_id)
+                    if export_input.get("task_id"):
+                        result = await runner.run("export", export_input, context)
+                        if result.get("success"):
+                            all_output = result.get("output", {})
+                        else:
+                            all_output = await self._fallback_export(state, context, project_id)
+                    else:
+                        all_output = await self._fallback_export(state, context, project_id)
                 else:
-                    all_output = await self._fallback_export(state, context, project_id)
-            else:
-                all_output = await self._fallback_export(state, context, project_id)
-        else:
-            skill_id = stage
-            result = await runner.run(skill_id, input_data, context)
-            if result.get("success"):
-                all_output = result.get("output", {})
-            else:
-                error_msg = result.get("error", "执行失败")
-                error_text = f"❌ **{stage_display}** 执行失败：{error_msg}\n\n请尝试重新描述需求。"
-                yield f"data: {json.dumps({'type': 'text_delta', 'text': error_text})}\n\n"
-                state.status = "failed"
-                await self.save_message(
-                    db, conversation_id, "assistant",
-                    content=error_text, content_type="text",
-                    metadata=state.to_dict(), auto_commit=True,
-                )
-                return
+                    skill_id = stage
+                    result = await runner.run(skill_id, input_data, context)
+                    if result.get("success"):
+                        all_output = result.get("output", {})
+                    else:
+                        stage_error = result.get("error", "执行失败")
+            except Exception as skill_exc:
+                # LLM timeout, network error, etc. — capture for later.
+                logger.exception("Skill execution threw for stage %s", stage)
+                stage_error = str(skill_exc)
+
+            # Always commit/flush the skill execution record before exiting.
+            try:
+                await skill_db.commit()
+            except Exception:
+                await skill_db.rollback()
+
+        # ── Outside skill_db: safe to write to the SSE session's db ──
+
+        if stage_error:
+            # Provide a friendlier message for common errors
+            friendly_error = stage_error
+            lower_err = stage_error.lower()
+            if "timeout" in lower_err or "timed out" in lower_err:
+                friendly_error = "AI 服务响应超时，请稍后重试"
+            elif "connection" in lower_err or "refused" in lower_err:
+                friendly_error = "AI 服务连接失败，请检查网络或稍后重试"
+            error_text = f"❌ **{stage_display}** 执行失败：{friendly_error}\n\n请尝试重新描述需求。"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': error_text})}\n\n"
+            state.status = "failed"
+            await self.save_message(
+                db, conversation_id, "assistant",
+                content=error_text, content_type="text",
+                metadata=state.to_dict(), auto_commit=True,
+            )
+            return
 
         # Save stage output
         state.stage_outputs[stage] = all_output
