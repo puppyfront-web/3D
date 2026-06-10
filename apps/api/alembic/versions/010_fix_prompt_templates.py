@@ -44,6 +44,7 @@ VISUAL_TEMPLATE = """视觉 Prompt 生成补充要求：
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "010"
 down_revision = "009"
@@ -66,12 +67,25 @@ def upgrade() -> None:
             WHERE category = :category
             """
         ).bindparams(
-            name="企业分析补充指令",
-            desc="企业解析 Skill 的补充分析指令，管理员可自定义行业侧重点",
-            text=ANALYSIS_TEMPLATE,
-            vars='["company_name", "industry", "context"]',
-            is_default=True,
-            category="analysis",
+            sa.bindparam(
+                "name",
+                value="企业分析补充指令",
+            ),
+            sa.bindparam(
+                "desc",
+                value="企业解析 Skill 的补充分析指令，管理员可自定义行业侧重点",
+            ),
+            sa.bindparam(
+                "text",
+                value=ANALYSIS_TEMPLATE,
+            ),
+            sa.bindparam(
+                "vars",
+                value=["company_name", "industry", "context"],
+                type_=postgresql.JSONB,
+            ),
+            sa.bindparam("is_default", value=True),
+            sa.bindparam("category", value="analysis"),
         )
     )
 
@@ -88,12 +102,31 @@ def upgrade() -> None:
             WHERE category = :category
             """
         ).bindparams(
-            name="策划案补充指令",
-            desc="策划案生成 Skill 的补充指令，管理员可自定义行业偏好和强调重点",
-            text=GENERATION_TEMPLATE,
-            vars='["project_name", "client_name", "requirements", "case_studies", "company_profile"]',
-            is_default=True,
-            category="generation",
+            sa.bindparam(
+                "name",
+                value="策划案补充指令",
+            ),
+            sa.bindparam(
+                "desc",
+                value="策划案生成 Skill 的补充指令，管理员可自定义行业偏好和强调重点",
+            ),
+            sa.bindparam(
+                "text",
+                value=GENERATION_TEMPLATE,
+            ),
+            sa.bindparam(
+                "vars",
+                value=[
+                    "project_name",
+                    "client_name",
+                    "requirements",
+                    "case_studies",
+                    "company_profile",
+                ],
+                type_=postgresql.JSONB,
+            ),
+            sa.bindparam("is_default", value=True),
+            sa.bindparam("category", value="generation"),
         )
     )
 
@@ -110,12 +143,25 @@ def upgrade() -> None:
             WHERE category = :category
             """
         ).bindparams(
-            name="视觉 Prompt 补充指令",
-            desc="视觉 Prompt 生成 Skill 的补充指令，管理员可自定义风格偏好和行业规范",
-            text=VISUAL_TEMPLATE,
-            vars='["project_type", "industry", "style_preferences", "target_audience"]',
-            is_default=True,
-            category="visual",
+            sa.bindparam(
+                "name",
+                value="视觉 Prompt 补充指令",
+            ),
+            sa.bindparam(
+                "desc",
+                value="视觉 Prompt 生成 Skill 的补充指令，管理员可自定义风格偏好和行业规范",
+            ),
+            sa.bindparam(
+                "text",
+                value=VISUAL_TEMPLATE,
+            ),
+            sa.bindparam(
+                "vars",
+                value=["project_type", "industry", "style_preferences", "target_audience"],
+                type_=postgresql.JSONB,
+            ),
+            sa.bindparam("is_default", value=True),
+            sa.bindparam("category", value="visual"),
         )
     )
 

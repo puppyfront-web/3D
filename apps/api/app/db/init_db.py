@@ -20,16 +20,14 @@ async def create_tables() -> None:
     """Create all tables and pgvector indexes (used during development)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Create HNSW index for vector similarity search (PostgreSQL only)
-        try:
+        if conn.dialect.name == "postgresql":
+            await conn.execute(__import__("sqlalchemy").text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.execute(
                 __import__("sqlalchemy").text(
                     "CREATE INDEX IF NOT EXISTS idx_chunks_embedding "
                     "ON document_chunks USING hnsw (embedding vector_cosine_ops)"
                 )
             )
-        except Exception:
-            pass  # Not PostgreSQL or pgvector not available
 
 
 async def seed_database() -> None:

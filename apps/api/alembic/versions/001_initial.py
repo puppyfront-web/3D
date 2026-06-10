@@ -11,6 +11,11 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+try:
+    from pgvector.sqlalchemy import Vector
+except ImportError:  # pragma: no cover - pgvector is available in runtime deps
+    Vector = None
+
 # revision identifiers
 revision: str = "001_initial"
 down_revision: Union[str, None] = None
@@ -18,8 +23,23 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _is_postgresql() -> bool:
+    """Return whether the current migration bind targets PostgreSQL."""
+    return op.get_bind().dialect.name == "postgresql"
+
+
+def _embedding_type():
+    """Use pgvector in PostgreSQL and a text placeholder elsewhere."""
+    if _is_postgresql() and Vector is not None:
+        return Vector(1536)
+    return sa.Text()
+
+
 def upgrade() -> None:
     """Create initial database schema."""
+    if _is_postgresql():
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
     # Roles
     op.create_table(
         "roles",
@@ -115,7 +135,7 @@ def upgrade() -> None:
         sa.Column("page_number", sa.Integer(), nullable=True),
         sa.Column("token_count", sa.Integer(), default=0, nullable=False),
         sa.Column("metadata_json", sa.Text(), nullable=True),
-        # pgvector embedding column added separately in PostgreSQL
+        sa.Column("embedding", _embedding_type(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )

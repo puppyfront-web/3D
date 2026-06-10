@@ -66,13 +66,11 @@ def upgrade() -> None:
     op.add_column("projects", sa.Column("approved_for_external", sa.Boolean(), server_default="false", nullable=False))
 
     # --- pgvector HNSW index (PostgreSQL only) ---
-    try:
+    if op.get_bind().dialect.name == "postgresql":
         op.execute(
             "CREATE INDEX IF NOT EXISTS idx_chunks_embedding "
             "ON document_chunks USING hnsw (embedding vector_cosine_ops)"
         )
-    except Exception:
-        pass  # Not PostgreSQL — skip
 
 
 def downgrade() -> None:
