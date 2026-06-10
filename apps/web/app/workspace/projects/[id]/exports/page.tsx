@@ -27,7 +27,7 @@ import {
   ChevronDown,
   Sparkles,
 } from "lucide-react";
-import { exportProposal } from "@/lib/api";
+import { exportProposal, getProposalTasksForExport } from "@/lib/api";
 
 interface ExportRecord {
   id: string;
@@ -60,33 +60,15 @@ export default function ExportsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Get proposal tasks to find latest output
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/generations/tasks?project_id=${projectId}&task_type=proposal&page_size=5`
-      );
-      const json = await res.json();
-      const tasks: Record<string, unknown>[] = json?.data?.items || [];
-
-      const built: ExportRecord[] = [];
-      let newestOutputId: string | null = null;
-      for (const task of tasks) {
-        const outputs = (task.outputs as Record<string, unknown>[]) || [];
-        if (outputs.length > 0) {
-          const out = outputs[0];
-          const outputId = out.id as string;
-          if (!newestOutputId) newestOutputId = outputId;
-          built.push({
-            id: task.id as string,
-            outputId,
-            filename: `策划案_${(task.created_at as string || "").slice(0, 10)}`,
-            format: "DOCX",
-            exportedAt: formatTime(out.updated_at as string || task.created_at as string),
-            status: task.status as string || "completed",
-          });
-        }
+      const result = await getProposalTasksForExport(projectId);
+      if (result.success) {
+        setLatestOutputId(result.latestOutputId);
+        setRecords(result.records.map((r) => ({
+          ...r,
+          format: "DOCX",
+          exportedAt: formatTime(r.exportedAt),
+        })));
       }
-      setLatestOutputId(newestOutputId);
-      setRecords(built);
     } catch {
       // ignore
     }

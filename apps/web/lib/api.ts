@@ -169,12 +169,38 @@ export async function updateProposalSection(
   sectionId: string,
   content: string
 ): Promise<ApiResponse<Proposal>> {
-  // Backend PUT updates sections_meta or full content; we update full content
+  // Backend PUT updates full content; returns GenerationOutputOut
   const res = await apiFetch<Record<string, unknown>>(`/api/v1/generations/outputs/${outputId}`, {
     method: "PUT",
     body: JSON.stringify({ content }),
   });
-  return { data: null as unknown as Proposal, success: res.success, message: res.message };
+  if (!res.success || !res.data) {
+    return { data: null as unknown as Proposal, success: false, message: res.message };
+  }
+  // Re-parse the updated output into a Proposal
+  const output = res.data;
+  const sectionsMeta = (output.sections_meta as Record<string, unknown>[]) || [];
+  const fullContent = (output.content as string) || content;
+  const sections: Proposal["sections"] = sectionsMeta.map((m) => {
+    const order = m.order as number;
+    const sectionContent = extractSectionContent(fullContent, order);
+    return {
+      id: (m.id as string) || `s-${order}`,
+      title: m.title as string,
+      content: sectionContent,
+      order,
+      status: (m.status as "draft" | "review" | "approved") || "draft",
+    };
+  });
+  const proposal: Proposal = {
+    id: output.id as string,
+    title: `策划案`,
+    version: (output.version as number) || 1,
+    lastEditedAt: (output.updated_at as string) || new Date().toISOString(),
+    totalWords: fullContent.length,
+    sections,
+  };
+  return { data: proposal, success: true };
 }
 
 export async function updateSectionStatus(
@@ -306,6 +332,37 @@ export async function getReviewChecklists(projectId: string): Promise<ApiRespons
 // ============================================================
 // Exports API
 // ============================================================
+
+export async function getProposalTasksForExport(projectId: string): Promise<{
+  success: boolean;
+  records: { id: string; outputId: string; filename: string; exportedAt: string; status: string }[];
+  latestOutputId: string | null;
+}> {
+  const res = await apiFetch<{ items: Record<string, unknown>[]; total: number }>(
+    `/api/v1/generations/tasks?project_id=${projectId}&task_type=proposal&page_size=5`
+  );
+  if (!res.success || !res.data) return { success: false, records: [], latestOutputId: null };
+
+  const records: { id: string; outputId: string; filename: string; exportedAt: string; status: string }[] = [];
+  let latestOutputId: string | null = null;
+
+  for (const task of res.data.items) {
+    const outputs = (task.outputs as Record<string, unknown>[]) || [];
+    if (outputs.length > 0) {
+      const out = outputs[0];
+      const outputId = out.id as string;
+      if (!latestOutputId) latestOutputId = outputId;
+      records.push({
+        id: task.id as string,
+        outputId,
+        filename: `策划案_${(task.created_at as string || "").slice(0, 10)}`,
+        exportedAt: out.updated_at as string || task.created_at as string || "",
+        status: task.status as string || "completed",
+      });
+    }
+  }
+  return { success: true, records, latestOutputId };
+}
 
 export async function exportToWord(taskId: string): Promise<ApiResponse<{ file_path: string }>> {
   return apiFetch<{ file_path: string }>(`/api/v1/exports/word/${taskId}`, { method: "POST" });

@@ -105,3 +105,23 @@ class ProposalSectionStatusUpdate(APIBaseModel):
 
     status: str = Field(..., pattern=r"^(draft|review|approved)$")
     reviewed_by: Optional[str] = None
+
+
+# ── Quality Review Checklist ──
+
+
+class ChecklistItem(APIBaseModel):
+    """A single item in a quality review checklist."""
+
+    id: str
+    description: str
+    status: str  # pass / warning / fail / pending
+    comment: Optional[str] = None
+
+
+class ChecklistGroup(APIBaseModel):
+    """A group of related checklist items."""
+
+    id: str
+    category: str
+    items: List[ChecklistItem]

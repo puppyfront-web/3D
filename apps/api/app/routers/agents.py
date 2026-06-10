@@ -15,11 +15,12 @@ from app.models.project import Company, Project
 from app.models.generation import GenerationOutput, GenerationTask
 from app.schemas.common import Response
 from app.schemas.generation import (
+    ChecklistGroup,
+    ChecklistItem,
     DirectImageRequest,
     ProposalGenerationRequest,
     VisualPromptRequest,
 )
-from pydantic import BaseModel
 from app.services.llm_service import get_llm_service
 from app.services.embedding_service import get_embedding_service
 from app.services.image_service import get_image_service
@@ -294,19 +295,6 @@ async def run_full_pipeline(
 # ──────────────────────────────────────────────────────────────
 # Quality Review Checklist
 # ──────────────────────────────────────────────────────────────
-
-class ChecklistItem(BaseModel):
-    id: str
-    description: str
-    status: str  # pass / warning / fail / pending
-    comment: Optional[str] = None
-
-
-class ChecklistGroup(BaseModel):
-    id: str
-    category: str
-    items: List[ChecklistItem]
-
 
 @router.post("/quality-check/{project_id}", response_model=Response)
 async def run_quality_check(
