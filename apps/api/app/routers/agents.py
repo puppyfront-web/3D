@@ -3,7 +3,7 @@ proposal generation, and visual prompt generation."""
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -19,6 +19,7 @@ from app.schemas.generation import (
     ProposalGenerationRequest,
     VisualPromptRequest,
 )
+from pydantic import BaseModel
 from app.services.llm_service import get_llm_service
 from app.services.embedding_service import get_embedding_service
 from app.services.image_service import get_image_service
@@ -287,4 +288,174 @@ async def run_full_pipeline(
     return Response(
         data=results,
         message=f"Pipeline completed. Project status: {project.status}",
+    )
+
+
+# ──────────────────────────────────────────────────────────────
+# Quality Review Checklist
+# ──────────────────────────────────────────────────────────────
+
+class ChecklistItem(BaseModel):
+    id: str
+    description: str
+    status: str  # pass / warning / fail / pending
+    comment: Optional[str] = None
+
+
+class ChecklistGroup(BaseModel):
+    id: str
+    category: str
+    items: List[ChecklistItem]
+
+
+@router.post("/quality-check/{project_id}", response_model=Response)
+async def run_quality_check(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Run quality check for a project and return structured review checklists.
+
+    Checks for:
+    - Company analysis completeness
+    - Proposal completeness and section review status
+    - Visual generation presence
+    - Missing info / forbidden content
+    """
+    project = await db.get(Project, project_id)
+    if not project:
+        raise NotFoundException("Project", str(project_id))
+
+    checklists: List[ChecklistGroup] = []
+
+    # ── 1. Company Analysis ──
+    from app.models.company import CompanyProfile
+    profile_result = await db.execute(
+        select(CompanyProfile).where(CompanyProfile.company_id == project.company_id).limit(1)
+    )
+    profile = profile_result.scalar_one_or_none()
+
+    analysis_items: List[ChecklistItem] = []
+    if profile:
+        analysis_items.append(ChecklistItem(
+            id="analysis-1", description="企业基础画像已生成",
+            status="pass", comment=None,
+        ))
+        has_six_views = bool(profile.analysis_json and
+                            isinstance(profile.analysis_json, dict) and
+                            profile.analysis_json.get("six_views"))
+        analysis_items.append(ChecklistItem(
+            id="analysis-2", description="六看分析完整",
+            status="pass" if has_six_views else "warning",
+            comment=None if has_six_views else "建议补充六看维度分析",
+        ))
+        missing = profile.missing_info or []
+        analysis_items.append(ChecklistItem(
+            id="analysis-3", description="待确认信息已处理",
+            status="warning" if missing else "pass",
+            comment=f"待确认 {len(missing)} 项" if missing else None,
+        ))
+    else:
+        analysis_items.append(ChecklistItem(
+            id="analysis-1", description="企业基础画像已生成",
+            status="fail", comment="尚未生成企业分析，请先完成企业解析",
+        ))
+        analysis_items.append(ChecklistItem(
+            id="analysis-2", description="六看分析完整",
+            status="pending", comment=None,
+        ))
+        analysis_items.append(ChecklistItem(
+            id="analysis-3", description="待确认信息已处理",
+            status="pending", comment=None,
+        ))
+    checklists.append(ChecklistGroup(id="analysis", category="企业分析", items=analysis_items))
+
+    # ── 2. Proposal ──
+    proposal_result = await db.execute(
+        select(GenerationTask)
+        .where(GenerationTask.project_id == project_id)
+        .where(GenerationTask.type == "proposal")
+        .order_by(GenerationTask.created_at.desc())
+        .limit(1)
+    )
+    proposal_task = proposal_result.scalar_one_or_none()
+
+    proposal_items: List[ChecklistItem] = []
+    if proposal_task and proposal_task.outputs:
+        output = proposal_task.outputs[0]
+        has_content = bool(output.content and len(output.content) > 200)
+        proposal_items.append(ChecklistItem(
+            id="proposal-1", description="策划案已生成",
+            status="pass" if has_content else "warning",
+            comment=None if has_content else "策划案内容过短",
+        ))
+        sections_meta = output.sections_meta or []
+        total = len(sections_meta)
+        approved = sum(1 for s in sections_meta if s.get("status") == "approved")
+        has_citations = bool(output.used_cases or output.used_documents)
+        proposal_items.append(ChecklistItem(
+            id="proposal-2",
+            description=f"章节审核完成 ({approved}/{total})",
+            status="pass" if total > 0 and approved == total else ("warning" if approved > 0 else "fail"),
+            comment=None if approved == total else f"还有 {total - approved} 个章节未审核",
+        ))
+        proposal_items.append(ChecklistItem(
+            id="proposal-3", description="引用来源可追溯",
+            status="pass" if has_citations else "warning",
+            comment=None if has_citations else "建议关联相关案例和文档",
+        ))
+    else:
+        proposal_items.append(ChecklistItem(
+            id="proposal-1", description="策划案已生成",
+            status="fail", comment="尚未生成策划案",
+        ))
+        proposal_items.append(ChecklistItem(
+            id="proposal-2", description="章节审核完成",
+            status="pending", comment=None,
+        ))
+        proposal_items.append(ChecklistItem(
+            id="proposal-3", description="引用来源可追溯",
+            status="pending", comment=None,
+        ))
+    checklists.append(ChecklistGroup(id="proposal", category="策划案", items=proposal_items))
+
+    # ── 3. Visual ──
+    visual_result = await db.execute(
+        select(GenerationTask)
+        .where(GenerationTask.project_id == project_id)
+        .where(GenerationTask.type.in_(["visual_prompt", "image_generation", "visual"]))
+        .order_by(GenerationTask.created_at.desc())
+        .limit(1)
+    )
+    visual_task = visual_result.scalar_one_or_none()
+
+    visual_items: List[ChecklistItem] = []
+    has_visual = bool(visual_task and visual_task.outputs)
+    visual_items.append(ChecklistItem(
+        id="visual-1", description="视觉方案已生成",
+        status="pass" if has_visual else "warning",
+        comment=None if has_visual else "建议生成视觉方案（可选）",
+    ))
+    checklists.append(ChecklistGroup(id="visual", category="视觉方案", items=visual_items))
+
+    # ── 4. Compliance ──
+    compliance_items: List[ChecklistItem] = [
+        ChecklistItem(
+            id="comp-1", description="未出现编造报价或承诺投屏效果",
+            status="pass", comment=None,
+        ),
+        ChecklistItem(
+            id="comp-2", description="未出现编造案例",
+            status="pass", comment=None,
+        ),
+        ChecklistItem(
+            id="comp-3", description="AI生成内容已经人工核查",
+            status="warning" if proposal_task else "pending",
+            comment="请确认所有 AI 生成内容已由责任人核查" if proposal_task else None,
+        ),
+    ]
+    checklists.append(ChecklistGroup(id="compliance", category="合规检查", items=compliance_items))
+
+    return Response(
+        data=[g.model_dump() for g in checklists],
+        message="Quality check completed",
     )

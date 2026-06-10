@@ -203,23 +203,25 @@ export interface ProposalSection {
 
 export interface Proposal {
   id: string;
-  projectId: string;
+  projectId?: string;
   title: string;
   sections: ProposalSection[];
   totalWords: number;
   lastEditedAt: string;
   version: number;
+  usedCases?: string[];
+  usedDocuments?: string[];
 }
 
 // --- Visual ---
 
 export interface VisualProject {
   id: string;
-  projectId: string;
+  projectId?: string;
   name: string;
   prompt: string;
   style: string;
-  size: string;
+  size?: string;
   images: VisualImage[];
   createdAt: string;
 }

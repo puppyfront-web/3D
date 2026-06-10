@@ -76,6 +76,22 @@ async def get_profile_by_company(company_id: uuid.UUID, db: AsyncSession = Depen
     return Response(data=CompanyProfileOut.model_validate(profile))
 
 
+@router.get("/by-project/{project_id}", response_model=Response[CompanyProfileOut])
+async def get_profile_by_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Get the company profile via project_id — resolves project → company → profile."""
+    from app.models.project import Project
+    project = await db.get(Project, project_id)
+    if not project:
+        raise NotFoundException("Project", str(project_id))
+    result = await db.execute(
+        select(CompanyProfile).where(CompanyProfile.company_id == project.company_id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise NotFoundException("CompanyProfile for project", str(project_id))
+    return Response(data=CompanyProfileOut.model_validate(profile))
+
+
 @router.post("", response_model=Response[CompanyProfileOut], status_code=status.HTTP_201_CREATED)
 async def create_profile(body: CompanyProfileCreate, db: AsyncSession = Depends(get_db)):
     """Create a company profile."""

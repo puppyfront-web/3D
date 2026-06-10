@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Building2,
@@ -37,6 +36,7 @@ import {
   getCompanyAnalysis,
   updateCompanyAnalysis,
   generateCompanyAnalysis,
+  getProjectById,
 } from "@/lib/api";
 import type { CompanyAnalysis as CompanyAnalysisType, SixViews, TechnologyArchitecture, ProjectBackground } from "@/types";
 
@@ -44,6 +44,7 @@ export default function CompanyAnalysisPage() {
   const params = useParams();
   const projectId = params.id as string;
   const [analysis, setAnalysis] = useState<CompanyAnalysisType | null>(null);
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -51,6 +52,13 @@ export default function CompanyAnalysisPage() {
 
   const loadAnalysis = useCallback(async () => {
     setLoading(true);
+    // First, get project to resolve company_id
+    const projRes = await getProjectById(projectId);
+    if (projRes.success && projRes.data) {
+      const cid = projRes.data.companyId;
+      if (cid) setCompanyId(cid);
+    }
+    // Then load company analysis via project
     const res = await getCompanyAnalysis(projectId);
     if (res.success && res.data) {
       setAnalysis(res.data);
@@ -80,9 +88,11 @@ export default function CompanyAnalysisPage() {
   };
 
   const handleRegenerate = async () => {
-    if (!analysis?.companyId) return;
+    // Use companyId from project (resolved in loadAnalysis) or from existing analysis
+    const cid = companyId || analysis?.companyId;
+    if (!cid) return;
     setGenerating(true);
-    const res = await generateCompanyAnalysis(analysis.companyId);
+    const res = await generateCompanyAnalysis(cid);
     if (res.success && res.data) {
       setAnalysis(res.data);
     }

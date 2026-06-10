@@ -3,6 +3,7 @@ import {
   CompanyAnalysis,
   Proposal,
   VisualProject,
+  VisualImage,
   ReviewChecklist,
   Asset,
   AssetType,
@@ -81,7 +82,7 @@ export async function createProject(data: ProjectWizardData): Promise<ApiRespons
 // ============================================================
 
 export async function getCompanyAnalysis(projectId: string): Promise<ApiResponse<CompanyAnalysis>> {
-  return apiFetch<CompanyAnalysis>(`/api/v1/company-profiles/by-company/${projectId}`);
+  return apiFetch<CompanyAnalysis>(`/api/v1/company-profiles/by-project/${projectId}`);
 }
 
 export async function updateCompanyAnalysis(
@@ -105,18 +106,75 @@ export async function generateCompanyAnalysis(companyId: string): Promise<ApiRes
 // ============================================================
 
 export async function getProposal(projectId: string): Promise<ApiResponse<Proposal>> {
-  return apiFetch<Proposal>(`/api/v1/generations/tasks?project_id=${projectId}`);
+  // Backend returns paginated GenerationTask list; find the latest proposal task
+  const res = await apiFetch<{ items: Record<string, unknown>[]; total: number }>(
+    `/api/v1/generations/tasks?project_id=${projectId}&task_type=proposal&page_size=5`
+  );
+  if (!res.success || !res.data?.items?.length) {
+    return { data: null as unknown as Proposal, success: false, message: res.message || "暂无策划案" };
+  }
+  const task = res.data.items[0] as Record<string, unknown>;
+  const outputs = (task.outputs as Record<string, unknown>[]) || [];
+  if (!outputs.length) {
+    return { data: null as unknown as Proposal, success: false, message: "策划案尚未生成完成" };
+  }
+  const output = outputs[0] as Record<string, unknown>;
+  const sectionsMeta = (output.sections_meta as Record<string, unknown>[]) || [];
+  const content = (output.content as string) || "";
+
+  // Parse sections from content + sections_meta
+  const sections: Proposal["sections"] = sectionsMeta.map((m) => {
+    const order = m.order as number;
+    const sectionContent = extractSectionContent(content, order);
+    return {
+      id: (m.id as string) || `s-${order}`,
+      title: m.title as string,
+      content: sectionContent,
+      order,
+      status: (m.status as "draft" | "review" | "approved") || "draft",
+    };
+  });
+
+  const proposal: Proposal = {
+    id: output.id as string,
+    title: `${(task.type as string) || "策划案"} — ${(task.created_at as string || "").slice(0, 10)}`,
+    version: (output.version as number) || 1,
+    lastEditedAt: (output.updated_at as string) || new Date().toISOString(),
+    totalWords: content.length,
+    sections,
+    usedCases: (output.used_cases as string[]) || [],
+    usedDocuments: (output.used_documents as string[]) || [],
+  };
+  return { data: proposal, success: true };
+}
+
+function extractSectionContent(
+  fullContent: string,
+  order: number
+): string {
+  // Split content by ## N. patterns
+  const regex = /^##\s*\d+[\.\s]+/m;
+  const parts = fullContent.split(/(?=^##\s*\d+[\.\s]+)/m);
+  // parts[0] may be preamble; sections start at index where ## appears
+  const sectionParts = parts.filter((p) => regex.test(p));
+  if (order >= 1 && order <= sectionParts.length) {
+    // Remove the header line, return body
+    return sectionParts[order - 1].replace(/^##[^\n]*\n?/, "").trim();
+  }
+  return "";
 }
 
 export async function updateProposalSection(
-  proposalId: string,
+  outputId: string,
   sectionId: string,
   content: string
 ): Promise<ApiResponse<Proposal>> {
-  return apiFetch<Proposal>(`/api/v1/generations/outputs/${proposalId}`, {
+  // Backend PUT updates sections_meta or full content; we update full content
+  const res = await apiFetch<Record<string, unknown>>(`/api/v1/generations/outputs/${outputId}`, {
     method: "PUT",
-    body: JSON.stringify({ section_id: sectionId, content }),
+    body: JSON.stringify({ content }),
   });
+  return { data: null as unknown as Proposal, success: res.success, message: res.message };
 }
 
 export async function updateSectionStatus(
@@ -159,7 +217,39 @@ export async function generateProposal(projectId: string): Promise<ApiResponse<P
 // ============================================================
 
 export async function getVisualProjects(projectId: string): Promise<ApiResponse<VisualProject[]>> {
-  return apiFetch<VisualProject[]>(`/api/v1/generations/tasks?project_id=${projectId}&type=visual`);
+  const res = await apiFetch<{ items: Record<string, unknown>[]; total: number }>(
+    `/api/v1/generations/tasks?project_id=${projectId}&task_type=visual_prompt&page_size=20`
+  );
+  if (!res.success || !res.data) return { data: [], success: true };
+  const projects: VisualProject[] = res.data.items.map((task) => {
+    const outputs = (task.outputs as Record<string, unknown>[]) || [];
+    const images: VisualImage[] = outputs
+      .filter((o) => {
+        try {
+          const parsed = JSON.parse(o.content as string);
+          return parsed?.url;
+        } catch { return false; }
+      })
+      .map((o) => {
+        const parsed = JSON.parse(o.content as string);
+        return {
+          id: o.id as string,
+          url: parsed.url as string,
+          prompt: parsed.prompt as string || "",
+          status: "completed" as const,
+          createdAt: o.created_at as string || new Date().toISOString(),
+        };
+      });
+    return {
+      id: task.id as string,
+      name: `视觉方案 ${(task.created_at as string || "").slice(0, 10)}`,
+      prompt: (task.prompt_used as string) || "",
+      style: "",
+      images,
+      createdAt: task.created_at as string || new Date().toISOString(),
+    };
+  });
+  return { data: projects, success: true };
 }
 
 export async function generateVisualImage(
@@ -208,7 +298,9 @@ export async function directGenerateImage(
 // ============================================================
 
 export async function getReviewChecklists(projectId: string): Promise<ApiResponse<ReviewChecklist[]>> {
-  return apiFetch<ReviewChecklist[]>(`/api/v1/generations/tasks?project_id=${projectId}&type=review`);
+  return apiFetch<ReviewChecklist[]>(`/api/v1/agents/quality-check/${projectId}`, {
+    method: "POST",
+  });
 }
 
 // ============================================================
