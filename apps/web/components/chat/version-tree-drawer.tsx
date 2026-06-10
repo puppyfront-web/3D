@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { GitBranch, X } from "lucide-react";
-import type { VersionTree, VersionNode } from "@/types";
+import type { VersionTree } from "@/types";
 import { VersionTreePanel } from "./blocks/version-tree-panel";
 
 interface VersionTreeDrawerProps {
@@ -46,7 +46,7 @@ export function VersionTreeDrawer({
     [onSwitchBranch]
   );
 
-  const handleViewArtifact = useCallback((_node: VersionNode) => {
+  const handleViewArtifact = useCallback(() => {
     // Artifact viewing is handled internally by VersionTreePanel
   }, []);
 

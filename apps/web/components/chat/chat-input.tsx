@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef, useCallback, KeyboardEvent } from "react";
+import Image from "next/image";
 import {
   Send,
   Paperclip,
   Building2,
   FileText,
-  Image,
+  Image as ImageIconLucide,
   Download,
   X,
   Loader2,
@@ -30,7 +31,7 @@ interface ChatInputProps {
 const skillShortcuts = [
   { label: "企业解析", icon: Building2, message: "帮我进行企业解析" },
   { label: "策划案", icon: FileText, message: "生成策划案" },
-  { label: "视觉生成", icon: Image, message: "生成视觉方案" },
+  { label: "视觉生成", icon: ImageIconLucide, message: "生成视觉方案" },
   { label: "生成概念图", icon: Sparkles, message: "帮我生成一个视觉概念图" },
   { label: "导出", icon: Download, message: "导出方案文档" },
 ];
@@ -163,11 +164,15 @@ export function ChatInput({
           <div className="inline-flex items-start gap-2 p-2 rounded-lg bg-gray-50 border border-gray-200 max-w-xs">
             {/* Thumbnail */}
             {attachment.preview ? (
-              <img
-                src={attachment.preview}
-                alt="预览"
-                className="w-16 h-16 rounded object-cover"
-              />
+              <div className="relative h-16 w-16">
+                <Image
+                  src={attachment.preview}
+                  alt={`${attachment.file.name} 预览`}
+                  fill
+                  unoptimized
+                  className="rounded object-cover"
+                />
+              </div>
             ) : (
               <div className="w-16 h-16 rounded bg-gray-200 flex items-center justify-center">
                 {(() => {

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FileIcon, ImageIcon, Download } from "lucide-react";
 
 interface AttachmentBlockProps {
@@ -24,11 +25,15 @@ export function AttachmentBlock({ data }: AttachmentBlockProps) {
       {/* Image preview */}
       {isImage && url && (
         <a href={url} target="_blank" rel="noopener noreferrer">
-          <img
-            src={url}
-            alt={filename}
-            className="w-full max-h-64 object-cover"
-          />
+          <div className="relative h-64 w-full">
+            <Image
+              src={url}
+              alt={filename}
+              fill
+              unoptimized
+              className="object-cover"
+            />
+          </div>
         </a>
       )}
 

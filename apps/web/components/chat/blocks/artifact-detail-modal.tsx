@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import {
   X,
   Copy,
@@ -164,11 +165,15 @@ export function ArtifactDetailModal({
           {/* Image tab */}
           {activeTab === "image" && node.image_url && (
             <div className="flex items-center justify-center">
-              <img
-                src={node.image_url}
-                alt={node.version_label}
-                className="max-w-full max-h-[60vh] rounded-lg object-contain"
-              />
+              <div className="relative h-[60vh] w-full">
+                <Image
+                  src={node.image_url}
+                  alt={node.version_label}
+                  fill
+                  unoptimized
+                  className="rounded-lg object-contain"
+                />
+              </div>
             </div>
           )}
 

@@ -12,9 +12,7 @@ import {
   Cpu,
   ShieldCheck,
   ClipboardCheck,
-  TrendingUp,
   FolderKanban,
-  Users,
   Settings,
   Loader2,
 } from "lucide-react";

@@ -7,7 +7,7 @@ import {
   Clock,
   AlertTriangle,
   FileText,
-  Image,
+  Image as ImageIcon,
   Download,
   ChevronDown,
   ChevronUp,
@@ -32,7 +32,7 @@ const STAGE_CONFIG: Record<string, { label: string; icon: React.ReactNode; borde
   },
   visual_generation: {
     label: "视觉方案生成",
-    icon: <Image className="h-4 w-4" />,
+    icon: <ImageIcon className="h-4 w-4" />,
     borderColor: "border-l-[#8B5CF6]",
     bgColor: "bg-purple-50/40",
   },
@@ -102,7 +102,7 @@ export function StageSummaryBlock({ data }: StageSummaryBlockProps) {
             )}
             {imagesCount > 0 && (
               <span className="text-xs text-gray-500 flex items-center gap-1">
-                <Image className="h-3 w-3" /> {imagesCount} 张效果图
+                <ImageIcon className="h-3 w-3" /> {imagesCount} 张效果图
               </span>
             )}
             {missingCount > 0 && (

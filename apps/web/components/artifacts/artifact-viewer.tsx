@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { Artifact } from "@/types";
@@ -35,11 +36,15 @@ export function ArtifactViewer({ artifact }: ArtifactViewerProps) {
       </CardHeader>
       <CardContent>
         {artifact.type === "image" && artifact.url ? (
-          <img
-            src={artifact.url}
-            alt={artifact.title}
-            className="w-full rounded-md border"
-          />
+          <div className="relative w-full aspect-[4/3] overflow-hidden rounded-md border">
+            <Image
+              src={artifact.url}
+              alt={artifact.title}
+              fill
+              unoptimized
+              className="object-contain"
+            />
+          </div>
         ) : artifact.type === "prompt" ? (
           <pre className="bg-gray-900 text-green-400 p-3 rounded-md text-xs font-mono whitespace-pre-wrap overflow-x-auto">
             {artifact.content}

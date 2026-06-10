@@ -55,18 +55,16 @@ export default function QualityRulesPage() {
     const res = await getQualityRules();
     if (res.success && res.data) {
       setRules(res.data);
-      // Auto-expand the first rule if there is one
-      if (res.data.length > 0 && expanded.length === 0) {
-        setExpanded([res.data[0].id]);
-      }
+      setExpanded((prev) =>
+        prev.length === 0 && res.data.length > 0 ? [res.data[0].id] : prev
+      );
     }
     setLoading(false);
   }, []);
 
   useEffect(() => {
     fetchRules();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchRules]);
 
   const resetForm = () => {
     setFormName("");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -346,11 +347,17 @@ export default function CasesPage() {
                           {item.referenceImages.slice(0, 3).map((img, i) => (
                             <div
                               key={i}
-                              className="w-6 h-6 rounded border border-white bg-gray-100 overflow-hidden"
+                              className="relative w-6 h-6 rounded border border-white bg-gray-100 overflow-hidden"
                               title={img.caption || img.photo_type}
                             >
                               {img.url ? (
-                                <img src={img.url} alt="" className="w-full h-full object-cover" />
+                                <Image
+                                  src={img.url}
+                                  alt=""
+                                  fill
+                                  unoptimized
+                                  className="object-cover"
+                                />
                               ) : (
                                 <ImageIcon className="w-3 h-3 m-auto text-gray-300" />
                               )}
@@ -494,7 +501,15 @@ export default function CasesPage() {
                   {editingCase.referenceImages.map((img, i) => (
                     <div key={i} className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
                       {img.url ? (
-                        <img src={img.url} alt={img.caption} className="w-full h-24 object-cover" />
+                        <div className="relative h-24 w-full">
+                          <Image
+                            src={img.url}
+                            alt={img.caption || img.photo_type}
+                            fill
+                            unoptimized
+                            className="object-cover"
+                          />
+                        </div>
                       ) : (
                         <div className="w-full h-24 flex items-center justify-center">
                           <ImageIcon className="h-6 w-6 text-gray-300" />

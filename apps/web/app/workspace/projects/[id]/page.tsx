@@ -5,17 +5,15 @@ import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import {
   Calendar,
   User,
   Clock,
-  Tag,
   ArrowRight,
   TrendingUp,
   FileText,
-  Image,
+  Image as ImageIcon,
   CheckCircle2,
   Loader2,
 } from "lucide-react";
@@ -177,7 +175,7 @@ export default function ProjectOverviewPage() {
         {[
           { icon: <FileText className="h-5 w-5" />, label: "企业分析", desc: "查看分析报告", href: "company-analysis" },
           { icon: <FileText className="h-5 w-5" />, label: "方案编辑", desc: "编辑方案内容", href: "proposal" },
-          { icon: <Image className="h-5 w-5" />, label: "视觉创作", desc: "生成视觉素材", href: "visual" },
+          { icon: <ImageIcon className="h-5 w-5" />, label: "视觉创作", desc: "生成视觉素材", href: "visual" },
           { icon: <CheckCircle2 className="h-5 w-5" />, label: "审核校验", desc: "检查方案质量", href: "review" },
         ].map((action) => (
           <a

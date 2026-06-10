@@ -26,7 +26,6 @@ import { Plus, Search, Eye, Edit3, Copy, Trash2, MessageSquareCode, Loader2 } fr
 import {
   getPromptTemplates,
   createPromptTemplate,
-  updatePromptTemplate,
   deletePromptTemplate,
   importPromptTemplates,
 } from "@/lib/api";

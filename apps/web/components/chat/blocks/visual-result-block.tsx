@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Image as ImageIcon, Maximize2, X } from "lucide-react";
 
 interface VisualResultBlockProps {
@@ -81,10 +82,12 @@ export function VisualResultBlock({ data }: VisualResultBlockProps) {
                     }`}
                     onClick={() => setLightboxUrl(img.url)}
                   >
-                    <img
+                    <Image
                       src={img.url}
                       alt={`生成图片 ${i + 1}`}
-                      className="w-full h-full object-cover transition-transform group-hover:scale-[1.02]"
+                      fill
+                      unoptimized
+                      className="object-cover transition-transform group-hover:scale-[1.02]"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
                       <Maximize2 className="h-6 w-6 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
@@ -153,12 +156,18 @@ export function VisualResultBlock({ data }: VisualResultBlockProps) {
           >
             <X className="h-6 w-6" />
           </button>
-          <img
-            src={lightboxUrl}
-            alt="Preview"
-            className="max-w-full max-h-full object-contain rounded-lg"
+          <div
+            className="relative h-full max-h-[90vh] w-full max-w-6xl"
             onClick={(e) => e.stopPropagation()}
-          />
+          >
+            <Image
+              src={lightboxUrl}
+              alt="生成图片大图预览"
+              fill
+              unoptimized
+              className="object-contain rounded-lg"
+            />
+          </div>
         </div>
       )}
     </>

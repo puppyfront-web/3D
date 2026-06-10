@@ -49,6 +49,12 @@ export function AgentPanel({ isOpen, onClose, projectId }: AgentPanelProps) {
   const [sending, setSending] = useState(false);
   const conversationIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const messageIdRef = useRef(0);
+
+  const nextMessageId = (prefix: AgentMessage["role"]) => {
+    messageIdRef.current += 1;
+    return `${prefix}-${messageIdRef.current}`;
+  };
 
   const ensureConversation = useCallback(async () => {
     if (conversationIdRef.current) return conversationIdRef.current;
@@ -72,13 +78,13 @@ export function AgentPanel({ isOpen, onClose, projectId }: AgentPanelProps) {
     if (!content || sending) return;
 
     const userMsg: AgentMessage = {
-      id: `m-${Date.now()}`,
+      id: nextMessageId("user"),
       role: "user",
       content,
       timestamp: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
     };
 
-    const aiMsgId = `ai-${Date.now()}`;
+    const aiMsgId = nextMessageId("assistant");
     const aiMsg: AgentMessage = {
       id: aiMsgId,
       role: "assistant",

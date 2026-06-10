@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -14,14 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Search, Eye, ClipboardCheck, TrendingUp, BarChart3, Calendar, Loader2 } from "lucide-react";
+import { Eye, ClipboardCheck, TrendingUp, BarChart3, Loader2 } from "lucide-react";
 import { getEvaluations } from "@/lib/api";
 import type { Evaluation } from "@/types";
 

@@ -184,14 +184,14 @@ export function MessageList({
   const bottomRef = useRef<HTMLDivElement>(null);
   const { sendMessage, state } = useChat();
 
-  const onBlockAction = useCallback((value: string, action: string) => {
+  const onBlockAction = useCallback((value: string) => {
     if (state.isStreaming) return;
     sendMessage(value);
   }, [sendMessage, state.isStreaming]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
-  }, [messages, streamingText]);
+  }, [isStreaming, messages, streamingText]);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6">

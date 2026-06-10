@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Image from "next/image";
 import { Layers, Triangle, Loader2, Download, RefreshCw } from "lucide-react";
 import type { TechnologyArchitecture } from "@/types";
 import { directGenerateImage } from "@/lib/api";
@@ -242,11 +243,15 @@ function CurationView({ data }: { data: TechnologyArchitecture }) {
       {imageUrl && (
         <div className="space-y-2">
           <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
-            <img
-              src={imageUrl}
-              alt="策展分析图"
-              className="w-full h-auto"
-            />
+            <div className="relative aspect-[4/3] w-full">
+              <Image
+                src={imageUrl}
+                alt="策展分析图"
+                fill
+                unoptimized
+                className="object-contain"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button

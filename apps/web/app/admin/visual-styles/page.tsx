@@ -18,7 +18,6 @@ import { Plus, Edit3, Trash2, Palette, Eye, Loader2, Lamp, Layers } from "lucide
 import {
   getVisualStyles,
   createVisualStyle,
-  updateVisualStyle,
   deleteVisualStyle,
   importVisualStyles,
 } from "@/lib/api";

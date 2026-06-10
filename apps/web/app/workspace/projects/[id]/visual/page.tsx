@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Image from "next/image";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Image,
+  Image as ImageIcon,
   Settings2,
   Wand2,
   Download,
@@ -25,8 +25,6 @@ import {
   Palette,
   Maximize2,
   Loader2,
-  Plus,
-  Trash2,
   X,
 } from "lucide-react";
 import { getVisualProjects, generateVisualImage } from "@/lib/api";
@@ -291,7 +289,7 @@ export default function VisualPage() {
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Image className="h-4 w-4 text-[#1E3A5F]" />
+              <ImageIcon className="h-4 w-4 text-[#1E3A5F]" />
               <h3 className="text-sm font-semibold text-[#1A1A2E]">生成结果</h3>
               <Badge variant="secondary" className="text-xs">{images.length} 张</Badge>
             </div>
@@ -299,7 +297,7 @@ export default function VisualPage() {
 
           {images.length === 0 && !generating ? (
             <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-              <Image className="h-12 w-12 mb-3 text-gray-300" />
+              <ImageIcon className="h-12 w-12 mb-3 text-gray-300" />
               <p className="text-sm">暂无生成结果</p>
               <p className="text-xs mt-1">请在左侧编辑提示词并点击生成</p>
             </div>
@@ -339,15 +337,17 @@ export default function VisualPage() {
                 <Card key={img.id} className="overflow-hidden border-gray-200 hover:shadow-md transition-shadow group">
                   <div className="relative aspect-video bg-gray-100 overflow-hidden">
                     {img.url && !img.url.startsWith("/") ? (
-                      <img
+                      <Image
                         src={img.url}
-                        alt="生成图片"
-                        className="w-full h-full object-cover transition-transform group-hover:scale-[1.02]"
+                        alt={`${img.prompt || "视觉生成"} 预览图`}
+                        fill
+                        unoptimized
+                        className="object-cover transition-transform group-hover:scale-[1.02]"
                       />
                     ) : (
                       <div className="w-full h-full bg-gradient-to-br from-[#1E3A5F] via-[#2D5A8E] to-[#00D4FF] flex items-center justify-center">
                         <div className="text-center text-white">
-                          <Image className="h-8 w-8 mx-auto mb-2 opacity-60" />
+                          <ImageIcon className="h-8 w-8 mx-auto mb-2 opacity-60" />
                           <p className="text-xs opacity-80">无图片</p>
                         </div>
                       </div>
@@ -422,12 +422,18 @@ export default function VisualPage() {
           >
             <X className="h-6 w-6" />
           </button>
-          <img
-            src={lightboxUrl}
-            alt="Preview"
-            className="max-w-full max-h-full object-contain rounded-lg"
+          <div
+            className="relative h-full max-h-[90vh] w-full max-w-6xl"
             onClick={(e) => e.stopPropagation()}
-          />
+          >
+            <Image
+              src={lightboxUrl}
+              alt="视觉方案大图预览"
+              fill
+              unoptimized
+              className="object-contain rounded-lg"
+            />
+          </div>
         </div>
       )}
     </div>

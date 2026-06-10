@@ -32,11 +32,10 @@ import {
   getSOPWorkflows,
   createSOPWorkflow,
   updateSOPWorkflow,
-  deleteSOPWorkflow,
   importSOPWorkflows,
 } from "@/lib/api";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
-import type { SOPWorkflow, PipelineStage } from "@/types";
+import type { SOPWorkflow } from "@/types";
 
 export default function SOPWorkflowsPage() {
   const [workflows, setWorkflows] = useState<SOPWorkflow[]>([]);
@@ -108,13 +107,6 @@ export default function SOPWorkflowsPage() {
       await loadWorkflows();
     }
     setTogglingId(null);
-  };
-
-  const handleDelete = async (id: string) => {
-    const res = await deleteSOPWorkflow(id);
-    if (res.success) {
-      await loadWorkflows();
-    }
   };
 
   if (loading) {

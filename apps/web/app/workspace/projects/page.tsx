@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Plus, Search, Filter, LayoutGrid, List, Loader2 } from "lucide-react";
+import { Plus, Search, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ProjectCard } from "@/components/workspace/project-card";
 import { getProjects } from "@/lib/api";
 import type { Project } from "@/types";

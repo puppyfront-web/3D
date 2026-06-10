@@ -21,14 +21,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  Plus,
   Search,
   Upload,
   Download,
   Trash2,
-  Eye,
   Package,
-  Image,
+  Image as ImageIcon,
   FileText,
   Video,
   RotateCw,
@@ -48,7 +46,7 @@ import {
 import type { Asset, AssetType } from "@/types";
 
 const typeIcons: Record<AssetType, React.ReactNode> = {
-  image: <Image className="h-4 w-4 text-green-500" />,
+  image: <ImageIcon className="h-4 w-4 text-green-500" />,
   video: <Video className="h-4 w-4 text-purple-500" />,
   document: <FileText className="h-4 w-4 text-blue-500" />,
   template: <FileText className="h-4 w-4 text-amber-500" />,
