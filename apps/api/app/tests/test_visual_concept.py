@@ -578,11 +578,32 @@ class TestVisualConceptIntent:
     def test_high_confidence_keywords(self):
         from app.services.intent_service import IntentDetector
         detector = IntentDetector()
-        for keyword in ["生成概念图", "出概念图", "视觉概念", "概念设计", "生成效果图", "视觉方案"]:
+        for keyword in ["生成概念图", "出概念图", "视觉概念", "概念设计", "生成效果图", "视觉方案",
+                         "效果图", "概念图", "渲染图", "出图", "生图"]:
             result = detector._keyword_match(f"帮我{keyword}")
             assert result is not None, f"Should match keyword: {keyword}"
             assert result.intent == "visual_concept", f"Should be visual_concept for: {keyword}"
             assert result.confidence >= 0.8
+
+    def test_natural_variants_route_to_visual_concept(self):
+        """自然语言变体应该路由到 visual_concept 而非普通聊天或 image_generation。"""
+        from app.services.intent_service import IntentDetector
+        detector = IntentDetector()
+        variants = [
+            "生成一张效果图",
+            "帮我做效果图",
+            "我要效果图",
+            "效果图",
+            "帮我出图",
+            "来一张渲染图",
+            "我想看概念图",
+        ]
+        for msg in variants:
+            result = detector._keyword_match(msg)
+            assert result is not None, f"Should match: {msg}"
+            assert result.intent == "visual_concept", (
+                f"'{msg}' should route to visual_concept, got {result.intent}"
+            )
 
     def test_medium_confidence_keywords(self):
         from app.services.intent_service import IntentDetector
@@ -591,11 +612,26 @@ class TestVisualConceptIntent:
         assert result is not None
         assert result.intent == "visual_concept"
 
+    def test_pipeline_beats_visual_concept(self):
+        """完整方案请求应路由到 sop_pipeline 而非 visual_concept，即使包含裸眼3D。"""
+        from app.services.intent_service import IntentDetector
+        detector = IntentDetector()
+        for msg in [
+            "请帮我设计一套3D幕墙方案",
+            "设计一套3D幕墙方案",
+            "做一套完整方案",
+        ]:
+            result = detector._keyword_match(msg)
+            assert result is not None, f"Should match: {msg}"
+            assert result.intent == "sop_pipeline", (
+                f"'{msg}' should route to sop_pipeline, got {result.intent}"
+            )
+
     def test_skill_keywords_not_overridden(self):
         """Existing skill keywords should still work."""
         from app.services.intent_service import IntentDetector
         detector = IntentDetector()
-        result = detector._keyword_match("帮我解析企业信息")
+        result = detector._keyword_match("帮我做企业分析")
         if result:
             assert result.intent == "run_skill"
             assert result.skill_id == "company_analysis"

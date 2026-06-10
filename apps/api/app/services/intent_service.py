@@ -45,10 +45,12 @@ _VISUAL_CONCEPT_KEYWORDS: Dict[str, List[str]] = {
     "high": [
         "生成概念图", "出概念图", "视觉概念", "概念设计",
         "生成效果图", "出效果图", "视觉方案",
+        # 独立关键词：用户只需提到这些词即可触发视觉概念流程
+        "效果图", "概念图", "渲染图", "出图", "生图",
     ],
     "medium": [
         "裸眼3D", "LED幕墙", "媒体立面", "数字视觉",
-        "视觉创意", "概念图", "创意图",
+        "视觉创意", "创意图",
     ],
 }
 
@@ -142,30 +144,12 @@ class IntentDetector:
             )
 
     def _keyword_match(self, message: str) -> Optional[IntentResult]:
-        """快速路径：关键词匹配。"""
-        # 先检查视觉概念图关键词
-        for level, keywords in _VISUAL_CONCEPT_KEYWORDS.items():
-            for kw in keywords:
-                if kw in message:
-                    confidence = 0.9 if level == "high" else 0.75
-                    return IntentResult(
-                        intent="visual_concept",
-                        confidence=confidence,
-                        input_data={"user_message": message},
-                    )
-        if any(verb in message for verb in ("生成", "画", "绘制", "出")) and any(
-            noun in message for noun in ("图片", "图像", "照片", "插画")
-        ):
-            return IntentResult(
-                intent="run_skill",
-                skill_id="image_generation",
-                confidence=0.7,
-                input_data={
-                    "user_message": message,
-                    "prompt": self._extract_image_prompt(message),
-                },
-            )
-        # Check for SOP pipeline intent
+        """快速路径：关键词匹配。
+
+        优先级：SOP pipeline > visual_concept > verb+noun combo > skill keywords
+        Pipeline 是完整方案（包含企业解析+策划案+视觉生成），优先级最高。
+        """
+        # 1. SOP pipeline（最高优先级 — 完整方案）
         for kw in _PIPELINE_KEYWORDS_HIGH:
             if kw in message:
                 return IntentResult(
@@ -180,7 +164,33 @@ class IntentDetector:
                     confidence=0.7,
                     input_data={"user_message": message},
                 )
-        # 再检查 Skill 关键词
+
+        # 2. 视觉概念图（单独的视觉生成需求）
+        for level, keywords in _VISUAL_CONCEPT_KEYWORDS.items():
+            for kw in keywords:
+                if kw in message:
+                    confidence = 0.9 if level == "high" else 0.75
+                    return IntentResult(
+                        intent="visual_concept",
+                        confidence=confidence,
+                        input_data={"user_message": message},
+                    )
+
+        # 3. 动词+名词组合（直接生图）
+        if any(verb in message for verb in ("生成", "画", "绘制", "出")) and any(
+            noun in message for noun in ("图片", "图像", "照片", "插画", "效果图", "概念图", "渲染图")
+        ):
+            return IntentResult(
+                intent="run_skill",
+                skill_id="image_generation",
+                confidence=0.7,
+                input_data={
+                    "user_message": message,
+                    "prompt": self._extract_image_prompt(message),
+                },
+            )
+
+        # 4. 其他 Skill 关键词
         for skill_id, keywords in _SKILL_KEYWORDS.items():
             for kw in keywords:
                 if kw in message:

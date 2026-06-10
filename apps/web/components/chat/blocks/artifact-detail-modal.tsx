@@ -4,10 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import {
   X,
-  Copy,
-  Check,
   Maximize2,
-  FileText,
   Eye,
   CheckSquare,
 } from "lucide-react";
@@ -37,12 +34,6 @@ export function ArtifactDetailModal({
       label: "视觉策略",
       icon: <Eye className="h-3.5 w-3.5" />,
       available: !!node.visual_strategy,
-    },
-    {
-      key: "prompt",
-      label: "Prompt",
-      icon: <FileText className="h-3.5 w-3.5" />,
-      available: !!node.positive_prompt,
     },
     {
       key: "image",
@@ -108,57 +99,50 @@ export function ArtifactDetailModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
-          {/* Strategy tab */}
+          {/* Strategy tab — render as readable fields, not raw JSON */}
           {activeTab === "strategy" && node.visual_strategy && (
-            <div className="relative">
-              <pre className="text-xs text-gray-700 bg-gray-50 rounded-lg p-4 whitespace-pre-wrap font-mono">
-                {JSON.stringify(node.visual_strategy, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {/* Prompt tab */}
-          {activeTab === "prompt" && node.positive_prompt && (
-            <div className="space-y-4">
-              {/* Positive prompt */}
-              <div className="relative">
-                <div className="text-xs text-gray-500 mb-1">正向 Prompt</div>
-                <pre className="text-xs text-gray-700 bg-gray-900 text-green-400 rounded-lg p-4 whitespace-pre-wrap font-mono">
-                  {node.positive_prompt}
-                </pre>
-                <button
-                  onClick={() => handleCopy(node.positive_prompt!)}
-                  className="absolute top-7 right-2 p-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-                >
-                  {copied ? (
-                    <Check className="h-3 w-3 text-green-400" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                </button>
-              </div>
-
-              {/* Negative prompt */}
-              {node.negative_prompt && (
-                <div className="relative">
-                  <div className="text-xs text-gray-500 mb-1">负向 Prompt</div>
-                  <pre className="text-xs text-gray-700 bg-gray-900 text-red-400 rounded-lg p-4 whitespace-pre-wrap font-mono">
-                    {node.negative_prompt}
-                  </pre>
-                  <button
-                    onClick={() => handleCopy(node.negative_prompt!)}
-                    className="absolute top-7 right-2 p-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </button>
-                </div>
-              )}
-
-              {node.prompt_template_used && (
-                <div className="text-[10px] text-gray-400">
-                  使用模板: {node.prompt_template_used}
-                </div>
-              )}
+            <div className="space-y-3">
+              {(() => {
+                const s = node.visual_strategy as Record<string, unknown>;
+                const fields: Array<{ key: string; label: string }> = [
+                  { key: "concept", label: "创意概念" },
+                  { key: "style", label: "风格" },
+                  { key: "color_tone", label: "色调" },
+                  { key: "composition", label: "构图" },
+                  { key: "mood", label: "氛围" },
+                  { key: "focus", label: "焦点" },
+                ];
+                const elements = Array.isArray(s.key_elements) ? s.key_elements as string[] : [];
+                return (
+                  <>
+                    {fields.map(({ key, label }) => {
+                      const val = s[key];
+                      if (!val || typeof val === "object") return null;
+                      return (
+                        <div key={key}>
+                          <div className="text-xs text-gray-500 mb-0.5">{label}</div>
+                          <div className="text-sm text-gray-800">{String(val)}</div>
+                        </div>
+                      );
+                    })}
+                    {elements.length > 0 && (
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">核心元素</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {elements.map((el, i) => (
+                            <span key={i} className="inline-block px-2 py-0.5 rounded-full text-xs bg-violet-50 text-violet-700 border border-violet-200">
+                              {el}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {Object.keys(s).length === 0 && (
+                      <div className="text-sm text-gray-500 text-center py-3">暂无策略信息</div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
 

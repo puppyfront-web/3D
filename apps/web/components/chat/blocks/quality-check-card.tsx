@@ -48,10 +48,9 @@ export function QualityCheckCard({ data }: QualityCheckCardProps) {
             })}
           </ul>
         ) : (
-          /* Fallback: raw data */
-          <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded p-2 max-h-40 overflow-y-auto">
-            {JSON.stringify(data, null, 2)}
-          </pre>
+          <div className="text-sm text-gray-500 text-center py-3">
+            质量检查进行中…
+          </div>
         )}
       </div>
     </div>

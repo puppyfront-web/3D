@@ -130,11 +130,11 @@ export function VisualStrategyCard({ data, onAction }: VisualStrategyCardProps) 
           </div>
         )}
 
-        {/* Fallback: raw data when no known fields */}
+        {/* Fallback when no known fields */}
         {!style && !colorTone && !composition && keyElements.length === 0 && !focus && !mood && !notes && (
-          <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded p-2 max-h-40 overflow-y-auto">
-            {JSON.stringify(data, null, 2)}
-          </pre>
+          <div className="text-sm text-gray-500 text-center py-3">
+            视觉策略正在规划中…
+          </div>
         )}
       </div>
     </div>

@@ -706,6 +706,12 @@ class ConversationService:
         project_id = str(conv.project_id) if conv and conv.project_id else None
         if project_id:
             input_data["project_id"] = project_id
+            # Resolve company_id so company_analysis saves profile to DB
+            if stage == "company_analysis":
+                from app.models.project import Project
+                project_obj = await db.get(Project, uuid.UUID(project_id))
+                if project_obj and project_obj.company_id:
+                    input_data["company_id"] = str(project_obj.company_id)
 
         # Prepare context
         registry = SkillRegistry.get_instance()
@@ -918,7 +924,13 @@ class ConversationService:
             }
         elif stage == "proposal_generation":
             missing = output.get("missing_info", [])
-            sections = output.get("sections_meta", [])
+            sections = output.get("sections_meta")
+            # If sections_meta not in output (chat mode), parse from content
+            if not sections and output.get("content"):
+                from app.skills.builtins.proposal_generation import ProposalGenerationSkill
+                sections = ProposalGenerationSkill._parse_sections_meta(output["content"])
+            if not sections:
+                sections = []
             summary_data["metrics"] = {
                 "sections_count": len(sections) if isinstance(sections, list) else 0,
                 "missing_count": len(missing) if isinstance(missing, list) else 0,
@@ -940,7 +952,12 @@ class ConversationService:
 
         elif stage == "proposal_generation" and output:
             missing = output.get("missing_info", [])
-            sections = output.get("sections_meta", [])
+            sections = output.get("sections_meta")
+            if not sections and output.get("content"):
+                from app.skills.builtins.proposal_generation import ProposalGenerationSkill
+                sections = ProposalGenerationSkill._parse_sections_meta(output["content"])
+            if not sections:
+                sections = []
             blocks.append({
                 "type": "proposal_section",
                 "data": {
@@ -1399,8 +1416,14 @@ class ConversationService:
             return self._render_export_output(output)
         elif skill_id == "case_retrieval":
             return self._render_case_retrieval_output(output)
-        # Generic fallback
-        return json.dumps(output, ensure_ascii=False, indent=2) if output else "执行完成"
+        # Generic fallback — natural language, never raw JSON
+        if output:
+            # Try to produce a brief human-readable summary
+            name = output.get("name") or output.get("title") or ""
+            if name:
+                return f"「{name}」已完成，详情见下方卡片。"
+            return "任务已完成，详情见下方卡片。"
+        return "执行完成。"
 
     def _render_company_analysis_output(self, output: Dict[str, Any]) -> str:
         """Render company analysis as readable text."""
@@ -1520,20 +1543,18 @@ class ConversationService:
                     else:
                         lines.append(f"**{label}**: {val}")
 
-        pos_prompt = output.get("positive_prompt", "")
-        if pos_prompt:
-            lines.append(f"\n**正向 Prompt**:\n```\n{pos_prompt}\n```")
-        neg_prompt = output.get("negative_prompt", "")
-        if neg_prompt:
-            lines.append(f"\n**负向 Prompt**:\n```\n{neg_prompt}\n```")
+        # Prompt 文字为内部实现，不展示给用户
 
         advice = output.get("composition_advice", "")
         if advice:
             lines.append(f"\n**构图建议**: {advice}")
 
         # Image generation result
+        images = output.get("images", [])
         image_url = output.get("image_url")
-        if image_url:
+        if images:
+            lines.append(f"\n✅ **已生成 {len(images)} 张效果图**，见下方卡片。")
+        elif image_url:
             lines.append(f"\n✅ **图片已生成**，见下方卡片。")
 
         return "\n".join(lines) if lines else "视觉方案生成完成。"

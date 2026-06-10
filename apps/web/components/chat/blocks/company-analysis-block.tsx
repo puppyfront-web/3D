@@ -178,11 +178,11 @@ export function CompanyAnalysisBlock({ data }: CompanyAnalysisBlockProps) {
           </div>
         )}
 
-        {/* JSON fallback for anything else */}
+        {/* Fallback for anything else */}
         {!hasStructuredData && !hasRawData && Object.keys(data).length > 0 && (
-          <pre className="text-[10px] text-gray-600 whitespace-pre-wrap bg-gray-50 rounded p-2 max-h-40 overflow-y-auto">
-            {JSON.stringify(data, null, 2)}
-          </pre>
+          <div className="text-sm text-gray-500 text-center py-3">
+            企业分析报告生成中，请稍候…
+          </div>
         )}
       </div>
     </div>

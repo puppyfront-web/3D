@@ -84,7 +84,29 @@ class ProposalGenerationSkill(BaseSkill):
 
         # --- Mode 1: DB-backed (project_id provided) ---
         if project_id and context.db:
-            return await self._execute_db_mode(input_data, context)
+            result = await self._execute_db_mode(input_data, context)
+            # Fallback: if DB mode returns empty content, use chat mode with
+            # the company_profile data passed from pipeline stage_outputs.
+            if result.success and not result.output.get("content"):
+                logger.warning("DB mode returned empty proposal content, falling back to chat mode")
+                company_profile = input_data.get("company_profile")
+                context_pack = input_data.get("context_pack")
+                used_cases = input_data.get("used_cases", result.used_cases)
+                used_documents = input_data.get("used_documents", result.used_documents)
+                used_chunks = input_data.get("used_chunks", result.used_chunks)
+                chat_result = await self._execute_chat_mode(
+                    requirement_text, company_profile, context,
+                    context_pack=context_pack,
+                    used_cases=used_cases,
+                    used_documents=used_documents,
+                    used_chunks=used_chunks,
+                )
+                if chat_result.success and chat_result.output.get("content"):
+                    # Carry over DB references from the failed DB mode
+                    chat_result.output["task_id"] = result.output.get("task_id")
+                    chat_result.output["output_id"] = result.output.get("output_id")
+                    return chat_result
+            return result
 
         # --- Mode 2: Conversation mode ---
         company_profile = input_data.get("company_profile")

@@ -731,10 +731,8 @@ class VisualConceptAgent:
             ctx.state = "COMPLETED"
             node = ctx.get_current_node()
             summary = (
-                f"视觉概念图已确认完成。\n"
-                f"版本：{node.version_label if node else 'N/A'}\n"
-                f"正向 Prompt：{node.positive_prompt[:100] if node and node.positive_prompt else 'N/A'}…\n"
-            ) if node else "视觉概念图已确认完成。"
+                f"✅ 视觉概念图已确认完成。版本：{node.version_label if node else 'N/A'}\n"
+            ) if node else "✅ 视觉概念图已确认完成。"
             yield _sse_chunk("text_delta", text=summary)
             yield _sse_chunk("artifact_summary", data=ctx.get_current_node().to_dict() if node else {})
             yield _sse_chunk("done")
@@ -803,7 +801,7 @@ class VisualConceptAgent:
         prompts = await self._generate_prompts(ctx, strategy)
         node.positive_prompt = prompts.get("positive_prompt", "")
         node.negative_prompt = prompts.get("negative_prompt", "")
-        yield _sse_chunk("text_delta", text=f"正向 Prompt：{node.positive_prompt}\n\n负向 Prompt：{node.negative_prompt}")
+        yield _sse_chunk("text_delta", text="Prompt 已生成，正在生成概念图…")
         yield _sse_chunk(
             "skill_progress",
             data={"skill_id": "prompt_generation", "status": "completed"},
@@ -1023,7 +1021,7 @@ class VisualConceptAgent:
                             result["auto_filled"]["scene"] = pos["content"][:30]
 
             # Load first visual style as default
-            vs_stmt = select(VisualStyle).where(VisualStyle.is_active.is_(True)).limit(1)
+            vs_stmt = select(VisualStyle).limit(1)
             vs_res = await db.execute(vs_stmt)
             style = vs_res.scalar_one_or_none()
             if style:

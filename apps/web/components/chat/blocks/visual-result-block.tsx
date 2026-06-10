@@ -9,8 +9,8 @@ interface VisualResultBlockProps {
 }
 
 /**
- * Renders visual generation results — strategy, prompt, and images.
- * Supports both `image_url` (single image from generation) and `images` (array).
+ * Renders visual generation results — strategy and images.
+ * Prompts are internal implementation details and are NOT shown to users.
  */
 export function VisualResultBlock({ data }: VisualResultBlockProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -25,11 +25,6 @@ export function VisualResultBlock({ data }: VisualResultBlockProps) {
     : data.strategy
       ? String(data.strategy)
       : null;
-
-  // Prompts
-  const posPrompt = data.positive_prompt ? String(data.positive_prompt) : null;
-  const negPrompt = data.negative_prompt ? String(data.negative_prompt) : null;
-  const prompt = data.prompt ? String(data.prompt) : posPrompt;
 
   // Images — support both single image_url and images array
   const images: { url: string }[] = [];
@@ -98,36 +93,6 @@ export function VisualResultBlock({ data }: VisualResultBlockProps) {
             </div>
           )}
 
-          {/* Positive Prompt */}
-          {posPrompt && (
-            <div>
-              <div className="text-xs text-gray-500 mb-1">正向 Prompt</div>
-              <pre className="text-xs text-green-400 bg-gray-900 p-2.5 rounded font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
-                {posPrompt}
-              </pre>
-            </div>
-          )}
-
-          {/* Negative Prompt */}
-          {negPrompt && (
-            <div>
-              <div className="text-xs text-gray-500 mb-1">负向 Prompt</div>
-              <pre className="text-xs text-red-400 bg-gray-900 p-2.5 rounded font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
-                {negPrompt}
-              </pre>
-            </div>
-          )}
-
-          {/* Fallback: raw prompt field */}
-          {!posPrompt && prompt && (
-            <div>
-              <div className="text-xs text-gray-500 mb-1">Prompt</div>
-              <pre className="text-xs text-gray-700 bg-gray-900 text-green-400 p-2 rounded font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
-                {prompt}
-              </pre>
-            </div>
-          )}
-
           {/* Composition advice */}
           {advice && (
             <div className="text-xs text-gray-500 bg-gray-50 rounded p-2">
@@ -136,10 +101,10 @@ export function VisualResultBlock({ data }: VisualResultBlockProps) {
           )}
 
           {/* No content fallback */}
-          {images.length === 0 && !posPrompt && !prompt && !strategy && (
-            <pre className="text-xs text-gray-600 bg-gray-50 rounded p-2 max-h-32 overflow-y-auto">
-              {JSON.stringify(data, null, 2)}
-            </pre>
+          {images.length === 0 && !strategy && (
+            <div className="text-sm text-gray-500 text-center py-4">
+              视觉方案正在生成中，请稍候…
+            </div>
           )}
         </div>
       </div>

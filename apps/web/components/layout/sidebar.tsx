@@ -300,7 +300,7 @@ export function Sidebar() {
               <Sparkles className="h-5 w-5" />
             </div>
             <span className="text-base font-semibold text-white tracking-tight">
-              3D提案平台
+              花生ONE
             </span>
           </div>
         )}
@@ -430,7 +430,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="shrink-0 px-3 py-2 border-t border-white/10 text-xs text-gray-600">
-        {collapsed ? "v0.1" : "v0.1.0 · 3D提案平台"}
+        {collapsed ? "v0.1" : "v0.1.0 · 花生ONE"}
       </div>
     </aside>
   );

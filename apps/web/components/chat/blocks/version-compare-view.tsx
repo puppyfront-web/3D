@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeftRight, Image as ImageIcon, FileText, Eye } from "lucide-react";
+import { ArrowLeftRight, Image as ImageIcon, Eye } from "lucide-react";
 import type { VersionNode } from "@/types";
 
 interface VersionCompareViewProps {
@@ -20,6 +20,15 @@ export function VersionCompareView({
 
   const left = nodes[nodeA];
   const right = nodes[nodeB];
+
+  /** Extract a readable concept from visual_strategy */
+  const getStrategyLabel = (node: VersionNode | undefined): string | null => {
+    if (!node?.visual_strategy) return null;
+    const s = node.visual_strategy as Record<string, unknown>;
+    if (typeof s.concept === "string") return s.concept;
+    if (typeof s.style === "string") return s.style;
+    return "已规划";
+  };
 
   return (
     <div className="space-y-3">
@@ -64,12 +73,7 @@ export function VersionCompareView({
               <CompareField
                 icon={<Eye className="h-3 w-3 text-violet-500" />}
                 label="策略"
-                value={left.visual_strategy ? JSON.stringify(left.visual_strategy) : null}
-              />
-              <CompareField
-                icon={<FileText className="h-3 w-3 text-blue-500" />}
-                label="Prompt"
-                value={left.positive_prompt || null}
+                value={getStrategyLabel(left)}
               />
               <CompareField
                 icon={<ImageIcon className="h-3 w-3 text-emerald-500" />}
@@ -88,12 +92,7 @@ export function VersionCompareView({
               <CompareField
                 icon={<Eye className="h-3 w-3 text-violet-500" />}
                 label="策略"
-                value={right.visual_strategy ? JSON.stringify(right.visual_strategy) : null}
-              />
-              <CompareField
-                icon={<FileText className="h-3 w-3 text-blue-500" />}
-                label="Prompt"
-                value={right.positive_prompt || null}
+                value={getStrategyLabel(right)}
               />
               <CompareField
                 icon={<ImageIcon className="h-3 w-3 text-emerald-500" />}
