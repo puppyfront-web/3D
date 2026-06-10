@@ -29,6 +29,9 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+apps/api/.env
+apps/web/.env.local
+apps/web/.env.production
 
 # Database
 *.db
@@ -36,12 +39,6 @@ Thumbs.db
 
 # Storage (local uploads)
 apps/api/storage/
-
-# Local env files
-.env
-apps/api/.env
-apps/web/.env.local
-apps/web/.env.production
 
 # Node
 node_modules/
