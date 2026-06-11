@@ -1,5 +1,6 @@
 """Knowledge Search Tool — RAG semantic + keyword hybrid retrieval."""
 
+import uuid
 from typing import Any, Dict
 
 from app.tools.base import BaseTool, ToolContext, ToolManifest, ToolResult
@@ -48,24 +49,28 @@ class KnowledgeSearchTool(BaseTool):
         if context.embedding_service is None:
             return await self._keyword_search(query, top_k, project_id, context)
 
-        # Use the existing HybridRetriever
+        # Use the existing HybridRetriever against the real database.
         from app.rag.retriever import HybridRetriever
 
         retriever = HybridRetriever(embedding_service=context.embedding_service)
+        project_uuid = uuid.UUID(project_id) if project_id else None
         results = await retriever.search(
             query=query,
             top_k=top_k,
-            project_id=project_id,
+            project_id=project_uuid,
+            db=context.db,
         )
 
         chunks = [
             {
-                "chunk_id": str(r.get("chunk_id", "")),
-                "content": r.get("content", ""),
-                "score": r.get("score", 0),
-                "document_id": str(r.get("document_id", "")),
-                "section_title": r.get("section_title"),
-                "page_number": r.get("page_number"),
+                "chunk_id": r.chunk_id,
+                "content": r.content,
+                "score": r.score,
+                "document_id": r.document_id,
+                "section_title": None,
+                "page_number": r.page_number,
+                "source": r.source,
+                "title": r.title,
             }
             for r in results
         ]
@@ -76,17 +81,20 @@ class KnowledgeSearchTool(BaseTool):
         self, query: str, top_k: int, project_id: str | None, context: ToolContext
     ) -> ToolResult:
         """Fallback keyword-only search when embedding service is unavailable."""
-        from sqlalchemy import select
+        from sqlalchemy import or_, select
 
-        from app.models.document import DocumentChunk
+        from app.models.document import Document, DocumentChunk
+
+        keywords = [kw for kw in query.split()[:5] if len(kw) > 1]
+        if not keywords:
+            return ToolResult(success=True, data={"chunks": [], "total": 0})
 
         stmt = select(DocumentChunk).where(
-            DocumentChunk.content.ilike(f"%{query}%")
+            or_(*(DocumentChunk.content.ilike(f"%{kw}%") for kw in keywords))
         )
         if project_id:
-            stmt = stmt.where(DocumentChunk.document_id.in_(
-                select(DocumentChunk.document_id).limit(100)
-            ))
+            project_uuid = uuid.UUID(project_id)
+            stmt = stmt.join(Document).where(Document.project_id == project_uuid)
         stmt = stmt.limit(top_k)
 
         result = await context.db.execute(stmt)
@@ -98,7 +106,7 @@ class KnowledgeSearchTool(BaseTool):
                 "content": c.content,
                 "score": 0.5,  # keyword match, arbitrary score
                 "document_id": str(c.document_id),
-                "section_title": c.section_title,
+                "section_title": None,
                 "page_number": c.page_number,
             }
             for c in chunks

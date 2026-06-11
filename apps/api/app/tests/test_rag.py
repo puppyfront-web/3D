@@ -2,6 +2,10 @@
 
 import pytest
 
+from app.models.document import Document, DocumentChunk
+from app.tools.base import ToolContext
+from app.tools.builtins.knowledge_search import KnowledgeSearchTool
+
 
 @pytest.mark.asyncio
 async def test_rag_search(client):
@@ -93,3 +97,42 @@ async def test_rag_search_latency(client):
     data = response.json()
     assert "latency_ms" in data["data"]
     assert data["data"]["latency_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_knowledge_search_tool_uses_real_database_chunks(db_session, sample_project_id):
+    """KnowledgeSearchTool should return indexed chunks from DB, not mock fallback."""
+    document = Document(
+        project_id=sample_project_id,
+        filename="real-case.md",
+        original_filename="real-case.md",
+        content_type="text/markdown",
+        file_size=128,
+        file_path="/tmp/real-case.md",
+        title="真实案例资料",
+        status="indexed",
+        chunk_count=1,
+    )
+    db_session.add(document)
+    await db_session.flush()
+
+    chunk = DocumentChunk(
+        document_id=document.id,
+        content="裸眼3D商业综合体项目采用真实案例库资料，包含主观看点与视觉动线。",
+        chunk_index=0,
+        page_number=1,
+        token_count=28,
+    )
+    db_session.add(chunk)
+    await db_session.flush()
+
+    tool = KnowledgeSearchTool()
+    result = await tool.execute(
+        {"query": "裸眼3D 商业综合体", "top_k": 3, "project_id": str(sample_project_id)},
+        ToolContext(db=db_session, embedding_service=None),
+    )
+
+    assert result.success is True
+    assert result.data["total"] == 1
+    assert result.data["chunks"][0]["chunk_id"] == str(chunk.id)
+    assert result.data["chunks"][0]["document_id"] == str(document.id)

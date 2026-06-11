@@ -17,6 +17,11 @@ from app.models.document import Document, DocumentChunk
 from app.models.retrieval import RetrievalLog
 from app.services.embedding_service import EmbeddingService, get_embedding_service
 
+# How long the cached embedding service stays valid before re-reading model
+# config from the DB (admin UI). Keeps this long-lived singleton in sync with
+# frontend config changes without rebuilding the provider on every search.
+_EMBEDDING_TTL_SECONDS = 30.0
+
 
 class RetrievalResult:
     """Single retrieval result item."""
@@ -70,6 +75,7 @@ class HybridRetriever:
         reuse_weight: float = 0.2,
     ):
         self._embedding_service = embedding_service
+        self._embedding_cached_at: float = 0.0
         self.vector_weight = vector_weight
         self.keyword_weight = keyword_weight
         self.quality_weight = quality_weight
@@ -82,9 +88,16 @@ class HybridRetriever:
 
         When *db* is provided the service reads its configuration from the
         database (admin UI settings) first, falling back to .env defaults.
+
+        The cached service is rebuilt after ``_EMBEDDING_TTL_SECONDS`` so that
+        admin-UI model-config changes take effect without a process restart.
         """
-        if self._embedding_service is None:
+        stale = self._embedding_service is None or (
+            time.monotonic() - self._embedding_cached_at
+        ) > _EMBEDDING_TTL_SECONDS
+        if stale:
             self._embedding_service = await get_embedding_service(db=db)
+            self._embedding_cached_at = time.monotonic()
         return self._embedding_service
 
     async def search(
