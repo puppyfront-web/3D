@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 # Default timeout for LLM calls (seconds).
 # Prevents SSE streams from hanging indefinitely when the API is unreachable.
-_LLM_TIMEOUT = 120
+# 300s accommodates slow/heavy models (e.g. deepkey's gpt-5.4) whose chat
+# completions can exceed the previous 120s read timeout and surface as a
+# stream error after 3 retries.
+_LLM_TIMEOUT = 300
 
 
 class OpenAILLMService:
