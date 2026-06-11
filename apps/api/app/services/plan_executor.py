@@ -237,6 +237,10 @@ def _build_step_input(step: PlanStep, plan: ExecutionPlan) -> Dict[str, Any]:
     """Build skill input from plan context and previous step outputs."""
     user_msg = plan.context.get("user_message", "")
     company_name = plan.context.get("company_name", "")
+    # Populated in the conversation flow (conversation_service._execute_plan) so
+    # downstream skills can run in DB mode: read screen_info, render it into the
+    # prompt, write sections_meta, and update project.status.
+    project_id = plan.context.get("project_id")
 
     input_data: Dict[str, Any] = {
         "user_message": user_msg,
@@ -252,6 +256,8 @@ def _build_step_input(step: PlanStep, plan: ExecutionPlan) -> Dict[str, Any]:
         input_data["requirement_text"] = user_msg
         input_data["company_profile"] = company_output
         input_data["company_info"] = user_msg
+        if project_id:
+            input_data["project_id"] = project_id
 
     elif step.skill_id == "visual_prompt":
         proposal_output = plan.step_outputs.get("proposal_generation", {})
@@ -259,6 +265,8 @@ def _build_step_input(step: PlanStep, plan: ExecutionPlan) -> Dict[str, Any]:
         input_data["user_message"] = user_msg
         input_data["proposal_context"] = proposal_output
         input_data["visual_direction"] = company_output.get("recommended_visual_direction", "")
+        if project_id:
+            input_data["project_id"] = project_id
 
     elif step.skill_id == "export":
         proposal_output = plan.step_outputs.get("proposal_generation", {})

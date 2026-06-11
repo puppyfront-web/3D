@@ -375,28 +375,17 @@ class VisualPromptSkill(BaseSkill):
         viewing_distance → composition scale, install_environment → indoor vs
         outdoor lighting & atmosphere. Empty → 待确认 marker (no fabrication).
         """
-        if not screen_info or not isinstance(screen_info, dict):
-            return "（暂未提供 — 需进一步确认屏幕类型/尺寸/分辨率/安装环境/观看距离，禁止编造）"
+        from app.skills.builtins._screen import render_screen_block
 
-        labels = {
-            "screen_type": "屏幕类型",
-            "screen_size": "屏幕尺寸",
-            "pitch": "点距",
-            "resolution": "分辨率",
-            "install_environment": "安装环境",
-            "viewing_distance": "观看距离",
-            "main_viewpoint": "主观看点",
-            "notes": "备注",
-        }
-        rows = [f"  - {labels.get(k, k)}：{v}" for k, v in screen_info.items() if v]
-        if not rows:
-            return "（暂未提供 — 需进一步确认屏幕类型/尺寸/分辨率/安装环境/观看距离，禁止编造）"
-
-        hint = (
-            "\n  请据此调整：分辨率/点距决定像素化精细度，观看距离决定构图尺度，"
-            "安装环境决定室内/户外氛围与灯光强度。已提供项请直接使用，不要标注待确认。"
+        return render_screen_block(
+            screen_info,
+            intro="已提供（请直接用于构图、像素化表现与灯光氛围）：",
+            empty_marker="（暂未提供 — 需进一步确认屏幕类型/尺寸/分辨率/安装环境/观看距离，禁止编造）",
+            tail=(
+                "\n  请据此调整：分辨率/点距决定像素化精细度，观看距离决定构图尺度，"
+                "安装环境决定室内/户外氛围与灯光强度。已提供项请直接使用，不要标注待确认。"
+            ),
         )
-        return "已提供（请直接用于构图、像素化表现与灯光氛围）：\n" + "\n".join(rows) + hint
 
     @staticmethod
     def _default_prompt() -> str:

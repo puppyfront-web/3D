@@ -39,6 +39,19 @@ def _sse_chunk(
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _extract_tool_list(result: Any, key: str) -> List[Dict[str, Any]]:
+    """Pull a list payload out of a ToolResult.
+
+    Tools return a ``ToolResult`` (whose ``.data`` is a dict), not a bare list.
+    Code that did ``isinstance(result, list)`` always missed the payload and
+    silently dropped every RAG hit (no cases, no knowledge chunks reached the
+    LLM).
+    """
+    data = getattr(result, "data", None)
+    items = data.get(key) if isinstance(data, dict) else None
+    return items if isinstance(items, list) else []
+
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -618,36 +631,37 @@ class ProposalAgent:
             used_chunks: List[str] = []
             used_docs: List[str] = []
 
-            # Retrieve similar cases
+            # Retrieve similar cases. Tools return a ToolResult (not a list);
+            # extract the payload via _extract_tool_list.
             try:
                 case_tool = registry.get("case_search")
                 if case_tool:
-                    cases = await case_tool.execute({"query": query, "limit": 3}, tool_ctx)
-                    if isinstance(cases, list):
-                        for c in cases:
-                            if isinstance(c, dict):
-                                title = c.get("title") or c.get("name", "")
-                                if title:
-                                    used_cases.append(title)
-                                    summary = c.get("summary") or c.get("solution_summary", "")
-                                    context_parts.append(f"案例：{title}\n{summary}")
+                    result = await case_tool.execute({"query": query, "limit": 3}, tool_ctx)
+                    for c in _extract_tool_list(result, "cases"):
+                        if isinstance(c, dict):
+                            title = c.get("title") or c.get("name", "")
+                            if title:
+                                used_cases.append(title)
+                                summary = c.get("summary") or c.get("solution_summary", "")
+                                context_parts.append(f"案例：{title}\n{summary}")
             except Exception as e:
                 logger.warning("Case search failed: %s", e)
 
-            # Retrieve knowledge chunks
+            # Retrieve knowledge chunks. knowledge_search takes ``top_k`` (not
+            # ``limit``) and returns chunks with a ``content`` field.
             try:
                 ktool = registry.get("knowledge_search")
                 if ktool:
-                    chunks = await ktool.execute({"query": query, "limit": 5}, tool_ctx)
-                    if isinstance(chunks, list):
-                        for ch in chunks:
-                            if isinstance(ch, dict):
-                                text = ch.get("chunk_text") or ch.get("text", "")
-                                if text:
-                                    used_chunks.append(ch.get("chunk_id", ""))
-                                    if ch.get("document_title"):
-                                        used_docs.append(ch["document_title"])
-                                    context_parts.append(f"知识片段：{text[:500]}")
+                    result = await ktool.execute({"query": query, "top_k": 5}, tool_ctx)
+                    for ch in _extract_tool_list(result, "chunks"):
+                        if isinstance(ch, dict):
+                            text = ch.get("content") or ch.get("chunk_text") or ch.get("text", "")
+                            if text:
+                                used_chunks.append(ch.get("chunk_id", ""))
+                                doc_title = ch.get("title") or ch.get("document_title")
+                                if doc_title:
+                                    used_docs.append(doc_title)
+                                context_parts.append(f"知识片段：{text[:500]}")
             except Exception as e:
                 logger.warning("Knowledge search failed: %s", e)
 
