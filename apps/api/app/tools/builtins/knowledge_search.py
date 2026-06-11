@@ -1,9 +1,59 @@
 """Knowledge Search Tool — RAG semantic + keyword hybrid retrieval."""
 
+import re
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from app.tools.base import BaseTool, ToolContext, ToolManifest, ToolResult
+
+# CJK (common + extension A) runs vs ASCII alphanumeric runs. CJK text has no
+# word spacing, so str.split() returns the whole query as one token and ILIKE
+# matches nothing useful — split CJK into per-character search units instead.
+_TOKEN_RE = re.compile(r"[一-鿿\s]+|[A-Za-z0-9]+")
+
+
+def _tokenize_query(query: str, max_tokens: int = 8) -> List[str]:
+    """Split a query into ILIKE keyword tokens.
+
+    CJK characters are emitted one-per-token (each is a meaningful search unit);
+    ASCII alphanumeric runs are kept as whole words. Tokens shorter than 2 chars
+    are dropped (single ASCII letters match too broadly; single CJK chars are
+    kept because each carries meaning).
+    """
+    if not query:
+        return []
+    tokens: List[str] = []
+    for m in _TOKEN_RE.finditer(query):
+        s = m.group(0).strip()
+        if not s:
+            continue
+        if s[0].isascii():
+            if len(s) > 1:
+                tokens.append(s)
+        else:
+            tokens.extend(list(s))
+        if len(tokens) >= max_tokens:
+            break
+    return tokens[:max_tokens]
+
+
+def _escape_like(s: str) -> str:
+    """Escape ILIKE wildcards so user input is matched literally."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _parse_project_id(project_id: Optional[str]) -> Optional[uuid.UUID]:
+    """Parse a project_id, returning None on malformed input instead of raising.
+
+    A bad project_id (e.g. a non-UUID string slipped into the tool call) should
+    degrade to an unfiltered search, not a 500.
+    """
+    if not project_id:
+        return None
+    try:
+        return uuid.UUID(project_id)
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 class KnowledgeSearchTool(BaseTool):
@@ -53,7 +103,7 @@ class KnowledgeSearchTool(BaseTool):
         from app.rag.retriever import HybridRetriever
 
         retriever = HybridRetriever(embedding_service=context.embedding_service)
-        project_uuid = uuid.UUID(project_id) if project_id else None
+        project_uuid = _parse_project_id(project_id)
         results = await retriever.search(
             query=query,
             top_k=top_k,
@@ -85,15 +135,18 @@ class KnowledgeSearchTool(BaseTool):
 
         from app.models.document import Document, DocumentChunk
 
-        keywords = [kw for kw in query.split()[:5] if len(kw) > 1]
+        keywords = _tokenize_query(query)
         if not keywords:
             return ToolResult(success=True, data={"chunks": [], "total": 0})
 
         stmt = select(DocumentChunk).where(
-            or_(*(DocumentChunk.content.ilike(f"%{kw}%") for kw in keywords))
+            or_(*(
+                DocumentChunk.content.ilike(f"%{_escape_like(kw)}%", escape="\\")
+                for kw in keywords
+            ))
         )
-        if project_id:
-            project_uuid = uuid.UUID(project_id)
+        project_uuid = _parse_project_id(project_id)
+        if project_uuid:
             stmt = stmt.join(Document).where(Document.project_id == project_uuid)
         stmt = stmt.limit(top_k)
 
