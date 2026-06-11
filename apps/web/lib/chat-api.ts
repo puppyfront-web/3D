@@ -13,6 +13,7 @@ import type {
   StreamChunk,
   ApiResponse,
 } from "@/types";
+import { toast } from "sonner";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -121,7 +122,12 @@ export function streamChat(
   )
     .then(async (response) => {
       if (!response.ok) {
-        throw new Error(`Stream failed: ${response.status}`);
+        const errText = await response.text().catch(() => "");
+        const errMsg = `Stream failed: ${response.status}`;
+        toast.error(`对话流错误 (${response.status})`, {
+          description: errText ? errText.slice(0, 200) : errMsg,
+        });
+        throw new Error(errMsg);
       }
       if (!response.body) {
         throw new Error("No response body for streaming");
@@ -214,6 +220,9 @@ export function streamChat(
     })
     .catch((err) => {
       if (err.name !== "AbortError") {
+        toast.error("对话连接失败", {
+          description: err.message || "未知错误",
+        });
         callbacks.onError(err);
       }
     });

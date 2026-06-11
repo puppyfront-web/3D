@@ -15,6 +15,7 @@ import {
   getVersionTree as apiGetVersionTree,
   executeVisualConceptAction,
 } from "@/lib/visual-concept-api";
+import { toast } from "sonner";
 
 // ─── State ────────────────────────────────────────────────────────
 
@@ -80,8 +81,10 @@ export function VisualConceptProvider({
             currentBranchId: treeData.active_branch || prev.currentBranchId,
           }));
         }
-      } catch {
-        // Silently fail — version tree is optional
+      } catch (error) {
+        toast.error("版本树加载失败", {
+          description: (error as Error).message || "请检查网络连接",
+        });
       }
     },
     []
@@ -94,8 +97,10 @@ export function VisualConceptProvider({
           target_node_id: nodeId,
         });
         await refreshVersionTree(conversationId);
-      } catch {
-        // Error handling can be added later
+      } catch (error) {
+        toast.error("回滚失败", {
+          description: (error as Error).message,
+        });
       }
     },
     [refreshVersionTree]
@@ -109,8 +114,10 @@ export function VisualConceptProvider({
           branch_name: name,
         });
         await refreshVersionTree(conversationId);
-      } catch {
-        // Error handling can be added later
+      } catch (error) {
+        toast.error("分支创建失败", {
+          description: (error as Error).message,
+        });
       }
     },
     [refreshVersionTree]
@@ -123,8 +130,10 @@ export function VisualConceptProvider({
           target_branch_id: branchId,
         });
         await refreshVersionTree(conversationId);
-      } catch {
-        // Error handling can be added later
+      } catch (error) {
+        toast.error("切换分支失败", {
+          description: (error as Error).message,
+        });
       }
     },
     [refreshVersionTree]

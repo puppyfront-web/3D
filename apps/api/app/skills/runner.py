@@ -126,3 +126,101 @@ class SkillRunner:
         if row:
             return row
         return None
+
+    async def run_with_react(
+        self,
+        skill_id: str,
+        input_data: Dict[str, Any],
+        context: SkillContext,
+        max_turns: int = 2,
+    ) -> Dict[str, Any]:
+        """Execute a skill with ReAct reflection loop.
+
+        If the skill fails or returns missing_info, reflect on the result
+        and potentially retry with supplemented inputs.
+        """
+        current_input = dict(input_data)
+        current_skill_id = skill_id
+
+        for turn in range(max_turns):
+            result = await self.run(current_skill_id, current_input, context)
+
+            # Success with no missing info — return immediately
+            if result.get("success") and not result.get("missing_info"):
+                return result
+
+            # Skill not found or other structural error — don't retry
+            if not result.get("success") and "not found" in (result.get("error") or "").lower():
+                return result
+
+            # Skill failed or has missing_info — attempt reflection
+            if turn < max_turns - 1 and context.llm_service:
+                reflection = await self._reflect(
+                    current_skill_id, current_input, result, context
+                )
+                action = reflection.get("action", "give_up")
+
+                if action == "retry_with_supplement":
+                    supplement = reflection.get("supplement", {})
+                    current_input.update(supplement)
+                    logger.info(
+                        "ReAct retry turn %d: supplementing %d fields for %s",
+                        turn + 1, len(supplement), current_skill_id,
+                    )
+                    continue
+                elif action == "ask_user":
+                    result["_react_ask_user"] = reflection.get("question", "")
+                    return result
+                elif action == "fallback_skill":
+                    fallback = reflection.get("fallback_skill_id")
+                    if fallback and fallback != current_skill_id:
+                        current_skill_id = fallback
+                        logger.info(
+                            "ReAct fallback turn %d: switching %s -> %s",
+                            turn + 1, skill_id, fallback,
+                        )
+                        continue
+                # give_up or unknown — break
+            break
+
+        return result
+
+    async def _reflect(
+        self,
+        skill_id: str,
+        input_data: Dict[str, Any],
+        result: Dict[str, Any],
+        context: SkillContext,
+    ) -> Dict[str, Any]:
+        """Use LLM to reflect on a skill execution result and decide next action."""
+        reflection_prompt = f"""一个 Skill 刚执行完毕，请分析结果并决定下一步动作。
+
+Skill: {skill_id}
+输入概要: { {k: str(v)[:100] for k, v in input_data.items()} }
+执行成功: {result.get('success')}
+缺失信息: {result.get('missing_info', [])}
+错误: {result.get('error', '无')}
+
+可选动作：
+- "retry_with_supplement": 缺少的信息可以从已有上下文中推断，给出补充参数
+- "ask_user": 必须由用户补充，生成追问文本
+- "give_up": 不可恢复错误，返回错误信息
+
+返回 JSON:
+{{
+  "thought": "分析过程",
+  "action": "retry_with_supplement | ask_user | give_up",
+  "supplement": {{}},
+  "question": ""
+}}"""
+
+        try:
+            reflection = await context.llm_service.generate_json(
+                prompt=reflection_prompt,
+                system_prompt="你是 Skill 执行反思引擎。分析执行结果，决定下一步最优动作。",
+                temperature=0.1,
+            )
+            return reflection
+        except Exception:
+            logger.exception("ReAct reflection failed for %s", skill_id)
+            return {"action": "give_up"}

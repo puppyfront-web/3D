@@ -61,7 +61,7 @@ const suggestions = [
     icon: Rocket,
     title: "完整方案",
     description: "从企业解析到导出的端到端方案生成",
-    message: "帮我设计一套完整的3D幕墙方案",
+    message: "帮我设计一套完整的展示方案",
   },
 ];
 
@@ -114,7 +114,7 @@ export function WelcomeScreen({ onSendMessage }: WelcomeScreenProps) {
           </div>
         </div>
         <h1 className="text-2xl font-bold text-gray-900 mb-2">
-          3D展示幕墙 AI 专家
+          花生ONE — 展厅·文旅 AI 专家
         </h1>
         <p className="text-gray-500 text-sm mb-8">
           描述你的项目需求，或选择下方技能快速开始

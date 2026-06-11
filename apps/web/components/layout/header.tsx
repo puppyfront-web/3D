@@ -33,7 +33,7 @@ export function Header({ title, breadcrumbs }: HeaderProps) {
           </nav>
         ) : (
           <h1 className="text-sm font-semibold text-[#1A1A2E]">
-            {title || "3D提案工作台"}
+            {title || "花生ONE"}
           </h1>
         )}
       </div>

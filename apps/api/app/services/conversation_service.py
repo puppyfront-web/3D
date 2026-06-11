@@ -12,21 +12,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.conversation import Conversation, Message
 from app.services.intent_service import IntentDetector, IntentResult
 from app.services.llm_service import get_llm_service
-from app.services.pipeline_state import PipelineState
 
 logger = logging.getLogger(__name__)
 
 # System prompt for conversational mode
-_CONVERSATION_SYSTEM_PROMPT = """你是 3D 展示幕墙 AI 专家系统的助手。
+_CONVERSATION_SYSTEM_PROMPT = """你是花生ONE 展厅+文旅 AI 专家系统的助手。
 
 你的职责：
 1. 帮助用户理解项目需求和技术参数
 2. 解释企业解析、策划案、视觉方案的细节
 3. 根据上下文建议下一步操作
-4. 回答关于 3D 展示幕墙、裸眼 3D、LED 媒体立面的问题
+4. 回答关于以下领域的问题：
+   - 3D 展示幕墙、裸眼 3D、LED 媒体立面
+   - 展厅设计与展陈规划（企业展厅、博物馆、规划馆、科技馆）
+   - 文旅项目策划（文旅夜游、沉浸式体验、光影秀）
+   - 多媒体展项设计（互动装置、数字沙盘、AR/VR体验）
 
 重要规则：
-- 如果缺少关键信息（屏幕尺寸、预算、工期等），明确标注「需进一步确认」
+- 如果缺少关键信息（场地面积、屏幕尺寸、预算、工期等），明确标注「需进一步确认」
 - 不要编造案例、报价、屏幕参数或工期
 - 推荐用户使用技能卡片执行专业任务（企业解析、策划案生成、视觉生成等）
 - 回答要专业、简洁、有建设性"""
@@ -86,10 +89,16 @@ class ConversationService:
         status: Optional[str] = None,
         limit: int = 50,
     ) -> List[Conversation]:
-        """List conversations for the sidebar, newest first."""
+        """List conversations for the sidebar, newest first.
+
+        By default only active conversations are returned.
+        Pass status explicitly to include archived or other statuses.
+        """
         stmt = select(Conversation).order_by(Conversation.updated_at.desc())
         if status:
             stmt = stmt.where(Conversation.status == status)
+        else:
+            stmt = stmt.where(Conversation.status != "archived")
         stmt = stmt.limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -199,12 +208,12 @@ class ConversationService:
             messages = await self.get_history(db, conv_uuid)
             history = self.build_message_history(messages)
 
-            # 2.5 Check for paused pipeline that needs resuming
-            pipeline_state = self._load_pipeline_state(messages)
-            if pipeline_state and pipeline_state.status == "paused":
-                logger.info("Resuming paused pipeline at stage: %s", pipeline_state.current_stage)
-                async for chunk in self._handle_sop_pipeline_resume(
-                    db, conv_uuid, user_message, pipeline_state, history
+            # 2.5 Check for paused execution plan that needs resuming
+            execution_plan = self._load_execution_plan(messages)
+            if execution_plan and execution_plan.status == "paused":
+                logger.info("Resuming paused execution plan at step %d", execution_plan.current_step_index)
+                async for chunk in self._handle_plan_resume(
+                    db, conv_uuid, user_message, execution_plan, history
                 ):
                     yield chunk
                 return
@@ -223,7 +232,7 @@ class ConversationService:
 
             # 4. Route based on intent
             if intent.intent == "sop_pipeline" and intent.skill_id is None:
-                async for chunk in self._handle_sop_pipeline(
+                async for chunk in self._handle_plan_execution(
                     db, conv_uuid, user_message, intent, history
                 ):
                     yield chunk
@@ -366,7 +375,20 @@ class ConversationService:
                 yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
 
                 runner = SkillRunner(registry)
-                result = await runner.run(skill_id, input_data, context)
+                result = await runner.run_with_react(skill_id, input_data, context)
+
+                # Handle ReAct ask_user — stream the question to user
+                if result.get("_react_ask_user"):
+                    ask_text = result["_react_ask_user"]
+                    yield f"data: {json.dumps({'type': 'text_delta', 'text': ask_text})}\n\n"
+                    await self.save_message(
+                        db, conversation_id, "assistant",
+                        content=ask_text,
+                        content_type="text",
+                        metadata={"intent": "run_skill", "skill_id": skill_id, "react_ask": True},
+                        auto_commit=True,
+                    )
+                    return
 
                 # Auto-chain visual_prompt → image_generation within same session
                 if result.get("success") and skill_id == "visual_prompt":
@@ -555,74 +577,20 @@ class ConversationService:
                 return VisualConceptContext.from_dict(msg.metadata_json)
         return VisualConceptContext()
 
-    def _load_pipeline_state(self, messages: List[Message]) -> Optional[PipelineState]:
-        """Recover pipeline state from the most recent assistant message metadata."""
+    def _load_execution_plan(self, messages: List[Message]) -> Optional["ExecutionPlan"]:
+        """Recover ExecutionPlan from the most recent assistant message metadata."""
+        from app.services.execution_plan import ExecutionPlan
         for msg in reversed(messages):
-            if msg.metadata_json and "pipeline" in msg.metadata_json:
-                return PipelineState.from_dict(msg.metadata_json)
+            if msg.metadata_json and "execution_plan" in msg.metadata_json:
+                try:
+                    return ExecutionPlan.from_dict(msg.metadata_json)
+                except Exception:
+                    logger.warning("Failed to parse ExecutionPlan from metadata")
         return None
 
-    async def _handle_sop_pipeline_resume(
-        self,
-        db: AsyncSession,
-        conversation_id: uuid.UUID,
-        user_message: str,
-        state: PipelineState,
-        history: List[Dict[str, str]],
-    ) -> AsyncGenerator[str, None]:
-        """Resume a paused pipeline based on user action (confirm/modify/restart)."""
-        from app.services.intent_service import IntentDetector
+    # ── Execution Plan (dynamic pipeline) ──────────────────────────
 
-        action = IntentDetector.classify_pipeline_action(user_message)
-
-        if action == "restart":
-            state.reset()
-            confirm_text = "🔄 已重置方案流程，重新从企业解析开始...\n\n"
-            yield f"data: {json.dumps({'type': 'text_delta', 'text': confirm_text})}\n\n"
-            async for chunk in self._execute_pipeline_stage(
-                db, conversation_id, state, history
-            ):
-                yield chunk
-            return
-
-        if action == "confirm":
-            stage_names = {
-                "company_analysis": "企业画像",
-                "proposal_generation": "策划案",
-                "visual_generation": "视觉方案",
-            }
-            current_name = stage_names.get(state.current_stage, state.current_stage)
-            confirm_text = f"✅ **{current_name}** 已确认，进入下一阶段...\n\n"
-            yield f"data: {json.dumps({'type': 'text_delta', 'text': confirm_text})}\n\n"
-
-            next_stage = state.advance()
-            if next_stage is None:
-                done_text = "🎉 方案流程已全部完成！所有产物已保存。"
-                yield f"data: {json.dumps({'type': 'text_delta', 'text': done_text})}\n\n"
-                await self.save_message(
-                    db, conversation_id, "assistant",
-                    content=confirm_text + done_text, content_type="text",
-                    metadata=state.to_dict(), auto_commit=True,
-                )
-                return
-
-            async for chunk in self._execute_pipeline_stage(
-                db, conversation_id, state, history
-            ):
-                yield chunk
-            return
-
-        # action == "modify"
-        state.project_context["modify_feedback"] = user_message
-        modify_text = f"📝 收到修改意见，正在重新生成...\n\n"
-        yield f"data: {json.dumps({'type': 'text_delta', 'text': modify_text})}\n\n"
-        state.status = "running"
-        async for chunk in self._execute_pipeline_stage(
-            db, conversation_id, state, history
-        ):
-            yield chunk
-
-    async def _handle_sop_pipeline(
+    async def _handle_plan_execution(
         self,
         db: AsyncSession,
         conversation_id: uuid.UUID,
@@ -630,16 +598,19 @@ class ConversationService:
         intent: IntentResult,
         history: List[Dict[str, str]],
     ) -> AsyncGenerator[str, None]:
-        """Launch a full SOP pipeline: company_analysis -> proposal -> visual -> export."""
+        """Launch a dynamic execution plan based on detected business domain."""
+        from app.services.planner import create_plan, default_sop_loader
+
         # Quick pre-check: does the user message contain any entity info?
         has_entity = len(user_message) > 10
         if not has_entity:
             prompt_text = (
                 "请提供以下信息，我将为您启动完整的方案设计流程：\n\n"
-                "1. **企业名称**（必填）\n"
-                "2. 所属行业\n"
+                "1. **企业/景区名称**（必填）\n"
+                "2. 项目类型（展厅/文旅/幕墙/互动装置）\n"
                 "3. 项目需求简述\n\n"
-                "例如：*「给华为科技公司设计一套3D展示幕墙方案，用于新品发布会」*"
+                "例如：*「给华为设计一套企业展厅方案，用于展示5G技术成果」*\n"
+                "或：*「为某景区设计文旅夜游方案，包含灯光秀和沉浸式体验」*"
             )
             yield f"data: {json.dumps({'type': 'text_delta', 'text': prompt_text})}\n\n"
             await self.save_message(
@@ -649,18 +620,247 @@ class ConversationService:
             )
             return
 
-        # Initialize pipeline state
-        state = PipelineState()
-        state.project_context = {
-            "user_message": user_message,
-            "company_name": self._extract_company_name(user_message),
-        }
+        # Create plan
+        company_name = self._extract_company_name(user_message)
+        plan = await create_plan(
+            user_message=user_message,
+            company_name=company_name,
+            db=db,
+            sop_loader=default_sop_loader,
+        )
 
-        # Execute Stage 1: company_analysis
-        async for chunk in self._execute_pipeline_stage(
-            db, conversation_id, state, history
-        ):
+        # Execute the plan
+        async for chunk in self._execute_plan(db, conversation_id, plan):
             yield chunk
+
+    async def _handle_plan_resume(
+        self,
+        db: AsyncSession,
+        conversation_id: uuid.UUID,
+        user_message: str,
+        plan: "ExecutionPlan",
+        history: List[Dict[str, str]],
+    ) -> AsyncGenerator[str, None]:
+        """Resume a paused execution plan based on user action."""
+        from app.services.intent_service import IntentDetector
+
+        action = IntentDetector.classify_pipeline_action(user_message)
+
+        if action == "restart":
+            from app.services.planner import create_plan, default_sop_loader
+            plan = await create_plan(
+                user_message=plan.context.get("user_message", ""),
+                company_name=plan.context.get("company_name", ""),
+                db=db,
+                sop_loader=default_sop_loader,
+            )
+            confirm_text = "🔄 已重置方案流程，重新开始...\n\n"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': confirm_text})}\n\n"
+            async for chunk in self._execute_plan(db, conversation_id, plan):
+                yield chunk
+            return
+
+        if action == "confirm":
+            step = plan.current_step()
+            step_name = step.name if step else "当前阶段"
+            confirm_text = f"✅ **{step_name}** 已确认，进入下一阶段...\n\n"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': confirm_text})}\n\n"
+
+            plan.status = "running"
+            plan.current_step_index += 1
+            async for chunk in self._execute_plan(db, conversation_id, plan):
+                yield chunk
+            return
+
+        # action == "modify"
+        plan.context["modify_feedback"] = user_message
+        modify_text = "📝 收到修改意见，正在重新生成...\n\n"
+        yield f"data: {json.dumps({'type': 'text_delta', 'text': modify_text})}\n\n"
+        plan.status = "running"
+        async for chunk in self._execute_plan(db, conversation_id, plan):
+            yield chunk
+
+    async def _execute_plan(
+        self,
+        db: AsyncSession,
+        conversation_id: uuid.UUID,
+        plan: "ExecutionPlan",
+    ) -> AsyncGenerator[str, None]:
+        """Execute an ExecutionPlan using the Plan Executor."""
+        import time
+
+        from app.skills.base import SkillContext
+        from app.skills.registry import SkillRegistry
+        from app.services.embedding_service import get_embedding_service
+        from app.services.execution_plan import ExecutionPlan
+        from app.services.image_service import get_image_service
+        from app.services.plan_executor import execute_plan as run_plan_steps
+
+        # Get project_id from conversation
+        conv = await self.get_conversation_detail(db, str(conversation_id))
+        project_id = str(conv.project_id) if conv and conv.project_id else None
+
+        registry = SkillRegistry.get_instance()
+        if not registry.list_skills():
+            registry.auto_register()
+
+        from app.db.session import async_session_factory
+
+        all_output: Dict[str, Any] = {}
+        blocks: List[Dict[str, Any]] = []
+        content_parts: List[str] = []
+
+        async with async_session_factory() as skill_db:
+            context = SkillContext(
+                project_id=project_id,
+                user_id=None,
+                db=skill_db,
+                llm_service=await get_llm_service(skill_db),
+                embedding_service=await get_embedding_service(skill_db),
+                image_service=await get_image_service(skill_db),
+            )
+
+            # Inject project_id and company_id into plan context
+            if project_id:
+                plan.context["project_id"] = project_id
+
+            # Run the plan executor
+            async for event in run_plan_steps(plan, context, registry):
+                event_type = event.get("type", "")
+                event_data = event.get("data", {})
+
+                if event_type == "plan_created":
+                    # Stream plan overview
+                    yield f"data: {json.dumps({'type': 'text_delta', 'text': '📋 方案流程已规划，开始执行...\n\n'})}\n\n"
+                    # Send plan info as a content block for frontend rendering
+                    yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': 'plan_progress'}})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content_block_data', 'data': event})}\n\n"
+                    yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
+
+                elif event_type == "plan_step_start":
+                    step_name = event_data.get("name", "")
+                    progress_text = f"🔄 **{step_name}** 阶段开始执行...\n\n"
+                    yield f"data: {json.dumps({'type': 'text_delta', 'text': progress_text})}\n\n"
+
+                elif event_type == "plan_step_complete":
+                    step_name = event_data.get("name", "")
+                    step_skill_id = event_data.get("skill_id", "")
+                    duration = event_data.get("duration", 0)
+                    output_summary = event_data.get("output_summary", {})
+
+                    # Build stage summary
+                    summary = f"✅ **{step_name}** 完成"
+                    if duration >= 60:
+                        summary += f"\n⏱ 耗时 {duration // 60} 分 {duration % 60} 秒"
+                    else:
+                        summary += f"\n⏱ 耗时 {duration} 秒"
+
+                    # Add metrics
+                    for key, val in output_summary.items():
+                        if key == "missing_count" and val:
+                            summary += f"\n⚠️ {val} 项待确认"
+                        elif key == "sections_count" and val:
+                            summary += f"\n📋 共 {val} 个章节"
+                        elif key == "images_count" and val:
+                            summary += f"\n🖼 生成 {val} 张效果图"
+
+                    content_parts.append(summary)
+                    yield f"data: {json.dumps({'type': 'text_delta', 'text': summary + '\n\n'})}\n\n"
+
+                    # Add skill-specific content blocks
+                    step_output = plan.step_outputs.get(step_skill_id, {})
+                    if step_skill_id == "company_analysis" and step_output:
+                        blocks.append({"type": "company_analysis_card", "data": step_output})
+                    elif step_skill_id == "proposal_generation" and step_output:
+                        blocks.append({"type": "proposal_section", "data": {
+                            "content_type": "text/markdown",
+                            "content": step_output.get("content", ""),
+                            "missing_info": step_output.get("missing_info", []),
+                        }})
+                    elif step_skill_id in ("visual_prompt", "image_generation") and step_output:
+                        blocks.append({"type": "visual_result", "data": step_output})
+                    elif step_skill_id == "export" and step_output:
+                        blocks.append({"type": "artifact", "data": step_output})
+
+                    # Add stage_summary block
+                    blocks.append({
+                        "type": "stage_summary",
+                        "data": {
+                            "stage": step_skill_id,
+                            "status": "completed",
+                            "duration": duration,
+                            "metrics": output_summary,
+                        },
+                    })
+
+                elif event_type == "plan_step_failed":
+                    step_name = event_data.get("name", "")
+                    error_msg = event_data.get("error", "执行失败")
+                    error_text = f"❌ **{step_name}** 执行失败：{error_msg}\n\n"
+                    content_parts.append(error_text)
+                    yield f"data: {json.dumps({'type': 'text_delta', 'text': error_text})}\n\n"
+
+                elif event_type == "plan_paused":
+                    step_skill_id = event_data.get("skill_id", "")
+                    step_name = event_data.get("name", "")
+
+                    # Add action buttons for pause
+                    if step_skill_id == "company_analysis":
+                        blocks.append({
+                            "type": "action_buttons",
+                            "data": {"buttons": [
+                                {"label": "✓ 确认企业画像，继续", "value": "确认继续", "action": "quick_reply"},
+                                {"label": "↻ 重新生成", "value": "重新生成企业解析", "action": "quick_reply"},
+                            ]},
+                        })
+                    elif step_skill_id == "proposal_generation":
+                        blocks.append({
+                            "type": "action_buttons",
+                            "data": {"buttons": [
+                                {"label": "✓ 确认策划案，继续", "value": "确认继续", "action": "quick_reply"},
+                                {"label": "✎ 我有修改意见", "value": "修改策划案", "action": "quick_reply"},
+                            ]},
+                        })
+                    elif step_skill_id == "visual_prompt":
+                        blocks.append({
+                            "type": "action_buttons",
+                            "data": {"buttons": [
+                                {"label": "使用方案 A", "value": "使用第一张效果图", "action": "quick_reply"},
+                                {"label": "使用方案 B", "value": "使用第二张效果图", "action": "quick_reply"},
+                                {"label": "两个都用", "value": "两张都可以继续", "action": "quick_reply"},
+                            ]},
+                        })
+
+                elif event_type == "plan_completed":
+                    completed = event_data.get("completed_steps", 0)
+                    done_text = f"\n🎉 方案流程已全部完成！共完成 {completed} 个阶段。"
+                    content_parts.append(done_text)
+                    yield f"data: {json.dumps({'type': 'text_delta', 'text': done_text})}\n\n"
+
+            # Commit skill execution records
+            try:
+                await skill_db.commit()
+            except Exception:
+                await skill_db.rollback()
+
+        # Stream all content blocks
+        for block in blocks:
+            yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': block['type']}})}\n\n"
+            yield f"data: {json.dumps({'type': 'content_block_data', 'data': block})}\n\n"
+            yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
+
+        # Save assistant message with plan state
+        content_text = "\n".join(content_parts) if content_parts else "方案流程执行完成。"
+        rich_content = {"blocks": blocks} if blocks else None
+
+        await self.save_message(
+            db, conversation_id, "assistant",
+            content=content_text,
+            content_type="rich" if rich_content else "text",
+            rich_content=rich_content,
+            metadata=plan.to_dict(),
+            auto_commit=True,
+        )
 
     @staticmethod
     def _extract_company_name(message: str) -> str:
@@ -677,697 +877,6 @@ class ConversationService:
             if m:
                 return m.group(1)
         return ""
-
-    async def _execute_pipeline_stage(
-        self,
-        db: AsyncSession,
-        conversation_id: uuid.UUID,
-        state: PipelineState,
-        history: List[Dict[str, str]],
-    ) -> AsyncGenerator[str, None]:
-        """Execute the current pipeline stage, stream results, and pause/advance."""
-        import time
-
-        from app.skills.base import SkillContext
-        from app.skills.registry import SkillRegistry
-        from app.skills.runner import SkillRunner
-        from app.services.embedding_service import get_embedding_service
-        from app.services.image_service import get_image_service
-        from app.services.pipeline_state import PAUSE_STAGES
-
-        stage = state.current_stage
-        start_time = time.time()
-
-        # Build skill input from pipeline context
-        input_data = self._build_stage_input(stage, state, history)
-
-        # Get project_id from conversation
-        conv = await self.get_conversation_detail(db, str(conversation_id))
-        project_id = str(conv.project_id) if conv and conv.project_id else None
-        if project_id:
-            input_data["project_id"] = project_id
-            # Resolve company_id so company_analysis saves profile to DB
-            if stage == "company_analysis":
-                from app.models.project import Project
-                project_obj = await db.get(Project, uuid.UUID(project_id))
-                if project_obj and project_obj.company_id:
-                    input_data["company_id"] = str(project_obj.company_id)
-
-        # Prepare context
-        registry = SkillRegistry.get_instance()
-        if not registry.list_skills():
-            registry.auto_register()
-
-        # Use a separate DB session for skill execution to avoid
-        # SQLite deadlocks when the SSE stream session holds a write lock.
-        from app.db.session import async_session_factory
-
-        # Stream stage-start indicator
-        stage_names = {
-            "company_analysis": "企业解析",
-            "proposal_generation": "策划案生成",
-            "visual_generation": "视觉方案生成",
-            "export": "方案导出",
-        }
-        stage_display = stage_names.get(stage, stage)
-        progress_text = f"🔄 **{stage_display}** 阶段开始执行...\n\n"
-        yield f"data: {json.dumps({'type': 'text_delta', 'text': progress_text})}\n\n"
-
-        # Execute skill(s) in a separate DB session.
-        # Capture results/error inside the block, but do NOT call
-        # save_message(db, ...) inside it — SQLite allows only one
-        # writer at a time and skill_db may hold uncommitted writes.
-        all_output: Dict[str, Any] = {}
-        stage_error: Optional[str] = None
-
-        async with async_session_factory() as skill_db:
-            context = SkillContext(
-                project_id=project_id,
-                user_id=None,
-                db=skill_db,
-                llm_service=await get_llm_service(skill_db),
-                embedding_service=await get_embedding_service(skill_db),
-                image_service=await get_image_service(skill_db),
-            )
-
-            # ── Auto-inject Context Pack for proposal_generation ──
-            if stage == "proposal_generation":
-                await self._enrich_proposal_input(input_data, state, context, project_id)
-
-            # ── Auto-inject visual context for visual_generation ──
-            if stage == "visual_generation":
-                await self._enrich_visual_input(input_data, state, context, project_id)
-
-            runner = SkillRunner(registry)
-
-            try:
-                if stage == "visual_generation":
-                    vp_result = await runner.run("visual_prompt", input_data, context)
-                    if vp_result.get("success"):
-                        all_output = vp_result.get("output", {})
-                        collected_images: list = []
-                        for _ in range(2):
-                            img_input = {
-                                "prompt": all_output.get("positive_prompt", ""),
-                                "negative_prompt": all_output.get("negative_prompt", ""),
-                                "width": input_data.get("width", 1024),
-                                "height": input_data.get("height", 768),
-                            }
-                            if project_id:
-                                img_input["project_id"] = project_id
-                            img_result = await runner.run("image_generation", img_input, context)
-                            if img_result.get("success"):
-                                url = img_result.get("output", {}).get("image_url")
-                                if url:
-                                    collected_images.append({"url": url})
-                        if collected_images:
-                            all_output["images"] = collected_images
-                            all_output["image_url"] = collected_images[0]["url"]
-                    else:
-                        stage_error = vp_result.get("error", "执行失败")
-                elif stage == "export":
-                    export_input = self._build_export_input(state, project_id)
-                    if export_input.get("task_id"):
-                        result = await runner.run("export", export_input, context)
-                        if result.get("success"):
-                            all_output = result.get("output", {})
-                        else:
-                            all_output = await self._fallback_export(state, context, project_id)
-                    else:
-                        all_output = await self._fallback_export(state, context, project_id)
-                else:
-                    skill_id = stage
-                    result = await runner.run(skill_id, input_data, context)
-                    if result.get("success"):
-                        all_output = result.get("output", {})
-                    else:
-                        stage_error = result.get("error", "执行失败")
-            except Exception as skill_exc:
-                # LLM timeout, network error, etc. — capture for later.
-                logger.exception("Skill execution threw for stage %s", stage)
-                stage_error = str(skill_exc)
-
-            # Always commit/flush the skill execution record before exiting.
-            try:
-                await skill_db.commit()
-            except Exception:
-                await skill_db.rollback()
-
-        # ── Outside skill_db: safe to write to the SSE session's db ──
-
-        if stage_error:
-            # Provide a friendlier message for common errors
-            friendly_error = stage_error
-            lower_err = stage_error.lower()
-            if "timeout" in lower_err or "timed out" in lower_err:
-                friendly_error = "AI 服务响应超时，请稍后重试"
-            elif "connection" in lower_err or "refused" in lower_err:
-                friendly_error = "AI 服务连接失败，请检查网络或稍后重试"
-            error_text = f"❌ **{stage_display}** 执行失败：{friendly_error}\n\n请尝试重新描述需求。"
-            yield f"data: {json.dumps({'type': 'text_delta', 'text': error_text})}\n\n"
-            state.status = "failed"
-            await self.save_message(
-                db, conversation_id, "assistant",
-                content=error_text, content_type="text",
-                metadata=state.to_dict(), auto_commit=True,
-            )
-            return
-
-        # Save stage output
-        state.stage_outputs[stage] = all_output
-
-        # Render output text
-        skill_id_for_render = "visual_prompt" if stage == "visual_generation" else stage
-        content_text = self._render_skill_output(skill_id_for_render, all_output)
-
-        # Build content blocks
-        duration = int(time.time() - start_time)
-        blocks = self._build_stage_blocks(stage, all_output, state, duration=duration)
-
-        # Stream brief summary instead of full content
-        summary = self._build_stage_summary(stage, stage_display, all_output, duration)
-        yield f"data: {json.dumps({'type': 'text_delta', 'text': summary})}\n\n"
-
-        for block in blocks:
-            yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': block['type']}})}\n\n"
-            yield f"data: {json.dumps({'type': 'content_block_data', 'data': block})}\n\n"
-            yield f"data: {json.dumps({'type': 'content_block_end'})}\n\n"
-
-        # Pause or complete
-        if stage in PAUSE_STAGES:
-            state.pause()
-        else:
-            state.advance()
-
-        # Save assistant message with pipeline state
-        await self.save_message(
-            db, conversation_id, "assistant",
-            content=content_text, content_type="rich",
-            rich_content={"blocks": blocks},
-            metadata=state.to_dict(), auto_commit=True,
-        )
-
-    @staticmethod
-    def _build_stage_input(
-        stage: str, state: PipelineState, history: List[Dict[str, str]]
-    ) -> Dict[str, Any]:
-        """Build skill input data from pipeline state and history."""
-        user_msg = state.project_context.get("user_message", "")
-
-        if stage == "company_analysis":
-            return {
-                "company_info": user_msg,
-                "company_name": state.project_context.get("company_name", ""),
-            }
-
-        elif stage == "proposal_generation":
-            company_output = state.stage_outputs.get("company_analysis", {})
-            return {
-                "requirement_text": user_msg,
-                "company_profile": company_output,
-                "company_info": user_msg,
-            }
-
-        elif stage == "visual_generation":
-            proposal_output = state.stage_outputs.get("proposal_generation", {})
-            company_output = state.stage_outputs.get("company_analysis", {})
-            return {
-                "user_message": user_msg,
-                "proposal_context": proposal_output,
-                "visual_direction": company_output.get("recommended_visual_direction", ""),
-                "style": state.project_context.get("visual_style"),
-            }
-
-        elif stage == "export":
-            return {}
-
-        return {"user_message": user_msg}
-
-    @staticmethod
-    def _build_stage_blocks(
-        stage: str, output: Dict[str, Any], state: PipelineState, *, duration: int = 0
-    ) -> List[Dict[str, Any]]:
-        """Build rich content blocks for a pipeline stage."""
-        blocks: List[Dict[str, Any]] = []
-
-        # Stage summary block (always first — shows completion status + metrics)
-        summary_data: Dict[str, Any] = {
-            "stage": stage,
-            "status": "completed",
-            "duration": duration,
-        }
-        if stage == "company_analysis":
-            analysis = output.get("analysis", output)
-            missing = output.get("missing_info", analysis.get("missing_info", []))
-            summary_data["metrics"] = {
-                "missing_count": len(missing) if isinstance(missing, list) else 0,
-            }
-        elif stage == "proposal_generation":
-            missing = output.get("missing_info", [])
-            sections = output.get("sections_meta")
-            # If sections_meta not in output (chat mode), parse from content
-            if not sections and output.get("content"):
-                from app.skills.builtins.proposal_generation import ProposalGenerationSkill
-                sections = ProposalGenerationSkill._parse_sections_meta(output["content"])
-            if not sections:
-                sections = []
-            summary_data["metrics"] = {
-                "sections_count": len(sections) if isinstance(sections, list) else 0,
-                "missing_count": len(missing) if isinstance(missing, list) else 0,
-            }
-        elif stage == "visual_generation":
-            images = output.get("images", [])
-            summary_data["metrics"] = {
-                "images_count": len(images) if isinstance(images, list) else 0,
-            }
-        elif stage == "export":
-            summary_data["metrics"] = {
-                "format": output.get("format", "word"),
-            }
-        blocks.append({"type": "stage_summary", "data": summary_data})
-
-        # Stage-specific content blocks
-        if stage == "company_analysis" and output:
-            blocks.append({"type": "company_analysis_card", "data": output})
-
-        elif stage == "proposal_generation" and output:
-            missing = output.get("missing_info", [])
-            sections = output.get("sections_meta")
-            if not sections and output.get("content"):
-                from app.skills.builtins.proposal_generation import ProposalGenerationSkill
-                sections = ProposalGenerationSkill._parse_sections_meta(output["content"])
-            if not sections:
-                sections = []
-            blocks.append({
-                "type": "proposal_section",
-                "data": {
-                    "content_type": "text/markdown",
-                    "content": output.get("content", ""),
-                    "missing_info": missing if isinstance(missing, list) else [],
-                    "sections": sections if isinstance(sections, list) else [],
-                },
-            })
-
-        elif stage == "visual_generation" and output:
-            blocks.append({"type": "visual_result", "data": output})
-
-        elif stage == "export" and output:
-            blocks.append({"type": "artifact", "data": output})
-
-        # Action buttons for pause stages
-        if stage == "company_analysis":
-            blocks.append({
-                "type": "action_buttons",
-                "data": {"buttons": [
-                    {"label": "✓ 确认企业画像，继续", "value": "确认继续", "action": "quick_reply"},
-                    {"label": "↻ 重新生成", "value": "重新生成企业解析", "action": "quick_reply"},
-                ]},
-            })
-        elif stage == "proposal_generation":
-            blocks.append({
-                "type": "action_buttons",
-                "data": {"buttons": [
-                    {"label": "✓ 确认策划案，继续", "value": "确认继续", "action": "quick_reply"},
-                    {"label": "✎ 我有修改意见", "value": "修改策划案", "action": "quick_reply"},
-                ]},
-            })
-        elif stage == "visual_generation":
-            blocks.append({
-                "type": "action_buttons",
-                "data": {"buttons": [
-                    {"label": "使用方案 A", "value": "使用第一张效果图", "action": "quick_reply"},
-                    {"label": "使用方案 B", "value": "使用第二张效果图", "action": "quick_reply"},
-                    {"label": "两个都用", "value": "两张都可以继续", "action": "quick_reply"},
-                ]},
-            })
-
-        return blocks
-
-    @staticmethod
-    def _build_stage_summary(
-        stage: str, stage_display: str, output: Dict[str, Any], duration: int
-    ) -> str:
-        """Build a brief summary text for the pipeline stage (replaces full content streaming)."""
-        lines = [f"✅ **{stage_display}** 完成"]
-
-        if duration >= 60:
-            lines.append(f"⏱ 耗时 {duration // 60} 分 {duration % 60} 秒")
-        else:
-            lines.append(f"⏱ 耗时 {duration} 秒")
-
-        if stage == "proposal_generation":
-            sections = output.get("sections_meta", [])
-            missing = output.get("missing_info", [])
-            if isinstance(sections, list) and sections:
-                lines.append(f"📋 共 {len(sections)} 个章节")
-            if isinstance(missing, list) and missing:
-                lines.append(f"⚠️ {len(missing)} 项待确认")
-
-        elif stage == "company_analysis":
-            missing = output.get("missing_info", [])
-            analysis = output.get("analysis", output)
-            if not missing and isinstance(analysis, dict):
-                missing = analysis.get("missing_info", [])
-            if isinstance(missing, list) and missing:
-                lines.append(f"⚠️ {len(missing)} 项待确认")
-
-        elif stage == "visual_generation":
-            images = output.get("images", [])
-            if isinstance(images, list) and images:
-                lines.append(f"🖼 生成 {len(images)} 张效果图")
-
-        return "\n".join(lines)
-
-    @staticmethod
-    def _build_export_input(
-        state: PipelineState, project_id: Optional[str]
-    ) -> Dict[str, Any]:
-        """Build export skill input from accumulated pipeline outputs."""
-        proposal_output = state.stage_outputs.get("proposal_generation", {})
-        task_id = proposal_output.get("output_id") or proposal_output.get("task_id")
-
-        if task_id:
-            return {"task_id": str(task_id), "format": "word"}
-
-        return {"task_id": "", "format": "word"}
-
-    async def _fallback_export(
-        self,
-        state: PipelineState,
-        context: "SkillContext",
-        project_id: Optional[str],
-    ) -> Dict[str, Any]:
-        """Direct export when no GenerationOutput record exists (pipeline chat mode)."""
-        try:
-            from app.services.export_service import get_export_service
-
-            proposal_output = state.stage_outputs.get("proposal_generation", {})
-            content = proposal_output.get("content", proposal_output.get("proposal_text", ""))
-
-            if not content:
-                company_output = state.stage_outputs.get("company_analysis", {})
-                parts = []
-                if company_output:
-                    parts.append("# 企业解析\n")
-                    parts.append(str(company_output.get("summary", "")))
-                if proposal_output:
-                    parts.append("\n# 策划方案\n")
-                    parts.append(str(proposal_output))
-                content = "\n".join(parts)
-
-            if not content:
-                return {"error": "No content to export"}
-
-            service = get_export_service()
-            file_path = await service.export_to_word(
-                content=content,
-                filename=f"pipeline_{state.started_at[:10]}.docx",
-            )
-            return {"file_path": file_path, "format": "word"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    async def _enrich_proposal_input(
-        self,
-        input_data: Dict[str, Any],
-        state: PipelineState,
-        context: "SkillContext",
-        project_id: Optional[str],
-    ) -> None:
-        """Auto-inject Context Pack data into proposal_generation input.
-
-        Calls 5 tools to enrich the input with RAG knowledge, cases, SOP steps,
-        prompt templates, and inferred industry — so the proposal uses real data
-        instead of marking everything as "需进一步确认".
-        """
-        from app.tools.registry import ToolRegistry
-        from app.tools.base import ToolContext
-
-        registry = ToolRegistry.get_instance()
-        tool_ctx = ToolContext(
-            db=context.db,
-            embedding_service=context.embedding_service,
-        )
-
-        company_profile = input_data.get("company_profile", {})
-        company_name = state.project_context.get("company_name", "")
-
-        # ── 1. Infer industry from company_analysis output ──
-        analysis = company_profile.get("analysis", company_profile)
-        industry = ""
-        # Try common field names in company analysis output
-        for key in ("industry", "client_industry", "business_type"):
-            val = analysis.get(key)
-            if val and isinstance(val, str):
-                industry = val
-                break
-        # Fallback: extract from six_views if present
-        if not industry:
-            six_views = analysis.get("six_views", {})
-            right_industry = six_views.get("right_industry", {})
-            if isinstance(right_industry, dict):
-                trends = right_industry.get("trends", "")
-                landscape = right_industry.get("market_landscape", "")
-                industry = trends or landscape
-            elif isinstance(right_industry, str):
-                industry = right_industry
-
-        if industry:
-            input_data["industry"] = industry
-
-        # Build a query string for RAG search
-        requirement = input_data.get("requirement_text", "")
-        rag_query = f"{company_name} {industry} 3D幕墙 策划方案".strip()
-        if requirement and len(requirement) < 100:
-            rag_query = f"{rag_query} {requirement}"
-
-        # ── 2. RAG knowledge_search (vector + keyword) ──
-        chunks_text = ""
-        used_chunks: list = []
-        used_documents: list = []
-        try:
-            ks_tool = registry.get("knowledge_search")
-            if ks_tool:
-                ks_result = await ks_tool.execute(
-                    {"query": rag_query, "top_k": 8, "project_id": project_id or ""},
-                    tool_ctx,
-                )
-                if ks_result.success and ks_result.data.get("chunks"):
-                    ks_chunks = ks_result.data["chunks"]
-                    used_chunks = [c["chunk_id"] for c in ks_chunks if c.get("chunk_id")]
-                    used_documents = list({
-                        c["document_id"] for c in ks_chunks if c.get("document_id")
-                    })
-                    parts = []
-                    for c in ks_chunks:
-                        text = c.get("chunk_text", c.get("text", ""))
-                        source = c.get("document_title", c.get("section_title", ""))
-                        tag = f"（来源: {source}）" if source else ""
-                        parts.append(f"- {text}{tag}")
-                    chunks_text = "\n".join(parts)
-                    logger.info("Pipeline RAG: retrieved %d chunks for proposal", len(ks_chunks))
-        except Exception as e:
-            logger.warning("Pipeline RAG retrieval failed: %s", e)
-
-        # ── 3. case_search by industry ──
-        cases_text = ""
-        used_cases: list = []
-        try:
-            cs_tool = registry.get("case_search")
-            if cs_tool:
-                cs_params: Dict[str, Any] = {"limit": 3}
-                if industry:
-                    cs_params["industry"] = industry
-                cs_result = await cs_tool.execute(cs_params, tool_ctx)
-                if cs_result.success and cs_result.data.get("cases"):
-                    for c in cs_result.data["cases"]:
-                        cases_text += (
-                            f"\n### {c.get('title', '')}\n"
-                            f"客户: {c.get('client_name', '')}\n"
-                            f"挑战: {c.get('challenge', '')}\n"
-                            f"方案: {c.get('solution', '')}\n"
-                            f"成果: {c.get('results', '')}\n"
-                        )
-                        used_cases.append(c.get("id", ""))
-                    logger.info("Pipeline cases: found %d cases", len(cs_result.data["cases"]))
-        except Exception as e:
-            logger.warning("Pipeline case search failed: %s", e)
-
-        # ── 4. sop_load — find matching SOP workflow ──
-        sop_steps_text = ""
-        try:
-            sop_tool = registry.get("sop_load")
-            if sop_tool:
-                # Try loading a proposal-type SOP
-                sop_result = await sop_tool.execute(
-                    {"name_contains": "策划"},
-                    tool_ctx,
-                )
-                if sop_result.success and sop_result.data.get("sop"):
-                    sop_data = sop_result.data["sop"]
-                    if sop_data.get("steps"):
-                        sop_steps_text = json.dumps(sop_data["steps"], ensure_ascii=False, indent=2)
-                    logger.info("Pipeline SOP: loaded '%s'", sop_data.get("name"))
-        except Exception as e:
-            logger.warning("Pipeline SOP load failed: %s", e)
-
-        # ── 5. prompt_template_load — get generation template ──
-        db_template = None
-        try:
-            pt_tool = registry.get("prompt_template_load")
-            if pt_tool:
-                pt_result = await pt_tool.execute({"category": "generation"}, tool_ctx)
-                if pt_result.success and pt_result.data.get("template_text"):
-                    db_template = pt_result.data["template_text"]
-                    logger.info("Pipeline template: loaded generation template")
-        except Exception as e:
-            logger.warning("Pipeline prompt template load failed: %s", e)
-
-        # ── Assemble enriched context into input_data ──
-        context_pack_parts = []
-
-        if chunks_text:
-            context_pack_parts.append(
-                f"### 知识库检索结果（RAG）\n以下是与项目需求相关的知识库文档片段，请直接引用：\n{chunks_text}"
-            )
-        if cases_text:
-            context_pack_parts.append(
-                f"### 参考案例（来自案例库）\n以下是相关案例，必须在策划案中引用并标注来源：\n{cases_text}"
-            )
-        if sop_steps_text:
-            context_pack_parts.append(
-                f"### SOP 工作流步骤\n请按以下 SOP 步骤检查策划案质量：\n{sop_steps_text}"
-            )
-        if db_template:
-            context_pack_parts.append(
-                f"### 策划案 Prompt 模板\n请参考以下模板结构生成策划案：\n{db_template}"
-            )
-
-        if context_pack_parts:
-            input_data["context_pack"] = "\n\n---\n\n".join(context_pack_parts)
-            input_data["used_chunks"] = used_chunks
-            input_data["used_documents"] = used_documents
-            input_data["used_cases"] = used_cases
-            logger.info(
-                "Pipeline enrichment: %d chunks, %d cases, SOP=%s, template=%s",
-                len(used_chunks), len(used_cases),
-                "yes" if sop_steps_text else "no",
-                "yes" if db_template else "no",
-            )
-
-    async def _enrich_visual_input(
-        self,
-        input_data: Dict[str, Any],
-        state: PipelineState,
-        context: "SkillContext",
-        project_id: Optional[str],
-    ) -> None:
-        """Auto-inject visual template + enterprise context into visual_generation stage.
-
-        Loads:
-        1. prompt_template_load (category=visual) — industry style guidelines
-        2. visual_style_match — matching visual styles from the library
-        3. Company analysis six_views / tech_arch — brand narrative + visual metaphors
-        """
-        from app.tools.registry import ToolRegistry
-        from app.tools.base import ToolContext
-
-        registry = ToolRegistry.get_instance()
-        tool_ctx = ToolContext(
-            db=context.db,
-            embedding_service=context.embedding_service,
-        )
-
-        company_output = state.stage_outputs.get("company_analysis", {})
-        analysis = company_output.get("analysis", company_output)
-
-        # ── 1. Load visual prompt template ──
-        visual_template = None
-        try:
-            pt_tool = registry.get("prompt_template_load")
-            if pt_tool:
-                pt_result = await pt_tool.execute({"category": "visual"}, tool_ctx)
-                if pt_result.success and pt_result.data.get("template_text"):
-                    visual_template = pt_result.data["template_text"]
-                    logger.info("Pipeline visual: loaded visual prompt template")
-        except Exception as e:
-            logger.warning("Pipeline visual template load failed: %s", e)
-
-        # ── 2. Load matching visual styles ──
-        style_info = ""
-        try:
-            vs_tool = registry.get("visual_style_match")
-            if vs_tool:
-                vs_result = await vs_tool.execute({"limit": 5}, tool_ctx)
-                if vs_result.success and vs_result.data.get("styles"):
-                    styles = vs_result.data["styles"]
-                    if styles:
-                        parts = []
-                        for s in styles[:3]:  # Top 3 styles
-                            name = s.get("name", "")
-                            desc = s.get("description", "")
-                            primary = s.get("primary_color", "")
-                            parts.append(f"- {name}: {desc}" + (f"（主色: {primary}）" if primary else ""))
-                        style_info = "\n".join(parts)
-                        logger.info("Pipeline visual: loaded %d visual styles", len(styles))
-        except Exception as e:
-            logger.warning("Pipeline visual style match failed: %s", e)
-
-        # ── 3. Extract brand narrative from company analysis ──
-        brand_context = ""
-        six_views = analysis.get("six_views", {})
-        tech_arch = analysis.get("technology_arch", {})
-        if six_views:
-            brand_parts = []
-            backward = six_views.get("backward_history", {})
-            if isinstance(backward, dict):
-                philosophy = backward.get("core_philosophy", "")
-                if philosophy:
-                    brand_parts.append(f"品牌理念: {philosophy}")
-            niche = six_views.get("downward_niche", {})
-            if isinstance(niche, dict):
-                advantage = niche.get("core_advantage", "")
-                if advantage:
-                    brand_parts.append(f"核心优势: {advantage}")
-            if brand_parts:
-                brand_context = "\n".join(brand_parts)
-
-        if tech_arch:
-            tech_parts = []
-            visual_metaphor = tech_arch.get("visual_metaphor", "")
-            if visual_metaphor:
-                tech_parts.append(f"视觉比喻: {visual_metaphor}")
-            for layer in tech_arch.get("layers", []):
-                metaphor = layer.get("metaphor", "")
-                name = layer.get("name", "")
-                if metaphor:
-                    tech_parts.append(f"  {name} → 视觉表达: {metaphor}")
-            if tech_parts:
-                brand_context += ("\n" if brand_context else "") + "\n".join(tech_parts)
-
-        # ── Assemble enriched context ──
-        enrich_parts = []
-        if visual_template:
-            enrich_parts.append(
-                f"### 视觉 Prompt 补充指令（来自模板库）\n{visual_template}"
-            )
-        if style_info:
-            enrich_parts.append(
-                f"### 可用视觉风格（来自风格库）\n{style_info}"
-            )
-        if brand_context:
-            enrich_parts.append(
-                f"### 企业品牌信息（来自企业解析）\n{brand_context}"
-            )
-
-        if enrich_parts:
-            input_data["visual_context_pack"] = "\n\n---\n\n".join(enrich_parts)
-            logger.info(
-                "Pipeline visual enrichment: template=%s, styles=%s, brand=%s",
-                "yes" if visual_template else "no",
-                "yes" if style_info else "no",
-                "yes" if brand_context else "no",
-            )
 
     async def _handle_visual_concept(
         self,

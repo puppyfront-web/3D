@@ -575,75 +575,55 @@ class TestVisualConceptAgent:
 
 
 class TestVisualConceptIntent:
-    def test_high_confidence_keywords(self):
-        from app.services.intent_service import IntentDetector
-        detector = IntentDetector()
-        for keyword in ["生成概念图", "出概念图", "视觉概念", "概念设计", "生成效果图", "视觉方案",
-                         "效果图", "概念图", "渲染图", "出图", "生图"]:
-            result = detector._keyword_match(f"帮我{keyword}")
-            assert result is not None, f"Should match keyword: {keyword}"
-            assert result.intent == "visual_concept", f"Should be visual_concept for: {keyword}"
-            assert result.confidence >= 0.8
+    """Intent detection is now ReAct-first.
 
-    def test_natural_variants_route_to_visual_concept(self):
-        """自然语言变体应该路由到 visual_concept 而非普通聊天或 image_generation。"""
-        from app.services.intent_service import IntentDetector
-        detector = IntentDetector()
-        variants = [
-            "生成一张效果图",
-            "帮我做效果图",
-            "我要效果图",
-            "效果图",
-            "帮我出图",
-            "来一张渲染图",
-            "我想看概念图",
-        ]
-        for msg in variants:
-            result = detector._keyword_match(msg)
-            assert result is not None, f"Should match: {msg}"
-            assert result.intent == "visual_concept", (
-                f"'{msg}' should route to visual_concept, got {result.intent}"
-            )
+    These tests verify:
+    - _fast_path only handles unambiguous keywords
+    - Nuanced messages (pipeline vs skill vs visual_concept) require ReAct
+    - Without LLM, non-fast-path messages fall to conversational
+    """
 
-    def test_medium_confidence_keywords(self):
+    def test_fast_path_no_visual_concept_keywords(self):
+        """Visual concept detection is now handled by ReAct, not keywords."""
         from app.services.intent_service import IntentDetector
         detector = IntentDetector()
-        result = detector._keyword_match("我想做一个裸眼3D")
-        assert result is not None
-        assert result.intent == "visual_concept"
+        # These used to be keyword-matched, now they need ReAct
+        result = detector._fast_path("帮我生成概念图")
+        assert result is None  # Not an unambiguous fast-path
 
-    def test_pipeline_beats_visual_concept(self):
-        """完整方案请求应路由到 sop_pipeline 而非 visual_concept，即使包含裸眼3D。"""
+    def test_fast_path_export_is_unambiguous(self):
+        """Export keywords are unambiguous and handled by fast-path."""
         from app.services.intent_service import IntentDetector
         detector = IntentDetector()
-        for msg in [
-            "请帮我设计一套3D幕墙方案",
-            "设计一套3D幕墙方案",
-            "做一套完整方案",
-        ]:
-            result = detector._keyword_match(msg)
-            assert result is not None, f"Should match: {msg}"
-            assert result.intent == "sop_pipeline", (
-                f"'{msg}' should route to sop_pipeline, got {result.intent}"
-            )
-
-    def test_skill_keywords_not_overridden(self):
-        """Existing skill keywords should still work."""
-        from app.services.intent_service import IntentDetector
-        detector = IntentDetector()
-        result = detector._keyword_match("帮我做企业分析")
-        if result:
-            assert result.intent == "run_skill"
-            assert result.skill_id == "company_analysis"
-
-    def test_direct_image_generation_includes_prompt(self):
-        from app.services.intent_service import IntentDetector
-        detector = IntentDetector()
-        result = detector._keyword_match("生成小猫图片")
+        result = detector._fast_path("导出pdf")
         assert result is not None
         assert result.intent == "run_skill"
-        assert result.skill_id == "image_generation"
-        assert result.input_data["prompt"] == "小猫"
+        assert result.skill_id == "export"
+
+    def test_fast_path_case_retrieval_is_unambiguous(self):
+        """Case retrieval keywords are unambiguous."""
+        from app.services.intent_service import IntentDetector
+        detector = IntentDetector()
+        result = detector._fast_path("案例检索")
+        assert result is not None
+        assert result.skill_id == "case_retrieval"
+
+    def test_react_routes_visual_concept(self):
+        """ReAct (via MockLLM) should classify visual concept requests correctly."""
+        import asyncio
+        from app.services.intent_service import IntentDetector
+        detector = IntentDetector()
+        result = asyncio.run(detector.detect("生成概念图", [], db=None))
+        # With MockLLM, ReAct correctly identifies visual_concept intent
+        assert result.intent == "visual_concept"
+
+    def test_classify_pipeline_action_still_works(self):
+        """classify_pipeline_action is pure keyword-based (no LLM needed)."""
+        from app.services.intent_service import IntentDetector
+        assert IntentDetector.classify_pipeline_action("确认") == "confirm"
+        assert IntentDetector.classify_pipeline_action("继续") == "confirm"
+        assert IntentDetector.classify_pipeline_action("重新开始") == "restart"
+        assert IntentDetector.classify_pipeline_action("色调再冷一点") == "modify"
 
     @pytest.mark.asyncio
     async def test_direct_image_generation_streams_visual_result(self, client, monkeypatch):

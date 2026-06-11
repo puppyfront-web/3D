@@ -512,11 +512,25 @@ FIELD_LABELS: Dict[str, str] = {
 
 FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
     "scene": [
+        # 幕墙场景
         {"label": "品牌发布会", "value": "品牌发布会"},
         {"label": "商场展示", "value": "商场展示"},
         {"label": "户外广告", "value": "户外广告"},
-        {"label": "展厅互动", "value": "展厅互动"},
         {"label": "企业大堂", "value": "企业大堂"},
+        # 展厅场景
+        {"label": "企业展厅", "value": "企业展厅"},
+        {"label": "博物馆", "value": "博物馆"},
+        {"label": "规划馆", "value": "规划馆"},
+        {"label": "科技馆", "value": "科技馆"},
+        {"label": "党建馆", "value": "党建馆"},
+        # 文旅场景
+        {"label": "文旅夜游", "value": "文旅夜游"},
+        {"label": "主题公园", "value": "主题公园"},
+        {"label": "沉浸式体验", "value": "沉浸式体验"},
+        # 多媒体
+        {"label": "互动装置", "value": "互动装置"},
+        {"label": "数字沙盘", "value": "数字沙盘"},
+        {"label": "展厅互动", "value": "展厅互动"},
     ],
     "visual_style": [
         {"label": "科技感", "value": "科技感"},
@@ -524,6 +538,9 @@ FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
         {"label": "简约商务", "value": "简约商务"},
         {"label": "未来主义", "value": "未来主义"},
         {"label": "自然生态", "value": "自然生态"},
+        {"label": "沉浸式空间", "value": "沉浸式空间"},
+        {"label": "文旅灯光", "value": "文旅灯光"},
+        {"label": "展陈现代简约", "value": "展陈现代简约"},
     ],
 }
 

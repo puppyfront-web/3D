@@ -15,6 +15,7 @@ import { AttachmentBlock } from "./attachment-block";
 import { ContextCardBlock } from "./context-card-block";
 import { ParameterCardBlock } from "./parameter-card-block";
 import { StageSummaryBlock } from "./stage-summary-block";
+import { PlanProgressBlock } from "./plan-progress-block";
 import { MarkdownRenderer } from "../markdown-renderer";
 import { FileText, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,14 @@ export function BlockRenderer({ block, onAction }: BlockRendererProps) {
   // Stage summary — compact completion card with timing + metrics
   if (block.type === "stage_summary") {
     return <StageSummaryBlock data={block.data || {}} />;
+  }
+
+  // Plan progress — dynamic execution plan visualization
+  if (block.type === "plan_progress") {
+    const data = (block.data || {}) as Record<string, unknown>;
+    const steps = Array.isArray(data.steps) ? (data.steps as Array<{ step_id: string; name: string; status: "pending" | "running" | "completed" | "failed" | "skipped" }>) : [];
+    const domain = typeof data.domain === "string" ? data.domain : undefined;
+    return <PlanProgressBlock steps={steps} domain={domain} />;
   }
 
   // Proposal section — sections overview + missing info + collapsible full content

@@ -87,7 +87,13 @@ class MockLLMService(LLMService):
         system_prompt: Optional[str] = None,
         temperature: float = 0.3,
     ) -> Dict[str, Any]:
-        """Return a mock JSON completion."""
+        """Return a mock JSON completion — context-aware based on system_prompt."""
+        if system_prompt and "意图推理引擎" in system_prompt:
+            # ReAct intent reasoning response
+            return self._mock_react_intent(prompt)
+        if system_prompt and "意图识别" in system_prompt:
+            # Single-shot intent classification response
+            return self._mock_intent_classify(prompt)
         return {
             "analysis": "Mock analysis result",
             "confidence": 0.85,
@@ -106,6 +112,59 @@ class MockLLMService(LLMService):
                 "tokens_used": 450,
             },
         }
+
+    @staticmethod
+    def _mock_react_intent(prompt: str) -> Dict[str, Any]:
+        """Mock ReAct intent reasoning — classify based on prompt keywords."""
+        # Detect intent from the user message in the prompt.
+        # Order matters: more specific matches (visual_concept) checked before
+        # broader matches (sop_pipeline via "方案") to avoid misrouting.
+        if any(kw in prompt for kw in ["概念图", "效果图", "渲染图", "视觉概念"]):
+            intent, skill_id = "visual_concept", None
+        elif any(kw in prompt for kw in ["图片", "生成图片", "生成一张", "出图", "生图"]):
+            intent, skill_id = "run_skill", "image_generation"
+        elif any(kw in prompt for kw in ["设计一套", "做一套", "完整方案", "全流程", "端到端", "从零"]):
+            intent, skill_id = "sop_pipeline", None
+        elif any(kw in prompt for kw in ["方案"]):
+            # Broad "方案" match only after more specific patterns failed
+            intent, skill_id = "sop_pipeline", None
+        elif any(kw in prompt for kw in ["企业解析", "企业分析", "分析企业", "企业画像"]):
+            intent, skill_id = "run_skill", "company_analysis"
+        elif any(kw in prompt for kw in ["策划案", "生成策划", "策划方案"]):
+            intent, skill_id = "run_skill", "proposal_generation"
+        elif any(kw in prompt for kw in ["视觉prompt", "视觉策略", "生成视觉"]):
+            intent, skill_id = "run_skill", "visual_prompt"
+        elif any(kw in prompt for kw in ["案例", "检索", "查找案例"]):
+            intent, skill_id = "run_skill", "case_retrieval"
+        elif any(kw in prompt for kw in ["导出", "下载"]):
+            intent, skill_id = "run_skill", "export"
+        else:
+            intent, skill_id = "conversational", None
+
+        return {
+            "thought": f"Mock reasoning: detected intent as {intent}",
+            "action": "classify_intent",
+            "action_input": {"intent": intent, "skill_id": skill_id},
+            "observation": f"User message maps to {intent}",
+            "is_final": True,
+            "result": {
+                "intent": intent,
+                "skill_id": skill_id,
+                "confidence": 0.85,
+                "missing_info": [],
+                "input_data": {"user_message": prompt[:100]},
+                "reply_hint": "",
+            },
+        }
+
+    @staticmethod
+    def _mock_intent_classify(prompt: str) -> Dict[str, Any]:
+        """Mock single-shot intent classification."""
+        result = MockLLMService._mock_react_intent(prompt)
+        return result.get("result", {
+            "intent": "conversational",
+            "confidence": 0.5,
+        })
 
     async def generate_stream(
         self,

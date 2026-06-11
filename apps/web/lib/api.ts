@@ -22,6 +22,7 @@ import {
   DocumentBatchIndexResponse,
   ImportResult,
 } from "@/types";
+import { toast } from "sonner";
 
 // ============================================================
 // API Configuration
@@ -40,7 +41,11 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<Api
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
-      return { data: null as T, success: false, message: err.detail || "请求失败" };
+      const message = err.detail || err.message || "请求失败";
+      toast.error(`API 错误 (${res.status})`, {
+        description: `${options?.method || "GET"} ${endpoint}\n${message}`,
+      });
+      return { data: null as T, success: false, message };
     }
     const json = await res.json();
     // Backend wraps in { success, data, message }
@@ -54,7 +59,11 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<Api
     // Direct response (no wrapper)
     return { data: json as T, success: true };
   } catch (error) {
-    return { data: null as T, success: false, message: (error as Error).message };
+    const message = (error as Error).message;
+    toast.error("网络请求失败", {
+      description: `${options?.method || "GET"} ${endpoint}\n${message}`,
+    });
+    return { data: null as T, success: false, message };
   }
 }
 
