@@ -216,7 +216,7 @@ def _curtain_wall_plan(user_message: str, company_name: str) -> ExecutionPlan:
             ),
             PlanStep(
                 skill_id="visual_prompt", name="视觉方案生成",
-                description="生成视觉策略、Prompt 和效果图",
+                description="生成视觉策略和效果图",
                 depends_on=["proposal_generation"],
                 pause_after=True,
             ),

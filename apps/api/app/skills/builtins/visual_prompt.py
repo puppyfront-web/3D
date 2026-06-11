@@ -48,8 +48,8 @@ class VisualPromptSkill(BaseSkill):
 
     manifest = SkillManifest(
         skill_id="visual_prompt",
-        name="视觉 Prompt 生成",
-        description="生成视觉策略、正向/负向 Prompt 和构图建议",
+        name="视觉方案生成",
+        description="生成视觉策略、图像描述和构图建议",
         category="visual",
         input_schema={
             "type": "object",

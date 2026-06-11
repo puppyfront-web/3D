@@ -110,7 +110,7 @@ export function VersionNodeCard({
               {node.positive_prompt && (
                 <div className="flex items-center gap-1.5 text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5">
                   <FileText className="h-3 w-3 text-blue-500" />
-                  <span>Prompt</span>
+                  <span>图像描述</span>
                 </div>
               )}
               {node.image_url && (

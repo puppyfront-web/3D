@@ -42,7 +42,7 @@ const suggestions = [
   {
     icon: Image,
     title: "视觉方案",
-    description: "生成视觉策略和 AI 绘图 Prompt",
+    description: "生成视觉策略和 AI 绘图描述",
     message: "生成视觉方案",
   },
   {

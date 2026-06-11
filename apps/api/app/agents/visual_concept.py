@@ -813,12 +813,12 @@ class VisualConceptAgent:
         ctx.state = "PROMPTING"
         yield _sse_chunk(
             "skill_progress",
-            data={"skill_id": "prompt_generation", "status": "running", "message": "正在生成 Prompt…"},
+            data={"skill_id": "prompt_generation", "status": "running", "message": "正在生成图像描述…"},
         )
         prompts = await self._generate_prompts(ctx, strategy)
         node.positive_prompt = prompts.get("positive_prompt", "")
         node.negative_prompt = prompts.get("negative_prompt", "")
-        yield _sse_chunk("text_delta", text="Prompt 已生成，正在生成概念图…")
+        yield _sse_chunk("text_delta", text="图像描述已生成，正在生成概念图…")
         yield _sse_chunk(
             "skill_progress",
             data={"skill_id": "prompt_generation", "status": "completed"},

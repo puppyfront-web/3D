@@ -13,7 +13,7 @@ const typeLabels: Record<Artifact["type"], string> = {
   report: "解析报告",
   document: "方案文档",
   image: "效果图",
-  prompt: "视觉 Prompt",
+  prompt: "视觉方案",
 };
 
 const typeColors: Record<Artifact["type"], string> = {

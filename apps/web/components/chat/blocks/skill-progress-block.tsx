@@ -38,7 +38,7 @@ export function SkillProgressBlock({ data }: SkillProgressBlockProps) {
   const skillNames: Record<string, string> = {
     company_analysis: "企业解析",
     proposal_generation: "策划案生成",
-    visual_prompt: "视觉 Prompt",
+    visual_prompt: "视觉方案",
     image_generation: "图片生成",
     case_retrieval: "案例检索",
     export: "方案导出",
