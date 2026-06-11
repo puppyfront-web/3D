@@ -21,12 +21,23 @@ import type { ProjectWizardData, Priority } from "@/types";
 const wizardSteps = [
   { title: "基本信息", description: "项目名称与客户信息" },
   { title: "企业调研", description: "目标企业背景资料" },
+  { title: "场地与屏幕", description: "屏幕参数与安装环境" },
   { title: "方案风格", description: "方案撰写风格要求" },
   { title: "视觉要求", description: "视觉素材设计规范" },
   { title: "审核与导出", description: "质量标准与输出格式" },
 ];
 
 const initialData: ProjectWizardData = {
+  screen: {
+    screenType: "",
+    screenSize: "",
+    pitch: "",
+    resolution: "",
+    installEnvironment: "",
+    viewingDistance: "",
+    mainViewpoint: "",
+    notes: "",
+  },
   step1: {
     projectName: "",
     clientName: "",
@@ -297,6 +308,122 @@ export default function NewProjectPage() {
 
         {currentStep === 2 && (
           <div className="space-y-6">
+            <h2 className="text-lg font-semibold text-[#1A1A2E]">场地与屏幕信息</h2>
+            <p className="text-sm text-gray-500">
+              屏幕参数是 3D 幕墙方案的关键输入，将直接影响策划案与视觉生成的准确性
+            </p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>屏幕类型</Label>
+                <Select
+                  value={data.screen.screenType}
+                  onValueChange={(v) =>
+                    setData((prev) => ({ ...prev, screen: { ...prev.screen, screenType: v } }))
+                  }
+                >
+                  <SelectTrigger><SelectValue placeholder="选择屏幕类型" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LED显示屏">LED 显示屏</SelectItem>
+                    <SelectItem value="裸眼3D">裸眼 3D</SelectItem>
+                    <SelectItem value="小间距LED">小间距 LED</SelectItem>
+                    <SelectItem value="液晶屏">液晶屏</SelectItem>
+                    <SelectItem value="投影">投影</SelectItem>
+                    <SelectItem value="其他">其他</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>安装环境</Label>
+                <Select
+                  value={data.screen.installEnvironment}
+                  onValueChange={(v) =>
+                    setData((prev) => ({ ...prev, screen: { ...prev.screen, installEnvironment: v } }))
+                  }
+                >
+                  <SelectTrigger><SelectValue placeholder="选择安装环境" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="室内">室内</SelectItem>
+                    <SelectItem value="半户外">半户外</SelectItem>
+                    <SelectItem value="户外">户外</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>屏幕尺寸</Label>
+                <Input
+                  value={data.screen.screenSize}
+                  onChange={(e) =>
+                    setData((prev) => ({ ...prev, screen: { ...prev.screen, screenSize: e.target.value } }))
+                  }
+                  placeholder="例如：10m × 6m"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>点距 (Pitch)</Label>
+                <Input
+                  value={data.screen.pitch}
+                  onChange={(e) =>
+                    setData((prev) => ({ ...prev, screen: { ...prev.screen, pitch: e.target.value } }))
+                  }
+                  placeholder="例如：P2.5 / P3.91"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>分辨率</Label>
+                <Input
+                  value={data.screen.resolution}
+                  onChange={(e) =>
+                    setData((prev) => ({ ...prev, screen: { ...prev.screen, resolution: e.target.value } }))
+                  }
+                  placeholder="例如：1920×1080"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>观看距离</Label>
+                <Input
+                  value={data.screen.viewingDistance}
+                  onChange={(e) =>
+                    setData((prev) => ({ ...prev, screen: { ...prev.screen, viewingDistance: e.target.value } }))
+                  }
+                  placeholder="例如：10-20 米"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>主观看点</Label>
+              <Input
+                value={data.screen.mainViewpoint}
+                onChange={(e) =>
+                  setData((prev) => ({ ...prev, screen: { ...prev.screen, mainViewpoint: e.target.value } }))
+                }
+                placeholder="例如：正面 / 斜 45° 最佳视角"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>屏幕与场地备注</Label>
+              <Textarea
+                value={data.screen.notes}
+                onChange={(e) =>
+                  setData((prev) => ({ ...prev, screen: { ...prev.screen, notes: e.target.value } }))
+                }
+                rows={3}
+                placeholder="其他屏幕参数、安装条件、环境光照、特殊约束等..."
+              />
+            </div>
+          </div>
+        )}
+
+        {currentStep === 3 && (
+          <div className="space-y-6">
             <h2 className="text-lg font-semibold text-[#1A1A2E]">方案风格</h2>
             <p className="text-sm text-gray-500">定义方案的撰写风格、语言和核心卖点</p>
 
@@ -409,7 +536,7 @@ export default function NewProjectPage() {
           </div>
         )}
 
-        {currentStep === 3 && (
+        {currentStep === 4 && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-[#1A1A2E]">视觉要求</h2>
             <p className="text-sm text-gray-500">定义视觉素材的设计规范和生成要求</p>
@@ -523,7 +650,7 @@ export default function NewProjectPage() {
           </div>
         )}
 
-        {currentStep === 4 && (
+        {currentStep === 5 && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-[#1A1A2E]">审核与导出</h2>
             <p className="text-sm text-gray-500">设置质量审核标准和输出格式</p>
@@ -634,6 +761,8 @@ export default function NewProjectPage() {
                   <div>客户名称：{data.step1.clientName || "未填写"}</div>
                   <div>所属行业：{data.step1.industry || "未选择"}</div>
                   <div>优先级：{data.step1.priority === "high" ? "高" : data.step1.priority === "medium" ? "中" : "低"}</div>
+                  <div>屏幕类型：{data.screen.screenType || "未填写"}</div>
+                  <div>屏幕尺寸：{data.screen.screenSize || "未填写"}</div>
                   <div>方案风格：{data.step3.proposalStyle}</div>
                   <div>视觉风格：{data.step4.visualStyle}</div>
                   <div>质量等级：{data.step5.qualityLevel}</div>

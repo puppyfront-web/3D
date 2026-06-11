@@ -186,6 +186,10 @@ class ProposalContext:
     auto_filled: Dict[str, str] = field(default_factory=dict)
     project_context_loaded: bool = False
 
+    # Venue & screen params loaded from the project (workspace case), so the
+    # proposal can use real params instead of fabricating / blanket 待确认.
+    screen_info: Optional[Dict[str, Any]] = None
+
     # Agent-to-agent handoff
     domain: str = "curtain_wall"
     output_for_next_agent: Optional[Dict[str, Any]] = None
@@ -211,6 +215,7 @@ class ProposalContext:
             "quality_check": self.quality_check,
             "auto_filled": self.auto_filled,
             "project_context_loaded": self.project_context_loaded,
+            "screen_info": self.screen_info,
             "domain": self.domain,
             "output_for_next_agent": self.output_for_next_agent,
         }
@@ -235,6 +240,7 @@ class ProposalContext:
             quality_check=data.get("quality_check"),
             auto_filled=data.get("auto_filled", {}),
             project_context_loaded=data.get("project_context_loaded", False),
+            screen_info=data.get("screen_info"),
             domain=data.get("domain", "curtain_wall"),
             output_for_next_agent=data.get("output_for_next_agent"),
         )
@@ -285,6 +291,11 @@ class ProposalAgent:
     ) -> AsyncGenerator[str, None]:
         """Route user_input to the correct handler based on ctx.state."""
         await self._ensure_services(db)
+
+        # Load venue & screen params from the project (workspace case) once, so
+        # proposal generation uses real params instead of fabricating them.
+        if project_id and db and not ctx.screen_info:
+            ctx.screen_info = await self._load_screen_info(project_id, db)
 
         # Store raw input on first entry
         if ctx.state == "COLLECTING" and not ctx.requirement.raw_input:
@@ -672,6 +683,7 @@ class ProposalAgent:
             "context_pack": ctx.context_pack_text,
             "user_message": ctx.requirement.raw_input,
             "domain": ctx.domain,
+            "screen_info": ctx.screen_info,
         }
 
         result = await runner.run("proposal_generation", input_data, skill_ctx)
@@ -765,6 +777,19 @@ class ProposalAgent:
                 title = line[3:].strip()
                 sections.append({"title": title, "status": "draft"})
         return sections
+
+    @staticmethod
+    async def _load_screen_info(project_id: str, db) -> Optional[Dict[str, Any]]:
+        """Load venue & screen params from the project, if any."""
+        try:
+            import uuid as _uuid
+            from app.models.project import Project
+
+            project = await db.get(Project, _uuid.UUID(project_id))
+            return project.screen_info if project else None
+        except Exception:
+            logger.warning("Failed to load screen_info for %s", project_id, exc_info=True)
+            return None
 
     @staticmethod
     async def _load_project_context(project_id: str, db) -> Optional[Dict[str, Any]]:

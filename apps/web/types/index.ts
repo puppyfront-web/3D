@@ -417,7 +417,21 @@ export interface EvaluationCategory {
 
 // --- Wizard ---
 
+// Venue & screen parameters — domain-critical inputs for 3D-wall generation.
+// Mirrors the backend ScreenInfoSchema (camelCase on the wire).
+export interface ScreenInfo {
+  screenType: string;
+  screenSize: string;
+  pitch: string;
+  resolution: string;
+  installEnvironment: string;
+  viewingDistance: string;
+  mainViewpoint: string;
+  notes: string;
+}
+
 export interface ProjectWizardData {
+  screen: ScreenInfo;
   step1: {
     projectName: string;
     clientName: string;

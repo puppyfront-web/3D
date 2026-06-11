@@ -797,6 +797,10 @@ class ConversationService:
                             "content_type": "text/markdown",
                             "content": step_output.get("content", ""),
                             "missing_info": step_output.get("missing_info", []),
+                            # Citations — §3.3 RAG traceability (mirrors the Agent path)
+                            "used_cases": step_output.get("used_cases", []),
+                            "used_documents": step_output.get("used_documents", []),
+                            "used_chunks": step_output.get("used_chunks", []),
                         }})
                     elif step_skill_id in ("visual_prompt", "image_generation") and step_output:
                         blocks.append({"type": "visual_result", "data": step_output})

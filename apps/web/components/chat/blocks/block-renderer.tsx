@@ -17,7 +17,7 @@ import { ParameterCardBlock } from "./parameter-card-block";
 import { StageSummaryBlock } from "./stage-summary-block";
 import { PlanProgressBlock } from "./plan-progress-block";
 import { MarkdownRenderer } from "../markdown-renderer";
-import { FileText, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, ChevronDown, ChevronUp, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface BlockRendererProps {
@@ -90,14 +90,24 @@ export function BlockRenderer({ block, onAction }: BlockRendererProps) {
     return <PlanProgressBlock steps={steps} domain={domain} />;
   }
 
-  // Proposal section — sections overview + missing info + collapsible full content
+  // Proposal section — sections overview + citations + missing info + collapsible full content
   if (block.type === "proposal_section") {
     const data = (block.data || {}) as Record<string, unknown>;
     const missingInfo = Array.isArray(data.missing_info) ? (data.missing_info as string[]) : [];
     const sections = Array.isArray(data.sections) ? (data.sections as Array<Record<string, unknown>>) : [];
     const fullContent = typeof data.content === "string" ? data.content : "";
+    const usedCases = Array.isArray(data.used_cases) ? (data.used_cases as string[]) : [];
+    const usedDocuments = Array.isArray(data.used_documents) ? (data.used_documents as string[]) : [];
 
-    return <ProposalSectionBlock sections={sections} missingInfo={missingInfo} fullContent={fullContent} />;
+    return (
+      <ProposalSectionBlock
+        sections={sections}
+        missingInfo={missingInfo}
+        fullContent={fullContent}
+        usedCases={usedCases}
+        usedDocuments={usedDocuments}
+      />
+    );
   }
 
   // Fallback for unknown block types
@@ -109,12 +119,22 @@ function ProposalSectionBlock({
   sections,
   missingInfo,
   fullContent,
+  usedCases = [],
+  usedDocuments = [],
 }: {
   sections: Array<Record<string, unknown>>;
   missingInfo: string[];
   fullContent: string;
+  usedCases?: string[];
+  usedDocuments?: string[];
 }) {
   const [showContent, setShowContent] = useState(false);
+  // RAG traceability — §3.3. Show whatever case/document identifiers the
+  // generation recorded. (Chat path records titles; DB path records IDs.)
+  const citations = [
+    ...usedCases.map((c) => ({ kind: "案例", label: c })),
+    ...usedDocuments.map((d) => ({ kind: "文档", label: d })),
+  ];
 
   return (
     <div className="rounded-lg border border-blue-100 bg-gradient-to-r from-blue-50/60 to-white overflow-hidden">
@@ -151,6 +171,26 @@ function ProposalSectionBlock({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Citations — RAG traceability (§3.3) */}
+        {citations.length > 0 && (
+          <div>
+            <div className="text-xs text-gray-500 mb-1.5 flex items-center gap-1">
+              <Paperclip className="h-3 w-3" />
+              引用来源
+            </div>
+            <ul className="space-y-1">
+              {citations.map((c, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-sm text-[#1E3A5F]">
+                  <span className="flex-shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-[#1E3A5F] font-medium">
+                    {c.kind}
+                  </span>
+                  <span className="text-gray-700 break-all">{c.label}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

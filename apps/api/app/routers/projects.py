@@ -11,7 +11,14 @@ from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.models.project import Project
 from app.schemas.common import PaginatedResponse, Response
-from app.schemas.project import ProjectCreate, ProjectOut, ProjectStatusUpdate, ProjectUpdate
+from app.schemas.project import (
+    ProjectCreate,
+    ProjectOut,
+    ProjectStatusUpdate,
+    ProjectUpdate,
+    ProjectWizardCreate,
+)
+from app.services.project_service import project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -70,11 +77,27 @@ async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db))
 
 @router.post("", response_model=Response[ProjectOut], status_code=status.HTTP_201_CREATED)
 async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
-    """Create a new project."""
+    """Create a new project (raw CRUD — requires company_id/owner_id)."""
     project = Project(**body.model_dump())
     db.add(project)
     await db.flush()
     await db.refresh(project)
+    return Response(data=ProjectOut.model_validate(project), message="Project created")
+
+
+@router.post(
+    "/wizard",
+    response_model=Response[ProjectOut],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_project_wizard(body: ProjectWizardCreate, db: AsyncSession = Depends(get_db)):
+    """Create a project from the multi-step wizard payload.
+
+    Resolves the owner (default seeded user) and create-or-gets the Company
+    from step1/step2 — the frontend never has to supply company_id/owner_id.
+    Accepts the frontend's nested camelCase payload via alias mapping.
+    """
+    project = await project_service.create_from_wizard(db, body)
     return Response(data=ProjectOut.model_validate(project), message="Project created")
 
 

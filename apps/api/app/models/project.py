@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -44,6 +44,10 @@ class Project(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 场地与屏幕结构化参数 — 行业命门输入（屏幕尺寸/类型/点距/安装环境/观看距离等）
+    screen_info: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # 向导 step3/4/5 的项目级配置（方案风格、视觉要求、审核/导出标准）
+    preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     company_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("companies.id"), nullable=False, index=True
     )

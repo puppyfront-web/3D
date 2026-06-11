@@ -244,6 +244,11 @@ class VisualPromptSkill(BaseSkill):
         if material_and_lighting:
             prompt += f"\n\n设计规范：\n{material_and_lighting}"
 
+        # Venue & screen parameters — drive composition, viewing distance,
+        # pixelation, and indoor/outdoor lighting (domain-critical for visuals).
+        screen_params = self._render_screen_params_for_visual(project.screen_info)
+        prompt += f"\n\n屏幕与场地参数：\n{screen_params}"
+
         result = await context.llm_service.generate_json(
             prompt=prompt,
             system_prompt=SYSTEM_PROMPT,
@@ -361,6 +366,37 @@ class VisualPromptSkill(BaseSkill):
         if fixture:
             lines.append(f"  灯具风格: {fixture}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _render_screen_params_for_visual(screen_info) -> str:
+        """Render screen/venue params focused on visual generation impact.
+
+        These directly drive the image: resolution/pitch → pixelation fidelity,
+        viewing_distance → composition scale, install_environment → indoor vs
+        outdoor lighting & atmosphere. Empty → 待确认 marker (no fabrication).
+        """
+        if not screen_info or not isinstance(screen_info, dict):
+            return "（暂未提供 — 需进一步确认屏幕类型/尺寸/分辨率/安装环境/观看距离，禁止编造）"
+
+        labels = {
+            "screen_type": "屏幕类型",
+            "screen_size": "屏幕尺寸",
+            "pitch": "点距",
+            "resolution": "分辨率",
+            "install_environment": "安装环境",
+            "viewing_distance": "观看距离",
+            "main_viewpoint": "主观看点",
+            "notes": "备注",
+        }
+        rows = [f"  - {labels.get(k, k)}：{v}" for k, v in screen_info.items() if v]
+        if not rows:
+            return "（暂未提供 — 需进一步确认屏幕类型/尺寸/分辨率/安装环境/观看距离，禁止编造）"
+
+        hint = (
+            "\n  请据此调整：分辨率/点距决定像素化精细度，观看距离决定构图尺度，"
+            "安装环境决定室内/户外氛围与灯光强度。已提供项请直接使用，不要标注待确认。"
+        )
+        return "已提供（请直接用于构图、像素化表现与灯光氛围）：\n" + "\n".join(rows) + hint
 
     @staticmethod
     def _default_prompt() -> str:

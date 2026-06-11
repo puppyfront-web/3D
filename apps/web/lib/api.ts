@@ -80,7 +80,9 @@ export async function getProjectById(id: string): Promise<ApiResponse<Project | 
 }
 
 export async function createProject(data: ProjectWizardData): Promise<ApiResponse<Project>> {
-  return apiFetch<Project>("/api/v1/projects", {
+  // POST /projects/wizard resolves owner + create-or-gets the Company from the
+  // nested payload, so the frontend never supplies company_id/owner_id.
+  return apiFetch<Project>("/api/v1/projects/wizard", {
     method: "POST",
     body: JSON.stringify(data),
   });
