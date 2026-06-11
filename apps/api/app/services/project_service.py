@@ -10,6 +10,7 @@ import logging
 from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Company, Project
@@ -92,8 +93,7 @@ class ProjectService:
 
     async def _resolve_or_create_company(self, db: AsyncSession, step1, step2) -> Company:
         name = step1.client_name.strip()
-        result = await db.execute(select(Company).where(Company.name == name))
-        company = result.scalar_one_or_none()
+        company = await self._get_company_by_name(db, name)
         if company is not None:
             return company
         company = Company(
@@ -103,9 +103,26 @@ class ProjectService:
             description=step2.company_description if step2 else None,
         )
         db.add(company)
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError:
+            # Concurrent create-or-get race: another request inserted this name
+            # between our SELECT and INSERT. The unique constraint on
+            # companies.name fails the loser's INSERT — roll back and take the
+            # winner's row instead of surfacing a 409. Anything other than a
+            # name collision re-raises.
+            await db.rollback()
+            existing = await self._get_company_by_name(db, name)
+            if existing is None:
+                raise
+            return existing
         await db.refresh(company)
         return company
+
+    @staticmethod
+    async def _get_company_by_name(db: AsyncSession, name: str) -> Optional[Company]:
+        result = await db.execute(select(Company).where(Company.name == name))
+        return result.scalar_one_or_none()
 
 
 project_service = ProjectService()

@@ -3,6 +3,7 @@
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
@@ -78,12 +79,16 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_error_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        # exc.errors() may carry the original exception object (e.g. a
+        # ValueError raised by a field_validator) in ``ctx``, which JSONResponse
+        # cannot serialize — surfacing as a TypeError 500 instead of a clean
+        # 422. jsonable_encoder renders it safely.
         return JSONResponse(
             status_code=422,
             content={
                 "success": False,
                 "message": "Validation error",
-                "detail": exc.errors(),
+                "detail": jsonable_encoder(exc.errors()),
             },
         )
 

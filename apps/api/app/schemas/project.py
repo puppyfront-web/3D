@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.schemas.common import APIBaseModel
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.schemas.company import CompanyOut
 from app.schemas.user import UserOut
@@ -77,6 +77,17 @@ class WizardStep1(APIBaseModel):
     description: Optional[str] = None
     priority: Optional[str] = Field(None, max_length=50)
     due_date: Optional[str] = None
+
+    @field_validator("client_name")
+    @classmethod
+    def _normalize_client_name(cls, v: str) -> str:
+        # A blank client_name would otherwise create a '' company that every
+        # future blank-name project collides on (and now, with the unique
+        # constraint, fails). Strip and reject empty up front.
+        v = v.strip()
+        if not v:
+            raise ValueError("客户名称不能为空")
+        return v
 
 
 class WizardStep2(APIBaseModel):

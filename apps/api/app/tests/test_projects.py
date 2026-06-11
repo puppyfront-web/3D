@@ -238,3 +238,56 @@ async def test_create_project_wizard_idempotent_company(client, db_session, samp
         await db_session.execute(select(Project).where(Project.company_id == company.id))
     ).scalars().all()
     assert len(projects) == 2
+
+
+@pytest.mark.asyncio
+async def test_wizard_rejects_blank_client_name(client, sample_user_id):
+    """A blank/whitespace client_name is rejected at the schema layer.
+
+    Without this, the wizard would create a '' company that every future
+    blank-name project collides on (and now fails the unique constraint).
+    """
+    for bad in ("", "   "):
+        payload = {
+            "step1": {"projectName": "无客户项目", "clientName": bad},
+            "screen": {"screenType": "LED"},
+        }
+        response = await client.post("/api/v1/projects/wizard", json=payload)
+        assert response.status_code in (400, 422), response.text
+
+
+@pytest.mark.asyncio
+async def test_resolve_or_create_company_survives_concurrent_race(db_session, monkeypatch):
+    """When a concurrent request wins the create race, the loser's INSERT hits
+    the companies.name unique constraint; the service recovers by re-reading the
+    winner instead of surfacing a 409/500."""
+    from types import SimpleNamespace
+
+    from app.services.project_service import ProjectService
+
+    # The "winner" row was already committed by the other racing request.
+    winner = Company(name="竞态客户有限公司", industry="winner")
+    db_session.add(winner)
+    await db_session.commit()
+
+    svc = ProjectService()
+    step1 = SimpleNamespace(client_name="竞态客户有限公司", industry="loser")
+    step2 = None
+
+    # Simulate the race window: our initial SELECT misses the just-committed
+    # winner, so we attempt the INSERT — which the unique constraint rejects.
+    # The retry SELECT must then find the winner.
+    real_fn = ProjectService._get_company_by_name  # original staticmethod (db, name)
+    calls = {"n": 0}
+
+    async def miss_once(self_, db, name):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return await real_fn(db, name)
+
+    monkeypatch.setattr(ProjectService, "_get_company_by_name", miss_once)
+
+    company = await svc._resolve_or_create_company(db_session, step1, step2)
+    assert company.id == winner.id
+    assert calls["n"] == 2  # missed once, found on retry
