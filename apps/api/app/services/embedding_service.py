@@ -103,6 +103,18 @@ async def get_embedding_service(db=None) -> EmbeddingService:
             model = settings.embedding_model
             dimensions = settings.embedding_dimensions
 
+        # The document_chunks.embedding column is fixed at Vector(1536) (model
+        # + migration 001). A mismatched model dimension silently breaks vector
+        # indexing/search — warn loudly so the admin catches it (fix = pick a
+        # 1536-dim model or reindex the column).
+        if dimensions != 1536:
+            logger.warning(
+                "embedding_dimensions=%s but document_chunks.embedding is "
+                "Vector(1536); vector indexing/search will fail until aligned "
+                "(change the embedding model or reindex the column).",
+                dimensions,
+            )
+
         return OpenAIEmbeddingService(
             api_key=api_key,
             base_url=base_url or None,
