@@ -315,7 +315,10 @@ async def get_llm_service(db=None) -> LLMService:
     """
     if db is not None:
         from app.services.settings_service import SettingsService
-        provider = await SettingsService.get_raw(db, "llm_provider", settings.llm_provider)
+        cfg = await SettingsService.get_raw_many(db, [
+            "llm_provider", "llm_api_key", "llm_base_url", "llm_model",
+        ])
+        provider = cfg["llm_provider"]
     else:
         provider = settings.llm_provider
 
@@ -327,10 +330,9 @@ async def get_llm_service(db=None) -> LLMService:
             return MockLLMService()
 
         if db is not None:
-            from app.services.settings_service import SettingsService
-            api_key = await SettingsService.get_raw(db, "llm_api_key", settings.llm_api_key)
-            base_url = await SettingsService.get_raw(db, "llm_base_url", settings.llm_base_url)
-            model = await SettingsService.get_raw(db, "llm_model", settings.llm_model)
+            api_key = cfg["llm_api_key"]
+            base_url = cfg["llm_base_url"]
+            model = cfg["llm_model"]
         else:
             api_key = settings.llm_api_key
             base_url = settings.llm_base_url

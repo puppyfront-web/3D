@@ -123,20 +123,38 @@ async def root():
 
 
 @app.get("/health", tags=["health"])
-async def health_check(db=Depends(get_db)):
-    """Detailed health check.
+async def health_check():
+    """Liveness probe — the process is up.
 
-    Provider fields reflect the *live* config from the database (admin UI),
-    falling back to .env only when the DB has no value — so this stays in sync
-    with what the service factories actually use.
+    Intentionally has no DB dependency: it must keep returning 200 while the DB
+    is slow or down, so orchestrators (k8s/docker) don't kill the pod and mask
+    the real DB problem. Use /ready for dependency checks.
     """
-    from app.services.settings_service import SettingsService
-
     return {
         "status": "healthy",
         "version": settings.app_version,
         "debug": settings.debug,
-        "llm_provider": await SettingsService.get_raw(db, "llm_provider", settings.llm_provider),
-        "embedding_provider": await SettingsService.get_raw(db, "embedding_provider", settings.embedding_provider),
-        "image_provider": await SettingsService.get_raw(db, "image_provider", settings.image_provider),
+    }
+
+
+@app.get("/ready", tags=["health"])
+async def readiness_check(db=Depends(get_db)):
+    """Readiness probe — DB reachable + live provider config.
+
+    Reflects the *live* config from the database (admin UI) with .env fallback,
+    in sync with what the service factories actually use. Point k8s readiness
+    (not liveness) here.
+    """
+    from app.services.settings_service import SettingsService
+
+    cfg = await SettingsService.get_raw_many(
+        db, ["llm_provider", "embedding_provider", "image_provider"]
+    )
+    return {
+        "status": "ready",
+        "version": settings.app_version,
+        "debug": settings.debug,
+        "llm_provider": cfg["llm_provider"],
+        "embedding_provider": cfg["embedding_provider"],
+        "image_provider": cfg["image_provider"],
     }

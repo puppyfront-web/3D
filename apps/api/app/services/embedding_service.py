@@ -73,7 +73,11 @@ async def get_embedding_service(db=None) -> EmbeddingService:
     """
     if db is not None:
         from app.services.settings_service import SettingsService
-        provider = await SettingsService.get_raw(db, "embedding_provider", settings.embedding_provider)
+        cfg = await SettingsService.get_raw_many(db, [
+            "embedding_provider", "embedding_api_key", "embedding_base_url",
+            "embedding_model", "embedding_dimensions",
+        ])
+        provider = cfg["embedding_provider"]
     else:
         provider = settings.embedding_provider
 
@@ -85,16 +89,12 @@ async def get_embedding_service(db=None) -> EmbeddingService:
             return MockEmbeddingService()
 
         if db is not None:
-            from app.services.settings_service import SettingsService
-            api_key = await SettingsService.get_raw(db, "embedding_api_key", settings.embedding_api_key)
-            base_url = await SettingsService.get_raw(db, "embedding_base_url", settings.embedding_base_url)
-            model = await SettingsService.get_raw(db, "embedding_model", settings.embedding_model)
-            # 维度也走 DB（DB 存 text，需 int 转换）；空则回退 .env
-            dim_raw = await SettingsService.get_raw(
-                db, "embedding_dimensions", str(settings.embedding_dimensions)
-            )
+            api_key = cfg["embedding_api_key"]
+            base_url = cfg["embedding_base_url"]
+            model = cfg["embedding_model"]
+            # 维度也走 DB（DB 存 text，需 int 转换）；空或非法则回退 .env
             try:
-                dimensions = int(dim_raw)
+                dimensions = int(cfg["embedding_dimensions"])
             except (TypeError, ValueError):
                 dimensions = settings.embedding_dimensions
         else:

@@ -1,7 +1,7 @@
 """Settings service — runtime configuration from database with .env fallback."""
 
 import re
-from typing import Dict, Optional
+from typing import Dict, Iterable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,6 +80,32 @@ class SettingsService:
         if fallback is not None:
             return str(fallback)
         return default or ""
+
+    @staticmethod
+    async def get_raw_many(
+        db: AsyncSession,
+        keys: Iterable[str],
+        defaults: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, str]:
+        """Get multiple raw (unmasked) values in a single DB round-trip.
+
+        DB-first with .env fallback (via _SETTING_KEYS mapping). Used by service
+        factories to batch-read config instead of N serial get_raw calls.
+        """
+        defaults = defaults or {}
+        key_list = list(keys)
+        result = await db.execute(select(AppSetting).where(AppSetting.key.in_(key_list)))
+        db_map = {row.key: row.value for row in result.scalars().all()}
+
+        output: Dict[str, str] = {}
+        for key in key_list:
+            if key in db_map:
+                output[key] = db_map[key]
+            else:
+                env_attr = _SETTING_KEYS.get(key, key)
+                fallback = getattr(settings, env_attr, None)
+                output[key] = str(fallback) if fallback is not None else defaults.get(key, "")
+        return output
 
     @staticmethod
     async def update_many(db: AsyncSession, data: Dict[str, str]) -> Dict[str, str]:

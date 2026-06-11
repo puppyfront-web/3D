@@ -107,11 +107,14 @@ async def get_image_service(db=None) -> ImageGenerationService:
     """
     if db is not None:
         from app.services.settings_service import SettingsService
-        provider = (await SettingsService.get_raw(db, "image_provider", settings.image_provider)).lower()
-        api_key = await SettingsService.get_raw(db, "image_api_key", settings.image_api_key)
-        base_url = await SettingsService.get_raw(db, "image_base_url", settings.image_base_url)
-        model = await SettingsService.get_raw(db, "image_model", settings.image_model)
-        quality = await SettingsService.get_raw(db, "image_quality", settings.image_quality)
+        cfg = await SettingsService.get_raw_many(db, [
+            "image_provider", "image_api_key", "image_base_url", "image_model", "image_quality",
+        ])
+        provider = cfg["image_provider"].lower()
+        api_key = cfg["image_api_key"]
+        base_url = cfg["image_base_url"]
+        model = cfg["image_model"]
+        quality = cfg["image_quality"]
     else:
         provider = settings.image_provider.lower()
         api_key = settings.image_api_key
