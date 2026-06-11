@@ -50,6 +50,18 @@ def _parse_sse(chunk: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+# Short summaries for the common result-bearing block types, used as a fallback
+# when an agent flow streamed structured blocks but no plain text deltas.
+_BLOCK_SUMMARY_HINTS: Dict[str, str] = {
+    "proposal_section": "已生成策划案",
+    "proposal_result": "已生成策划案",
+    "visual_result": "已生成视觉方案",
+    "company_analysis": "已生成企业解析",
+    "artifact_summary": "已生成内容产物",
+    "image_result": "已生成图片",
+}
+
+
 class _StreamAccumulator:
     """Collects user-facing text + content blocks from an SSE chunk stream.
 
@@ -90,16 +102,29 @@ class _StreamAccumulator:
         else:
             # Raw block type (skill_progress / action_buttons / visual_result /
             # context_card / artifact_summary / quality_check / ...). The
-            # frontend collects these as {type, data}.
+            # frontend collects these as {type, data}. Unknown-type payloads
+            # carry only structural/internal text (debug or marker strings), so
+            # a non-dict payload is discarded rather than persisted as user-
+            # facing message content.
             data = payload.get("data")
             if isinstance(data, dict):
                 self.blocks.append({"type": ctype, "data": data})
-            elif payload.get("text"):
-                self._text.append(payload["text"])
 
     @property
     def text(self) -> str:
-        return "".join(self._text)
+        joined = "".join(self._text)
+        if joined.strip():
+            return joined
+        # Fallback: some agent flows (proposal / visual generation) stream only
+        # structured blocks and no text deltas, leaving _text empty. An empty
+        # assistant message would (a) render blank after reload and (b) make
+        # some LLM providers 400 when the history is replayed next turn. When we
+        # do have blocks, synthesize a short honest summary from the block types.
+        for block in self.blocks:
+            hint = _BLOCK_SUMMARY_HINTS.get(block.get("type") or "")
+            if hint:
+                return hint
+        return "已生成结果" if self.blocks else ""
 
     @property
     def rich_content(self) -> Optional[Dict[str, Any]]:
@@ -246,10 +271,15 @@ class ConversationService:
     def build_message_history(
         self, messages: List[Message]
     ) -> List[Dict[str, str]]:
-        """Convert DB messages to the format LLM expects."""
+        """Convert DB messages to the format LLM expects.
+
+        Skips messages whose ``content`` is empty/blank: some providers reject
+        an assistant turn with empty content with a 400, and a blank message
+        carries no signal for the model anyway.
+        """
         history: List[Dict[str, str]] = []
         for msg in messages:
-            if msg.role in ("user", "assistant"):
+            if msg.role in ("user", "assistant") and (msg.content or "").strip():
                 history.append({"role": msg.role, "content": msg.content})
         return history
 

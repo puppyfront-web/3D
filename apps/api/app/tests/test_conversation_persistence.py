@@ -92,7 +92,29 @@ class TestStreamAccumulator:
 
         types = [b.get("type") for b in acc.blocks]
         assert types == ["visual_strategy", "visual_result", "quality_check", "action_buttons"]
-        assert acc.text == ""
+        # No text deltas were streamed, but blocks were — text returns a short
+        # summary (never empty) so persisted content survives reload and history
+        # replay without a provider 400 on an empty assistant turn.
+        assert acc.text == "已生成视觉方案"
+
+    def test_blocks_only_yields_non_empty_summary(self):
+        """Invariant: if any block was streamed, persisted text is never empty.
+
+        A blank assistant message would render blank after reload and make some
+        LLM providers 400 when the history is replayed next turn.
+        """
+        acc = _accumulator()
+        acc.feed(_sse("some_unknown_block", data={"x": 1}))
+        assert acc.text == "已生成结果"  # generic fallback for unmapped block types
+
+    def test_unknown_type_non_dict_payload_discarded(self):
+        """A raw/unknown-type chunk with non-dict data must not leak its text
+        into persisted content — it carries internal/structural text only."""
+        acc = _accumulator()
+        acc.feed(_sse("skill_progress", text="[internal marker]"))
+        acc.feed(_sse("text_delta", text="real content"))
+        assert acc.text == "real content"
+        assert acc.blocks == []
 
     def test_empty_when_only_structural(self):
         acc = _accumulator()
@@ -116,6 +138,31 @@ class TestStreamAccumulator:
         acc.feed(_sse("text_delta", text="real"))
         assert acc.text == "real"
         assert acc.blocks == []
+
+
+def test_build_message_history_skips_empty_content():
+    """Empty/blank assistant messages are dropped from LLM history.
+
+    Some providers reject an assistant turn with empty content (400), and a
+    blank message carries no signal for the model anyway.
+    """
+    from types import SimpleNamespace
+
+    from app.services.conversation_service import ConversationService
+
+    service = ConversationService()
+    messages = [
+        SimpleNamespace(role="user", content="你好"),
+        SimpleNamespace(role="assistant", content=""),
+        SimpleNamespace(role="assistant", content="   "),
+        SimpleNamespace(role="assistant", content="正常的回复"),
+        SimpleNamespace(role="system", content="should be excluded by role"),
+    ]
+    history = service.build_message_history(messages)
+    assert history == [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "正常的回复"},
+    ]
 
 
 # ---------------------------------------------------------------------------
