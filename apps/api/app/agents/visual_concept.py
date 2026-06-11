@@ -818,7 +818,7 @@ class VisualConceptAgent:
         prompts = await self._generate_prompts(ctx, strategy)
         node.positive_prompt = prompts.get("positive_prompt", "")
         node.negative_prompt = prompts.get("negative_prompt", "")
-        yield _sse_chunk("text_delta", text="图像描述已生成，正在生成概念图…")
+        # No text_delta here — user only sees progress bar, not intermediate descriptions
         yield _sse_chunk(
             "skill_progress",
             data={"skill_id": "prompt_generation", "status": "completed"},

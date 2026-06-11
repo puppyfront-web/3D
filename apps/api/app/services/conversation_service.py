@@ -1035,38 +1035,14 @@ class ConversationService:
         return "策划案生成完成，详情见下方卡片。"
 
     def _render_visual_output(self, output: Dict[str, Any]) -> str:
-        """Render visual output as readable text."""
-        lines = []
-        strategy = output.get("visual_strategy", {})
-        if strategy and isinstance(strategy, dict):
-            lines.append("## 视觉策略\n")
-            for key, label in [
-                ("concept", "概念"), ("elements", "核心元素"),
-                ("color_palette", "色彩方案"), ("composition", "构图"),
-                ("mood", "氛围"),
-            ]:
-                val = strategy.get(key)
-                if val:
-                    if isinstance(val, list):
-                        lines.append(f"**{label}**: {', '.join(str(v) for v in val)}")
-                    else:
-                        lines.append(f"**{label}**: {val}")
-
-        # Prompt 文字为内部实现，不展示给用户
-
-        advice = output.get("composition_advice", "")
-        if advice:
-            lines.append(f"\n**构图建议**: {advice}")
-
-        # Image generation result
+        """Render visual output — show image result, not internal strategy/prompt."""
         images = output.get("images", [])
         image_url = output.get("image_url")
         if images:
-            lines.append(f"\n✅ **已生成 {len(images)} 张效果图**，见下方卡片。")
+            return f"✅ 已生成 {len(images)} 张效果图，见下方卡片。"
         elif image_url:
-            lines.append(f"\n✅ **图片已生成**，见下方卡片。")
-
-        return "\n".join(lines) if lines else "视觉方案生成完成。"
+            return "✅ 效果图已生成，见下方卡片。"
+        return "视觉方案生成完成。"
 
     def _render_export_output(self, output: Dict[str, Any]) -> str:
         return f"方案导出完成: {output.get('filename', '文件已生成')}"
