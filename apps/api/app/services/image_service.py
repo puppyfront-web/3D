@@ -108,11 +108,13 @@ async def get_image_service(db=None) -> ImageGenerationService:
         api_key = await SettingsService.get_raw(db, "image_api_key", settings.image_api_key)
         base_url = await SettingsService.get_raw(db, "image_base_url", settings.image_base_url)
         model = await SettingsService.get_raw(db, "image_model", settings.image_model)
+        quality = await SettingsService.get_raw(db, "image_quality", settings.image_quality)
     else:
         provider = settings.image_provider.lower()
         api_key = settings.image_api_key
         base_url = settings.image_base_url
         model = settings.image_model
+        quality = settings.image_quality
 
     if provider in ("openai", "dalle"):
         from app.services.image.openai_provider import DallEImageGenerationService
@@ -120,6 +122,7 @@ async def get_image_service(db=None) -> ImageGenerationService:
             api_key=api_key,
             base_url=base_url or None,
             model=model,
+            quality=quality,
         )
 
     if provider == "siliconflow":
@@ -142,6 +145,7 @@ async def get_image_service(db=None) -> ImageGenerationService:
             api_key=api_key,
             base_url=base_url or None,
             model=model,
+            quality=quality,
         )
 
     return MockImageGenerationService()

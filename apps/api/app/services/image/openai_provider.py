@@ -20,12 +20,21 @@ class DallEImageGenerationService:
         api_key: str,
         base_url: Optional[str] = None,
         model: str = "dall-e-3",
+        quality: str = "high",
+        timeout: float = 120.0,
     ):
+        # Bound the request so a hung upstream fails fast (the OpenAI client
+        # default of 600s would hang the whole conversation stream indefinitely).
+        # max_retries=0 because retrying a timed-out image request just multiplies
+        # the wait — better to fail and let the agent/user retry explicitly.
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
+            timeout=timeout,
+            max_retries=0,
         )
         self._model = model
+        self._quality = quality
 
     async def generate_image(
         self,
@@ -64,15 +73,61 @@ class DallEImageGenerationService:
             "model": self._model,
             "prompt": full_prompt,
             "size": size,
-            "quality": "standard",
+            "quality": self._quality or "high",
             "n": 1,
             "response_format": "url",
         }
         if style and self._model.startswith("dall-e-3"):
             kwargs["style"] = style
 
-        response = await self._client.images.generate(**kwargs)
-        return response.data[0].url or ""
+        # OpenAI-compatible vendors vary in which optional params they accept.
+        # If the upstream rejects quality/response_format/style, retry without
+        # the offending param(s) rather than failing the whole generation.
+        return await self._generate_with_fallbacks(kwargs)
+
+    async def _generate_with_fallbacks(self, kwargs: dict) -> str:
+        """Call images.generate, progressively dropping optional params on rejection.
+
+        Order of optional params to drop: style → quality → response_format.
+        """
+        drop_order = ["style", "quality", "response_format"]
+        current = dict(kwargs)
+        for _ in range(len(drop_order) + 1):
+            try:
+                response = await self._client.images.generate(**current)
+                url = response.data[0].url if response.data else ""
+                if not url:
+                    # Some vendors return b64_json instead of a url
+                    b64 = getattr(response.data[0], "b64_json", None) if response.data else None
+                    if b64:
+                        return f"data:image/png;base64,{b64}"
+                return url or ""
+            except Exception as exc:
+                msg = str(exc).lower()
+                rejected = self._rejected_param(msg, current, drop_order)
+                if rejected:
+                    logger.warning(
+                        "Image provider rejected param '%s' (%s); retrying without it.",
+                        rejected, type(exc).__name__,
+                    )
+                    current.pop(rejected, None)
+                    continue
+                raise
+        return ""
+
+    @staticmethod
+    def _rejected_param(msg: str, current: dict, drop_order: list) -> Optional[str]:
+        """Return the param name to drop based on the error message, or None."""
+        # Prefer an explicit param name mentioned in the error
+        for p in drop_order:
+            if p in current and p in msg:
+                return p
+        # Generic "unexpected"/"unrecognized" param errors → drop the most optional first
+        if "unexpected" in msg or "unrecognized" in msg or "unknown" in msg:
+            for p in drop_order:
+                if p in current:
+                    return p
+        return None
 
     @staticmethod
     def _map_size(width: int, height: int) -> str:

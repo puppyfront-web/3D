@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     #   openai: dall-e-2, dall-e-3
     #   siliconflow: flux-schnell, flux-dev, sdxl, kolors, sd3
     #   zhipu: cogview-4, cogview-3-plus, cogview-3
+    image_quality: str = "high"  # low | medium | high | auto | hd (vendor-specific)
 
     # Storage
     storage_path: str = "./storage"
