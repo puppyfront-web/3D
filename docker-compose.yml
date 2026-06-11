@@ -43,7 +43,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # No `command:` override — apps/api/entrypoint.sh waits for the DB,
+    # runs `alembic upgrade head`, then execs uvicorn (see Dockerfile ENTRYPOINT).
 
   web:
     build:
