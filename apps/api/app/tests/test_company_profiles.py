@@ -109,3 +109,5 @@ class TestCompanyProfileCRUD:
         assert response.status_code == 200
         data = response.json()["data"]
         assert "id" in data
+        assert "MarketLeader Inc" not in str(data)
+        assert "12% YoY" not in str(data)

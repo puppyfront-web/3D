@@ -135,10 +135,7 @@ async def update_profile(
 async def generate_company_analysis(
     body: CompanyAnalysisRequest, db: AsyncSession = Depends(get_db)
 ):
-    """Trigger AI-powered company analysis and return a generated profile.
-
-    In mock mode this returns a realistic placeholder profile.
-    """
+    """Trigger Skill-backed company analysis and return the saved profile."""
     company = await db.get(Company, body.company_id)
     if not company:
         raise NotFoundException("Company", str(body.company_id))
@@ -154,23 +151,38 @@ async def generate_company_analysis(
                 message="Existing profile returned (use force_regenerate=true to regenerate)",
             )
 
-    # Mock AI analysis output
-    mock_profile = CompanyProfile(
-        company_id=body.company_id,
-        strengths="Strong market presence with established customer base; Robust technology infrastructure; Experienced leadership team; Diversified revenue streams",
-        weaknesses="Limited digital transformation progress; Aging legacy systems; Talent retention challenges in key technical roles",
-        market_position="Well-established player with approximately 15-20% market share in their core segment",
-        key_products=f"{company.name}'s flagship product line; Professional services division; Cloud-based SaaS platform",
-        competitors="Major industry competitors include MarketLeader Inc, TechRival Corp, and InnovateCo",
-        recent_news="Recently announced expansion into new market segments; Partnership with leading technology vendors; Investment in AI and machine learning capabilities",
-        culture="Collaborative and innovation-focused work environment with emphasis on professional development and work-life balance",
-        financials="Strong revenue growth of 12% YoY; Healthy profit margins in the 18-22% range; Continued investment in R&D at 15% of revenue",
-        raw_analysis=f"Mock analysis generated for {company.name} in the {company.industry or 'general'} sector.",
+    from app.services.embedding_service import get_embedding_service
+    from app.services.llm_service import get_llm_service
+    from app.skills.base import SkillContext
+    from app.skills.registry import SkillRegistry
+    from app.skills.runner import SkillRunner
+
+    registry = SkillRegistry.get_instance()
+    registry.auto_register()
+    runner = SkillRunner(registry=registry)
+    result = await runner.run(
+        "company_analysis",
+        {
+            "company_id": str(body.company_id),
+            "additional_context": body.context or "",
+        },
+        SkillContext(
+            db=db,
+            llm_service=await get_llm_service(db),
+            embedding_service=await get_embedding_service(db),
+        ),
     )
-    db.add(mock_profile)
-    await db.flush()
-    await db.refresh(mock_profile)
-    return Response(data=CompanyProfileOut.model_validate(mock_profile), message="Analysis generated")
+    if not result.get("success"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=result.get("error") or "Analysis failed")
+
+    profile_result = await db.execute(
+        select(CompanyProfile).where(CompanyProfile.company_id == body.company_id)
+    )
+    profile = profile_result.scalar_one_or_none()
+    if not profile:
+        raise NotFoundException("CompanyProfile for company", str(body.company_id))
+    return Response(data=CompanyProfileOut.model_validate(profile), message="Analysis generated")
 
 
 @router.delete("/{profile_id}", response_model=Response)
