@@ -63,7 +63,12 @@ class GenerationOutput(Base):
     # Section-level metadata for human-in-the-loop review
     sections_meta: Mapped[Optional[list]] = mapped_column(
         JSON, nullable=True, default=list,
-        comment="[{id, title, order, status, reviewed_by, reviewed_at}]"
+        comment=(
+            "[{id, title, order, status, reviewed_by, reviewed_at, "
+            "require_human_review, human_confirmed}] — sections flagged "
+            "require_human_review block export until human_confirmed is set "
+            "(see routers/exports._check_export_eligibility)."
+        ),
     )
     version: Mapped[int] = mapped_column(default=1, server_default="1", nullable=False)
     parent_output_id: Mapped[Optional[uuid.UUID]] = mapped_column(

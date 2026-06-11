@@ -156,6 +156,32 @@ class TestParseSectionsMeta:
         for section in result:
             uuid.UUID(section["id"])  # Will raise if invalid
 
+    def test_flags_hitl_sections_by_body_keywords(self):
+        """Sections whose body touches 报价/工期/预算 (SOP export_gate items)
+        are flagged require_human_review + human_confirmed=False so the export
+        gate fires until a human confirms them. The keywords live in the body,
+        not the chapter titles, so the body must be scanned."""
+        from app.skills.builtins.proposal_generation import ProposalGenerationSkill
+
+        markdown = """## 1. 需求理解
+纯需求描述，无敏感内容
+
+## 9. 实施建议
+预计工期 45 天，分三阶段交付。
+
+## 10. 风险与待确认事项
+报价需进一步确认；预算风险中等。"""
+        result = ProposalGenerationSkill._parse_sections_meta(markdown)
+        by_title = {s["title"]: s for s in result}
+        # 需求理解 body carries no HITL keyword → not gated
+        assert by_title["需求理解"]["require_human_review"] is False
+        # 实施建议 mentions 工期 → gated, unconfirmed
+        assert by_title["实施建议"]["require_human_review"] is True
+        assert by_title["实施建议"]["human_confirmed"] is False
+        # 风险与待确认事项 mentions 报价/预算 → gated
+        assert by_title["风险与待确认事项"]["require_human_review"] is True
+        assert by_title["风险与待确认事项"]["human_confirmed"] is False
+
 
 # ── Section status API ────────────────────────────────────────────────
 
@@ -178,6 +204,8 @@ class TestSectionStatusAPI:
         assert section_1["status"] == "approved"
         assert section_1["reviewed_by"] == "admin"
         assert section_1["reviewed_at"] is not None
+        # Approving a HITL-gated section confirms it for export.
+        assert section_1["human_confirmed"] is True
 
     @pytest.mark.asyncio
     async def test_mark_review_section(self, client, generation_task_with_output):
@@ -193,6 +221,7 @@ class TestSectionStatusAPI:
         assert section_2["status"] == "review"
         assert section_2["reviewed_by"] is None
         assert section_2["reviewed_at"] is None
+        assert section_2["human_confirmed"] is False
 
     @pytest.mark.asyncio
     async def test_revert_to_draft(self, client, generation_task_with_output):
@@ -212,6 +241,7 @@ class TestSectionStatusAPI:
         assert section_1["status"] == "draft"
         assert section_1["reviewed_by"] is None
         assert section_1["reviewed_at"] is None
+        assert section_1["human_confirmed"] is False
 
     @pytest.mark.asyncio
     async def test_section_order_out_of_range(self, client, generation_task_with_output):

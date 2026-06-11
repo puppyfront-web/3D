@@ -221,9 +221,14 @@ async def update_section_status(
             if body.status == "approved":
                 section["reviewed_by"] = body.reviewed_by or "unknown"
                 section["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+                # Approving a HITL-gated section confirms it for export — flips
+                # the export_gate check (routers/exports._check_export_eligibility)
+                # from blocked to allowed for this section.
+                section["human_confirmed"] = True
             else:
                 section["reviewed_by"] = None
                 section["reviewed_at"] = None
+                section["human_confirmed"] = False
             break
 
     output.sections_meta = sections_meta

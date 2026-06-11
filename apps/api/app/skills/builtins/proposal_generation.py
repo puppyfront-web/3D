@@ -569,28 +569,41 @@ class ProposalGenerationSkill(BaseSkill):
     def _parse_sections_meta(markdown_content: str) -> list:
         """Parse markdown into section metadata for human-in-the-loop review.
 
-        Splits on ## N. pattern, creates one entry per section with draft status.
+        Splits on ``## N.`` headers, one entry per section. Sections whose body
+        touches a HITL-gated topic — the SOP ``export_gate`` check items
+        ``报价人工确认`` / ``工期人工确认`` (see init_db seed) — are flagged
+        ``require_human_review=True`` / ``human_confirmed=False`` so the export
+        gate (routers/exports._check_export_eligibility) actually fires until a
+        human confirms them. Those keywords live in the body (实施建议 /
+        风险与待确认事项), not the chapter titles, so the body is scanned too.
         """
         import re
 
-        sections = []
-        # Match patterns like: ## 1. Title or ## 1  Title
-        pattern = r"^##\s*\d+[\.\s]+(.+)$"
-        lines = markdown_content.split("\n")
+        # Commercial / timeline terms the SOP marks as require_human_review.
+        hitl_keywords = ("报价", "工期", "预算", "价格", "费用", "付款", "交付周期")
 
-        for line in lines:
-            match = re.match(pattern, line.strip())
-            if match:
-                title = match.group(1).strip()
-                order = len(sections) + 1
-                sections.append({
-                    "id": str(uuid.uuid4()),
-                    "title": title,
-                    "order": order,
-                    "status": "draft",
-                    "reviewed_by": None,
-                    "reviewed_at": None,
-                })
+        # Split into (title, body) chunks on the ## N. header. The capturing
+        # group interleaves titles with the body that follows each header.
+        parts = re.split(
+            r"^##\s*\d+[\.\s]+(.+)$", markdown_content, flags=re.MULTILINE
+        )
+        chunks = parts[1:]  # parts[0] is the preamble before the first header
+        sections = []
+        for i in range(0, len(chunks), 2):
+            title = chunks[i].strip()
+            body = chunks[i + 1] if i + 1 < len(chunks) else ""
+            haystack = f"{title}\n{body}"
+            needs_review = any(kw in haystack for kw in hitl_keywords)
+            sections.append({
+                "id": str(uuid.uuid4()),
+                "title": title,
+                "order": len(sections) + 1,
+                "status": "draft",
+                "reviewed_by": None,
+                "reviewed_at": None,
+                "require_human_review": needs_review,
+                "human_confirmed": False,
+            })
 
         return sections
 
