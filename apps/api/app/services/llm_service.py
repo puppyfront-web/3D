@@ -323,11 +323,11 @@ async def get_llm_service(db=None) -> LLMService:
         provider = settings.llm_provider
 
     if provider in ("openai", "custom"):
-        try:
-            from app.services.llm.openai_provider import OpenAILLMService
-        except ImportError as exc:
-            logger.warning("OpenAI LLM provider unavailable, falling back to mock: %s", exc)
-            return MockLLMService()
+        # Hard-fail if the OpenAI package is missing rather than silently
+        # downgrading to the mock — a silent downgrade hides a broken install
+        # and serves fake LLM output in production. Set provider to a non-openai
+        # value explicitly to get MockLLMService.
+        from app.services.llm.openai_provider import OpenAILLMService
 
         if db is not None:
             api_key = cfg["llm_api_key"]

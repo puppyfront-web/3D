@@ -82,11 +82,11 @@ async def get_embedding_service(db=None) -> EmbeddingService:
         provider = settings.embedding_provider
 
     if provider == "openai":
-        try:
-            from app.services.embedding.openai_provider import OpenAIEmbeddingService
-        except ImportError as exc:
-            logger.warning("OpenAI embedding provider unavailable, falling back to mock: %s", exc)
-            return MockEmbeddingService()
+        # Hard-fail if the OpenAI package is missing rather than silently
+        # downgrading to the mock — a silent downgrade hides a broken install
+        # and serves fake embeddings in production. Set provider to a non-openai
+        # value explicitly to get MockEmbeddingService.
+        from app.services.embedding.openai_provider import OpenAIEmbeddingService
 
         if db is not None:
             api_key = cfg["embedding_api_key"]

@@ -123,11 +123,10 @@ async def get_image_service(db=None) -> ImageGenerationService:
         quality = settings.image_quality
 
     if provider in ("openai", "dalle"):
-        try:
-            from app.services.image.openai_provider import DallEImageGenerationService
-        except ImportError as exc:
-            logger.warning("OpenAI image provider unavailable, falling back to mock: %s", exc)
-            return MockImageGenerationService()
+        # Hard-fail on a missing OpenAI package rather than silently downgrading
+        # to the mock (which would render SVG placeholders in production). Use
+        # provider="mock" explicitly to get the mock.
+        from app.services.image.openai_provider import DallEImageGenerationService
         return DallEImageGenerationService(
             api_key=api_key,
             base_url=base_url or None,
@@ -150,11 +149,7 @@ async def get_image_service(db=None) -> ImageGenerationService:
         )
 
     if provider == "custom":
-        try:
-            from app.services.image.openai_provider import DallEImageGenerationService
-        except ImportError as exc:
-            logger.warning("Custom image provider unavailable, falling back to mock: %s", exc)
-            return MockImageGenerationService()
+        from app.services.image.openai_provider import DallEImageGenerationService
         return DallEImageGenerationService(
             api_key=api_key,
             base_url=base_url or None,
