@@ -14,6 +14,10 @@ const SKILL_NAMES: Record<string, string> = {
   image_generation: "图片生成",
   case_retrieval: "案例检索",
   export: "方案导出",
+  proposal_agent: "策划案专家",
+  visual_concept_agent: "视觉创意专家",
+  visual_strategy: "视觉策略",
+  prompt_generation: "图像描述生成",
 };
 
 const STATUS_MESSAGES: Record<string, string[]> = {
@@ -23,6 +27,8 @@ const STATUS_MESSAGES: Record<string, string[]> = {
   image_generation: ["正在准备生成参数", "正在调用图片生成"],
   case_retrieval: ["正在检索案例库", "正在匹配相似案例"],
   export: ["正在准备导出", "正在生成文件"],
+  proposal_agent: ["正在分析企业信息", "正在检索案例库", "正在生成策划方案", "正在质量检查"],
+  visual_concept_agent: ["正在生成视觉策略", "正在构建图像描述", "正在生成概念图", "正在质量检查"],
 };
 
 /**

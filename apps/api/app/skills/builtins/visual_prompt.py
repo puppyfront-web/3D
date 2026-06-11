@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from app.core.prompts import GLOBAL_CAPABILITY_CONSTRAINT
 from app.skills.base import BaseSkill, SkillContext, SkillManifest, SkillResult
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ SYSTEM_PROMPT = """你是一个视觉创意专家，服务领域包括：
 - Prompt 必须是英文
 - 禁止编造屏幕参数
 - 缺失信息标注"需进一步确认"
-- 生成 JSON 格式输出"""
+- 生成 JSON 格式输出""" + GLOBAL_CAPABILITY_CONSTRAINT
 
 
 class VisualPromptSkill(BaseSkill):

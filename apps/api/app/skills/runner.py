@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from app.core.prompts import GLOBAL_CAPABILITY_CONSTRAINT
 from app.skills.base import BaseSkill, SkillContext, SkillResult
 from app.skills.registry import SkillRegistry
 
@@ -217,7 +218,7 @@ Skill: {skill_id}
         try:
             reflection = await context.llm_service.generate_json(
                 prompt=reflection_prompt,
-                system_prompt="你是 Skill 执行反思引擎。分析执行结果，决定下一步最优动作。",
+                system_prompt="你是 Skill 执行反思引擎。分析执行结果，决定下一步最优动作。" + GLOBAL_CAPABILITY_CONSTRAINT,
                 temperature=0.1,
             )
             return reflection

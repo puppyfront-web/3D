@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 
+from app.core.prompts import GLOBAL_CAPABILITY_CONSTRAINT
+
 logger = logging.getLogger(__name__)
 
 
@@ -673,6 +675,7 @@ class VisualConceptAgent:
                 "你是一个视觉概念图需求分析助手。"
                 "从用户自然语言中提取结构化需求字段。"
                 "只返回 JSON，不要额外解释。"
+                + GLOBAL_CAPABILITY_CONSTRAINT
             ),
         )
 
@@ -739,6 +742,7 @@ class VisualConceptAgent:
                 '- 如果用户表示满意/确认/可以了，intent 为 "satisfied"\n'
                 '- 如果用户要求修改某些方面，intent 为 "modify"，并在 modifications 中提取修改内容\n'
                 "- 如果用户要求完全重来/换个方向，intent 为 \"restart\""
+                + GLOBAL_CAPABILITY_CONSTRAINT
             ),
         )
 
@@ -886,7 +890,7 @@ class VisualConceptAgent:
                 f"还缺少以下关键信息：{', '.join(labels)}\n\n"
                 "请用友好的语气，简短地询问用户补充这些信息。一句话即可。"
             ),
-            system_prompt="你是一个友好的视觉设计需求收集助手。",
+            system_prompt="你是一个友好的视觉设计需求收集助手。" + GLOBAL_CAPABILITY_CONSTRAINT,
         )
         return ask_text
 
@@ -928,6 +932,7 @@ class VisualConceptAgent:
                 "你是一位 3D 展示幕墙视觉创意专家。"
                 "根据客户需求生成专业的视觉策略方案。"
                 "只返回 JSON。"
+                + GLOBAL_CAPABILITY_CONSTRAINT
             ),
         )
         return strategy
@@ -948,6 +953,7 @@ class VisualConceptAgent:
                 "positive_prompt 应该是英文，详细描述画面内容、构图、光影、色调。\n"
                 "negative_prompt 应该列出需要排除的元素和低质量标记。\n"
                 "只返回 JSON。"
+                + GLOBAL_CAPABILITY_CONSTRAINT
             ),
         )
         return result
@@ -975,7 +981,7 @@ class VisualConceptAgent:
                 f"视觉策略：{json.dumps(node.visual_strategy or {}, ensure_ascii=False)}\n"
                 f"正向 Prompt：{node.positive_prompt}"
             ),
-            system_prompt="你是一位视觉质量审核专家。检查生成结果是否满足需求。只返回 JSON。",
+            system_prompt="你是一位视觉质量审核专家。检查生成结果是否满足需求。只返回 JSON。" + GLOBAL_CAPABILITY_CONSTRAINT,
         )
         return result
 

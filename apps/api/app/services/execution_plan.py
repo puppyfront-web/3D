@@ -183,146 +183,42 @@ def create_plan_for_domain(
     user_message: str = "",
     company_name: str = "",
 ) -> ExecutionPlan:
-    """Create a standard execution plan for a given domain."""
+    """Create a standard execution plan for a given domain.
 
-    if domain == "exhibition":
-        return _exhibition_plan(user_message, company_name)
-    elif domain == "culture_tourism":
-        return _culture_tourism_plan(user_message, company_name)
-    elif domain == "multimedia":
-        return _multimedia_plan(user_message, company_name)
-    else:
-        # Default: curtain_wall (original 4-stage pipeline)
-        return _curtain_wall_plan(user_message, company_name)
+    All domains now use the 3-step expert-agent pipeline:
+      proposal_agent → visual_concept_agent → export
+    """
+    domain_labels = {
+        "curtain_wall": ("幕墙/LED", "3D幕墙/裸眼3D/LED媒体立面"),
+        "exhibition": ("展厅/展陈", "企业展厅/博物馆/规划馆"),
+        "culture_tourism": ("文旅/夜游", "文旅夜游/沉浸式体验/光影秀"),
+        "multimedia": ("多媒体互动", "互动装置/数字沙盘/AR/VR"),
+    }
+    label, desc = domain_labels.get(domain, ("综合", "数字视觉展示"))
 
-
-def _curtain_wall_plan(user_message: str, company_name: str) -> ExecutionPlan:
-    """Standard 4-stage pipeline for curtain wall / LED projects."""
     return ExecutionPlan(
-        domain="curtain_wall",
-        project_type="curtain_wall",
+        domain=domain,
+        project_type=domain,
         context={"user_message": user_message, "company_name": company_name},
         steps=[
             PlanStep(
-                skill_id="company_analysis", name="企业解析",
-                description="分析企业画像，生成六看、技术架构、项目背景",
+                skill_id="proposal_agent",
+                name=f"策划案专家（{label}）",
+                description=f"企业解析 + RAG检索 + 策划案生成（{desc}）",
                 pause_after=True,
             ),
             PlanStep(
-                skill_id="proposal_generation", name="策划案生成",
-                description="基于企业画像生成完整策划方案",
-                depends_on=["company_analysis"],
+                skill_id="visual_concept_agent",
+                name="视觉创意专家",
+                description="基于策划案生成视觉概念图（多轮交互）",
+                depends_on=["proposal_agent"],
                 pause_after=True,
             ),
             PlanStep(
-                skill_id="visual_prompt", name="视觉方案生成",
-                description="生成视觉策略和效果图",
-                depends_on=["proposal_generation"],
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="export", name="方案导出",
+                skill_id="export",
+                name="方案导出",
                 description="导出 Word/PDF 文档",
-                depends_on=["visual_prompt"],
-            ),
-        ],
-    )
-
-
-def _exhibition_plan(user_message: str, company_name: str) -> ExecutionPlan:
-    """Plan for exhibition / showroom projects."""
-    return ExecutionPlan(
-        domain="exhibition",
-        project_type="exhibition",
-        context={"user_message": user_message, "company_name": company_name},
-        steps=[
-            PlanStep(
-                skill_id="company_analysis", name="企业/展商解析",
-                description="分析企业画像和展陈需求",
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="proposal_generation", name="策划案生成",
-                description="生成展厅策划方案（含展陈规划、多媒体展项设计）",
-                depends_on=["company_analysis"],
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="visual_prompt", name="视觉方案生成",
-                description="生成展厅空间效果图和视觉策略",
-                depends_on=["proposal_generation"],
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="export", name="方案导出",
-                description="导出展厅方案文档",
-                depends_on=["visual_prompt"],
-            ),
-        ],
-    )
-
-
-def _culture_tourism_plan(user_message: str, company_name: str) -> ExecutionPlan:
-    """Plan for culture tourism / night tour projects."""
-    return ExecutionPlan(
-        domain="culture_tourism",
-        project_type="culture_tourism",
-        context={"user_message": user_message, "company_name": company_name},
-        steps=[
-            PlanStep(
-                skill_id="company_analysis", name="景区/企业解析",
-                description="分析景区资源、文旅定位、目标游客",
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="proposal_generation", name="策划案生成",
-                description="生成文旅策划方案（含夜游动线、灯光内容、运营机制）",
-                depends_on=["company_analysis"],
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="visual_prompt", name="视觉方案生成",
-                description="生成夜游灯光效果图和沉浸式体验视觉",
-                depends_on=["proposal_generation"],
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="export", name="方案导出",
-                description="导出文旅方案文档",
-                depends_on=["visual_prompt"],
-            ),
-        ],
-    )
-
-
-def _multimedia_plan(user_message: str, company_name: str) -> ExecutionPlan:
-    """Plan for multimedia interactive projects."""
-    return ExecutionPlan(
-        domain="multimedia",
-        project_type="multimedia",
-        context={"user_message": user_message, "company_name": company_name},
-        steps=[
-            PlanStep(
-                skill_id="company_analysis", name="企业解析",
-                description="分析企业互动体验需求",
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="proposal_generation", name="策划案生成",
-                description="生成多媒体互动方案",
-                depends_on=["company_analysis"],
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="visual_prompt", name="视觉方案生成",
-                description="生成互动装置效果图",
-                depends_on=["proposal_generation"],
-                pause_after=True,
-            ),
-            PlanStep(
-                skill_id="export", name="方案导出",
-                description="导出方案文档",
-                depends_on=["visual_prompt"],
+                depends_on=["visual_concept_agent"],
             ),
         ],
     )

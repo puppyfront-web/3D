@@ -22,6 +22,8 @@ _STEP_DISPLAY_NAMES = {
     "image_generation": "图片生成",
     "export": "方案导出",
     "case_retrieval": "案例检索",
+    "proposal_agent": "策划案专家",
+    "visual_concept_agent": "视觉创意专家",
 }
 
 
@@ -91,7 +93,44 @@ async def execute_plan(
         # Build input for this step
         input_data = _build_step_input(step, plan)
 
-        # Execute skill
+        # Agent-type steps: delegate to expert agents instead of skills
+        if step.skill_id == "proposal_agent":
+            async for event in _run_proposal_agent_step(plan, context, step, step_display):
+                yield event
+            if step.status == "completed" and step.pause_after:
+                plan.pause()
+                yield {
+                    "type": "plan_paused",
+                    "data": {
+                        "step_id": step.step_id,
+                        "name": step_display,
+                        "output": plan.step_outputs.get("proposal_agent", {}),
+                        "skill_id": step.skill_id,
+                    },
+                }
+                return
+            plan.current_step_index += 1
+            continue
+
+        if step.skill_id == "visual_concept_agent":
+            async for event in _run_visual_concept_agent_step(plan, context, step, step_display):
+                yield event
+            if step.status == "completed" and step.pause_after:
+                plan.pause()
+                yield {
+                    "type": "plan_paused",
+                    "data": {
+                        "step_id": step.step_id,
+                        "name": step_display,
+                        "output": plan.step_outputs.get("visual_concept_agent", {}),
+                        "skill_id": step.skill_id,
+                    },
+                }
+                return
+            plan.current_step_index += 1
+            continue
+
+        # Standard skill execution
         runner = SkillRunner(registry)
         result = await runner.run(step.skill_id, input_data, context)
 
@@ -244,4 +283,161 @@ def _summarize_output(skill_id: str, output: Dict[str, Any]) -> Dict[str, Any]:
     elif skill_id in ("visual_prompt", "image_generation"):
         images = output.get("images", [])
         summary["images_count"] = len(images) if isinstance(images, list) else 0
+    elif skill_id == "proposal_agent":
+        summary["proposal_confirmed"] = bool(output)
+    elif skill_id == "visual_concept_agent":
+        summary["visual_confirmed"] = bool(output)
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Agent-step execution helpers
+# ---------------------------------------------------------------------------
+
+
+async def _run_proposal_agent_step(
+    plan: ExecutionPlan,
+    context: "SkillContext",
+    step: PlanStep,
+    step_display: str,
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """Run ProposalAgent as a plan step — auto-completes to REVIEWING."""
+    from app.agents.proposal import ProposalAgent, ProposalContext, RequirementInfo
+
+    user_msg = plan.context.get("user_message", "")
+    ctx = ProposalContext(
+        domain=plan.domain,
+        requirement=RequirementInfo(raw_input=user_msg),
+    )
+
+    agent = ProposalAgent()
+    elapsed_start = time.time()
+
+    # Collect all agent SSE chunks, forward as plan_step events
+    chunks_data: List[Dict[str, Any]] = []
+    async for chunk_str in agent.handle_message(
+        user_msg, ctx, context.db if hasattr(context, "db") else None,
+        project_id=context.project_id if hasattr(context, "project_id") else None,
+    ):
+        # Parse the SSE chunk and forward relevant events
+        if chunk_str.startswith("data: "):
+            try:
+                chunk = json.loads(chunk_str[6:])
+                chunks_data.append(chunk)
+                # Forward structured events as plan step progress
+                chunk_type = chunk.get("type", "")
+                if chunk_type == "skill_progress":
+                    yield {
+                        "type": "plan_step_progress",
+                        "data": {
+                            "step_id": step.step_id,
+                            "skill_id": step.skill_id,
+                            "name": step_display,
+                            "sub_progress": chunk.get("data", {}),
+                        },
+                    }
+                elif chunk_type in ("content_block_start", "content_block_data", "content_block_end"):
+                    yield {"type": chunk_type, "data": chunk.get("data", {})}
+            except json.JSONDecodeError:
+                pass
+
+    # Agent finished — store output
+    elapsed = int(time.time() - elapsed_start)
+    step.status = "completed"
+    step.completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    output = ctx.to_dict()
+    plan.mark_step_completed(step.step_id, output)
+
+    yield {
+        "type": "plan_step_complete",
+        "data": {
+            "step_id": step.step_id,
+            "skill_id": step.skill_id,
+            "name": step_display,
+            "status": "completed",
+            "duration": elapsed,
+            "output_summary": _summarize_output("proposal_agent", output),
+        },
+    }
+
+
+async def _run_visual_concept_agent_step(
+    plan: ExecutionPlan,
+    context: "SkillContext",
+    step: PlanStep,
+    step_display: str,
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """Run VisualConceptAgent as a plan step, pre-populated from proposal output."""
+    from app.agents.visual_concept import VisualConceptAgent, VisualConceptContext, VisualRequirement
+
+    proposal_data = plan.step_outputs.get("proposal_agent", {})
+    handoff = proposal_data.get("output_for_next_agent") or {}
+
+    # Build visual context from proposal handoff
+    ctx = VisualConceptContext()
+    if handoff:
+        ctx.requirement = VisualRequirement(
+            raw_input=handoff.get("visual_direction", ""),
+            scene=handoff.get("scene"),
+            visual_style=handoff.get("visual_style"),
+            brand_or_theme=handoff.get("brand_or_theme"),
+            target_audience=handoff.get("target_audience"),
+            key_elements=handoff.get("key_elements", []),
+        )
+    else:
+        user_msg = plan.context.get("user_message", "")
+        ctx.requirement = VisualRequirement(raw_input=user_msg)
+
+    # Auto-create initial node since requirement is pre-filled
+    ctx.create_initial_node()
+
+    agent = VisualConceptAgent()
+    elapsed_start = time.time()
+
+    async for chunk_str in agent.handle_message(
+        ctx.requirement.raw_input, ctx,
+        context.db if hasattr(context, "db") else None,
+        project_id=context.project_id if hasattr(context, "project_id") else None,
+    ):
+        if chunk_str.startswith("data: "):
+            try:
+                chunk = json.loads(chunk_str[6:])
+                chunk_type = chunk.get("type", "")
+                if chunk_type == "skill_progress":
+                    yield {
+                        "type": "plan_step_progress",
+                        "data": {
+                            "step_id": step.step_id,
+                            "skill_id": step.skill_id,
+                            "name": step_display,
+                            "sub_progress": chunk.get("data", {}),
+                        },
+                    }
+                elif chunk_type in (
+                    "visual_strategy", "visual_result",
+                    "quality_check", "action_buttons",
+                    "content_block_start", "content_block_data", "content_block_end",
+                ):
+                    yield {"type": chunk_type, "data": chunk.get("data", {})}
+            except json.JSONDecodeError:
+                pass
+
+    elapsed = int(time.time() - elapsed_start)
+    step.status = "completed"
+    step.completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    output = ctx.to_dict()
+    plan.mark_step_completed(step.step_id, output)
+
+    yield {
+        "type": "plan_step_complete",
+        "data": {
+            "step_id": step.step_id,
+            "skill_id": step.skill_id,
+            "name": step_display,
+            "status": "completed",
+            "duration": elapsed,
+            "output_summary": _summarize_output("visual_concept_agent", output),
+        },
+    }

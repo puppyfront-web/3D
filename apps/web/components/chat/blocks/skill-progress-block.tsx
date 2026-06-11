@@ -42,6 +42,10 @@ export function SkillProgressBlock({ data }: SkillProgressBlockProps) {
     image_generation: "图片生成",
     case_retrieval: "案例检索",
     export: "方案导出",
+    proposal_agent: "策划案专家",
+    visual_concept_agent: "视觉创意专家",
+    visual_strategy: "视觉策略",
+    prompt_generation: "图像描述",
   };
 
   return (
