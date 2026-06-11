@@ -7,6 +7,7 @@ from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ttl_cache import TTLCachedService
 from app.models.document import Document, DocumentChunk
 from app.rag.chunker import TextChunker
 from app.services.document_parser import DocumentParser
@@ -22,17 +23,17 @@ class DocumentIndexer:
         chunk_size: int = 800,
         chunk_overlap: int = 100,
     ):
-        self._embedding_service = embedding_service
+        self._embedding = TTLCachedService(
+            factory=get_embedding_service, initial=embedding_service,
+        )
         self._chunker = TextChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         self._parser = DocumentParser()
 
     async def _get_embedding_service(
         self, db: AsyncSession
     ) -> EmbeddingService:
-        """Resolve the embedding service, reading config from the database."""
-        if self._embedding_service is None:
-            self._embedding_service = await get_embedding_service(db=db)
-        return self._embedding_service
+        """Resolve the embedding service, refreshing from DB config after TTL."""
+        return await self._embedding.get(db)
 
     async def index_document(
         self,

@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ttl_cache import TTLCachedService
 from app.services.embedding_service import EmbeddingService, get_embedding_service
 
 
@@ -55,15 +56,15 @@ class HybridRetrievalService(RetrievalService):
     """Hybrid retrieval combining keyword matching and vector similarity."""
 
     def __init__(self, embedding_service: Optional[EmbeddingService] = None):
-        self._embedding_service = embedding_service
+        self._embedding = TTLCachedService(
+            factory=get_embedding_service, initial=embedding_service,
+        )
 
     async def _get_embedding_service(
         self, db: Optional[AsyncSession] = None
     ) -> EmbeddingService:
-        """Resolve the embedding service, reading config from the database."""
-        if self._embedding_service is None:
-            self._embedding_service = await get_embedding_service(db=db)
-        return self._embedding_service
+        """Resolve the embedding service, refreshing from DB config after TTL."""
+        return await self._embedding.get(db)
 
     async def search(
         self,

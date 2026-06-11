@@ -8,18 +8,13 @@ Design principle: ReAct-first intent detection.
 
 import json
 import logging
-import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from app.core.ttl_cache import TTLCachedService
 from app.services.llm_service import get_llm_service
 
 logger = logging.getLogger(__name__)
-
-# How long a cached LLM service stays valid before we re-read model config
-# from the DB (admin UI). Keeps long-lived singletons in sync with frontend
-# config changes without rebuilding the provider on every call.
-_SERVICE_TTL_SECONDS = 30.0
 
 # ── Unambiguous fast-path keywords ─────────────────────────────
 # Only include keywords where there is ZERO ambiguity about the intent.
@@ -66,8 +61,7 @@ class IntentDetector:
     """
 
     def __init__(self) -> None:
-        self._llm = None
-        self._llm_cached_at: float = 0.0
+        self._llm = TTLCachedService(factory=get_llm_service, ttl_seconds=30.0)
 
     async def detect(
         self,
@@ -83,21 +77,19 @@ class IntentDetector:
             return fast_result
 
         # 2. ReAct reasoning (primary path for all non-trivial detection)
-        # Rebuild the LLM service if it was never built or the cached one is
-        # older than the TTL, so admin-UI model-config changes take effect live.
-        if self._llm is None or (time.monotonic() - self._llm_cached_at) > _SERVICE_TTL_SECONDS:
-            self._llm = await get_llm_service(db)
-            self._llm_cached_at = time.monotonic()
+        # The LLM service is refreshed from DB config every 30s (admin-UI model
+        # changes take effect live). See TTLCachedService.
+        llm = await self._llm.get(db)
         try:
             from app.services.react_intent import react_classify
             return await react_classify(
                 message, conversation_history, project_context,
-                llm_service=self._llm,
+                llm_service=llm,
             )
         except Exception:
             logger.exception("ReAct intent detection failed, falling back to single-shot")
             try:
-                return await self._llm_classify(message, conversation_history, project_context)
+                return await self._llm_classify(message, conversation_history, project_context, llm)
             except Exception:
                 logger.exception("Single-shot LLM intent detection also failed")
                 return IntentResult(
@@ -166,6 +158,7 @@ class IntentDetector:
         message: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         project_context: Optional[Dict[str, Any]] = None,
+        llm: Optional[Any] = None,
     ) -> IntentResult:
         """Single-shot LLM fallback (only used when ReAct fails)."""
         context_parts = [f"用户消息：{message}"]
@@ -226,7 +219,7 @@ class IntentDetector:
 只返回 JSON，不要其他内容。"""
 
         prompt = "\n".join(context_parts)
-        result = await self._llm.generate_json(
+        result = await llm.generate_json(
             prompt=prompt,
             system_prompt=system_prompt,
             temperature=0.1,
