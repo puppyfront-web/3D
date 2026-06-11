@@ -345,6 +345,48 @@ class TestExportGate:
             pytest.fail("Export gate should have passed but returned 403")
 
     @pytest.mark.asyncio
+    async def test_export_accepts_output_id_for_frontend_compatibility(self, client, generation_task_with_output):
+        task, output = generation_task_with_output
+
+        for order in range(1, 4):
+            await client.patch(
+                f"/api/v1/generations/outputs/{output.id}/sections/{order}/status",
+                json={"status": "approved", "reviewed_by": "admin"},
+            )
+
+        response = await client.post(f"/api/v1/exports/word/{output.id}")
+        if response.status_code == 404:
+            pytest.fail("Export endpoint should resolve a GenerationOutput id to its task")
+        if response.status_code == 403:
+            pytest.fail("Export gate should have passed for an approved output id")
+
+    @pytest.mark.asyncio
+    async def test_export_blocks_unconfirmed_human_review_sections(self, client, generation_task_with_output):
+        task, output = generation_task_with_output
+
+        output.sections_meta = [
+            {
+                "id": str(uuid.uuid4()),
+                "title": "风险与待确认事项",
+                "order": 1,
+                "status": "approved",
+                "reviewed_by": "admin",
+                "reviewed_at": "2026-06-11T00:00:00+00:00",
+                "require_human_review": True,
+                "human_confirmed": False,
+            },
+        ]
+        await client.put(
+            f"/api/v1/generations/outputs/{output.id}",
+            json={"sections_meta": output.sections_meta},
+        )
+
+        response = await client.post(f"/api/v1/exports/pdf/{task.id}")
+        assert response.status_code == 403
+        blockers = response.json()["detail"]["blockers"]
+        assert any("需人工确认" in item for item in blockers)
+
+    @pytest.mark.asyncio
     async def test_export_allowed_legacy_data(self, client, generation_output_no_meta):
         task, output = generation_output_no_meta
 

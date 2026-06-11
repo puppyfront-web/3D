@@ -54,15 +54,14 @@ export default function ExportsPage() {
   const [records, setRecords] = useState<ExportRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
-  // Latest proposal output id for export
-  const [latestOutputId, setLatestOutputId] = useState<string | null>(null);
+  const [latestTaskId, setLatestTaskId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getProposalTasksForExport(projectId);
       if (result.success) {
-        setLatestOutputId(result.latestOutputId);
+        setLatestTaskId(result.latestTaskId);
         setRecords(result.records.map((r) => ({
           ...r,
           format: "DOCX",
@@ -77,10 +76,10 @@ export default function ExportsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleExport = async (outputId: string, format: "word" | "pdf" | "pptx") => {
+  const handleExport = async (taskId: string, format: "word" | "pdf" | "pptx") => {
     setExporting(true);
     try {
-      const blob = await exportProposal(outputId, format);
+      const blob = await exportProposal(taskId, format);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -110,7 +109,7 @@ export default function ExportsPage() {
           <h2 className="text-lg font-semibold text-[#1A1A2E]">导出记录</h2>
           <p className="text-sm text-gray-500 mt-1">导出策划案为 Word / PDF / PPTX 格式</p>
         </div>
-        {latestOutputId && (
+        {latestTaskId && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -127,13 +126,13 @@ export default function ExportsPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleExport(latestOutputId, "word")}>
+              <DropdownMenuItem onClick={() => handleExport(latestTaskId, "word")}>
                 Word (.docx)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport(latestOutputId, "pdf")}>
+              <DropdownMenuItem onClick={() => handleExport(latestTaskId, "pdf")}>
                 PDF
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport(latestOutputId, "pptx")}>
+              <DropdownMenuItem onClick={() => handleExport(latestTaskId, "pptx")}>
                 PPTX
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -220,13 +219,13 @@ export default function ExportsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleExport(rec.outputId, "word")}>
+                          <DropdownMenuItem onClick={() => handleExport(rec.id, "word")}>
                             Word (.docx)
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleExport(rec.outputId, "pdf")}>
+                          <DropdownMenuItem onClick={() => handleExport(rec.id, "pdf")}>
                             PDF
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleExport(rec.outputId, "pptx")}>
+                          <DropdownMenuItem onClick={() => handleExport(rec.id, "pptx")}>
                             PPTX
                           </DropdownMenuItem>
                         </DropdownMenuContent>

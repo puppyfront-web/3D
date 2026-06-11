@@ -18,18 +18,29 @@ from app.schemas.common import Response
 router = APIRouter(prefix="/exports", tags=["exports"])
 
 
-async def _get_task_output(task_id: uuid.UUID, db: AsyncSession):
-    """Helper: look up a GenerationTask and its output."""
-    task = await db.get(GenerationTask, task_id)
-    if not task:
-        raise NotFoundException("GenerationTask", str(task_id))
+async def _get_task_output(generation_id: uuid.UUID, db: AsyncSession):
+    """Look up a GenerationTask and output.
 
-    result = await db.execute(
-        select(GenerationOutput).where(GenerationOutput.task_id == task_id)
-    )
-    output = result.scalars().first()
+    The canonical ID is GenerationTask.id. For frontend compatibility, also
+    accept GenerationOutput.id and resolve it back to its parent task.
+    """
+    task = await db.get(GenerationTask, generation_id)
+    output = None
+
+    if task:
+        result = await db.execute(
+            select(GenerationOutput).where(GenerationOutput.task_id == generation_id)
+        )
+        output = result.scalars().first()
+    else:
+        output = await db.get(GenerationOutput, generation_id)
+        if output:
+            task = await db.get(GenerationTask, output.task_id)
+
+    if not task:
+        raise NotFoundException("GenerationTask or GenerationOutput", str(generation_id))
     if not output:
-        raise NotFoundException("GenerationOutput for task", str(task_id))
+        raise NotFoundException("GenerationOutput for task", str(task.id))
     return task, output
 
 
@@ -48,6 +59,8 @@ def _check_export_eligibility(output: GenerationOutput) -> tuple[bool, list[str]
     for section in meta:
         if section.get("status") != "approved":
             blockers.append(f"章节「{section.get('title', '?')}」未审核通过")
+        if section.get("require_human_review") and not section.get("human_confirmed"):
+            blockers.append(f"章节「{section.get('title', '?')}」需人工确认")
 
     return len(blockers) == 0, blockers
 

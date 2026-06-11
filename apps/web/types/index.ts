@@ -203,6 +203,7 @@ export interface ProposalSection {
 
 export interface Proposal {
   id: string;
+  taskId?: string;
   projectId?: string;
   title: string;
   sections: ProposalSection[];

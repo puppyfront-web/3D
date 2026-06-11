@@ -130,7 +130,10 @@ export async function getProposal(projectId: string): Promise<ApiResponse<Propos
     return { data: null as unknown as Proposal, success: false, message: "策划案尚未生成完成" };
   }
   const output = outputs[0] as Record<string, unknown>;
-  const sectionsMeta = (output.sections_meta as Record<string, unknown>[]) || [];
+  const sectionsMeta =
+    (output.sections_meta as Record<string, unknown>[]) ||
+    (output.sectionsMeta as Record<string, unknown>[]) ||
+    [];
   const content = (output.content as string) || "";
 
   // Parse sections from content + sections_meta
@@ -148,9 +151,10 @@ export async function getProposal(projectId: string): Promise<ApiResponse<Propos
 
   const proposal: Proposal = {
     id: output.id as string,
+    taskId: task.id as string,
     title: `${(task.type as string) || "策划案"} — ${(task.created_at as string || "").slice(0, 10)}`,
     version: (output.version as number) || 1,
-    lastEditedAt: (output.updated_at as string) || new Date().toISOString(),
+    lastEditedAt: (output.updated_at as string) || (output.updatedAt as string) || new Date().toISOString(),
     totalWords: content.length,
     sections,
     usedCases: (output.used_cases as string[]) || [],
@@ -190,7 +194,10 @@ export async function updateProposalSection(
   }
   // Re-parse the updated output into a Proposal
   const output = res.data;
-  const sectionsMeta = (output.sections_meta as Record<string, unknown>[]) || [];
+  const sectionsMeta =
+    (output.sections_meta as Record<string, unknown>[]) ||
+    (output.sectionsMeta as Record<string, unknown>[]) ||
+    [];
   const fullContent = (output.content as string) || content;
   const sections: Proposal["sections"] = sectionsMeta.map((m) => {
     const order = m.order as number;
@@ -205,9 +212,10 @@ export async function updateProposalSection(
   });
   const proposal: Proposal = {
     id: output.id as string,
+    taskId: (output.task_id as string) || (output.taskId as string),
     title: `策划案`,
     version: (output.version as number) || 1,
-    lastEditedAt: (output.updated_at as string) || new Date().toISOString(),
+    lastEditedAt: (output.updated_at as string) || (output.updatedAt as string) || new Date().toISOString(),
     totalWords: fullContent.length,
     sections,
   };
@@ -229,10 +237,10 @@ export async function updateSectionStatus(
 }
 
 export async function exportProposal(
-  outputId: string,
+  taskId: string,
   format: "word" | "pdf" | "pptx"
 ): Promise<Blob> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/exports/${format}/${outputId}`, {
+  const res = await fetch(`${API_BASE_URL}/api/v1/exports/${format}/${taskId}`, {
     method: "POST",
   });
   if (!res.ok) {
@@ -347,24 +355,25 @@ export async function getReviewChecklists(projectId: string): Promise<ApiRespons
 export async function getProposalTasksForExport(projectId: string): Promise<{
   success: boolean;
   records: { id: string; outputId: string; filename: string; exportedAt: string; status: string }[];
-  latestOutputId: string | null;
+  latestTaskId: string | null;
 }> {
   const res = await apiFetch<{ items: Record<string, unknown>[]; total: number }>(
     `/api/v1/generations/tasks?project_id=${projectId}&task_type=proposal&page_size=5`
   );
-  if (!res.success || !res.data) return { success: false, records: [], latestOutputId: null };
+  if (!res.success || !res.data) return { success: false, records: [], latestTaskId: null };
 
   const records: { id: string; outputId: string; filename: string; exportedAt: string; status: string }[] = [];
-  let latestOutputId: string | null = null;
+  let latestTaskId: string | null = null;
 
   for (const task of res.data.items) {
     const outputs = (task.outputs as Record<string, unknown>[]) || [];
     if (outputs.length > 0) {
       const out = outputs[0];
       const outputId = out.id as string;
-      if (!latestOutputId) latestOutputId = outputId;
+      const taskId = task.id as string;
+      if (!latestTaskId) latestTaskId = taskId;
       records.push({
-        id: task.id as string,
+        id: taskId,
         outputId,
         filename: `策划案_${(task.created_at as string || "").slice(0, 10)}`,
         exportedAt: out.updated_at as string || task.created_at as string || "",
@@ -372,7 +381,7 @@ export async function getProposalTasksForExport(projectId: string): Promise<{
       });
     }
   }
-  return { success: true, records, latestOutputId };
+  return { success: true, records, latestTaskId };
 }
 
 export async function exportToWord(taskId: string): Promise<ApiResponse<{ file_path: string }>> {

@@ -143,7 +143,7 @@ export default function ProposalPage() {
   const handleExport = async (format: "word" | "pdf" | "pptx") => {
     if (!proposal?.id) return;
     try {
-      const blob = await exportProposal(proposal.id, format);
+      const blob = await exportProposal(proposal.taskId || proposal.id, format);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
