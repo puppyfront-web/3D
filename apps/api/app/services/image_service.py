@@ -9,9 +9,12 @@ Supported providers:
 """
 
 from abc import ABC, abstractmethod
+import logging
 from typing import Optional
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ImageGenerationService(ABC):
@@ -117,7 +120,11 @@ async def get_image_service(db=None) -> ImageGenerationService:
         quality = settings.image_quality
 
     if provider in ("openai", "dalle"):
-        from app.services.image.openai_provider import DallEImageGenerationService
+        try:
+            from app.services.image.openai_provider import DallEImageGenerationService
+        except ImportError as exc:
+            logger.warning("OpenAI image provider unavailable, falling back to mock: %s", exc)
+            return MockImageGenerationService()
         return DallEImageGenerationService(
             api_key=api_key,
             base_url=base_url or None,
@@ -140,7 +147,11 @@ async def get_image_service(db=None) -> ImageGenerationService:
         )
 
     if provider == "custom":
-        from app.services.image.openai_provider import DallEImageGenerationService
+        try:
+            from app.services.image.openai_provider import DallEImageGenerationService
+        except ImportError as exc:
+            logger.warning("Custom image provider unavailable, falling back to mock: %s", exc)
+            return MockImageGenerationService()
         return DallEImageGenerationService(
             api_key=api_key,
             base_url=base_url or None,

@@ -3,11 +3,12 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
+from app.db.session import get_db
 
 
 def create_app() -> FastAPI:
@@ -122,13 +123,20 @@ async def root():
 
 
 @app.get("/health", tags=["health"])
-async def health_check():
-    """Detailed health check."""
+async def health_check(db=Depends(get_db)):
+    """Detailed health check.
+
+    Provider fields reflect the *live* config from the database (admin UI),
+    falling back to .env only when the DB has no value — so this stays in sync
+    with what the service factories actually use.
+    """
+    from app.services.settings_service import SettingsService
+
     return {
         "status": "healthy",
         "version": settings.app_version,
         "debug": settings.debug,
-        "llm_provider": settings.llm_provider,
-        "embedding_provider": settings.embedding_provider,
-        "image_provider": settings.image_provider,
+        "llm_provider": await SettingsService.get_raw(db, "llm_provider", settings.llm_provider),
+        "embedding_provider": await SettingsService.get_raw(db, "embedding_provider", settings.embedding_provider),
+        "image_provider": await SettingsService.get_raw(db, "image_provider", settings.image_provider),
     }

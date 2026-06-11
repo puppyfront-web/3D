@@ -1,11 +1,14 @@
 """Abstract embedding service interface and MockEmbeddingService."""
 
 import hashlib
+import logging
 import math
 from abc import ABC, abstractmethod
 from typing import List
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 EMBEDDING_DIMENSION = 1536
 
@@ -75,22 +78,35 @@ async def get_embedding_service(db=None) -> EmbeddingService:
         provider = settings.embedding_provider
 
     if provider == "openai":
-        from app.services.embedding.openai_provider import OpenAIEmbeddingService
+        try:
+            from app.services.embedding.openai_provider import OpenAIEmbeddingService
+        except ImportError as exc:
+            logger.warning("OpenAI embedding provider unavailable, falling back to mock: %s", exc)
+            return MockEmbeddingService()
 
         if db is not None:
             from app.services.settings_service import SettingsService
             api_key = await SettingsService.get_raw(db, "embedding_api_key", settings.embedding_api_key)
             base_url = await SettingsService.get_raw(db, "embedding_base_url", settings.embedding_base_url)
             model = await SettingsService.get_raw(db, "embedding_model", settings.embedding_model)
+            # 维度也走 DB（DB 存 text，需 int 转换）；空则回退 .env
+            dim_raw = await SettingsService.get_raw(
+                db, "embedding_dimensions", str(settings.embedding_dimensions)
+            )
+            try:
+                dimensions = int(dim_raw)
+            except (TypeError, ValueError):
+                dimensions = settings.embedding_dimensions
         else:
             api_key = settings.embedding_api_key
             base_url = settings.embedding_base_url
             model = settings.embedding_model
+            dimensions = settings.embedding_dimensions
 
         return OpenAIEmbeddingService(
             api_key=api_key,
             base_url=base_url or None,
             model=model,
-            dimensions=settings.embedding_dimensions,
+            dimensions=dimensions,
         )
     return MockEmbeddingService()

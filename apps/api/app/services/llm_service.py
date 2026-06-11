@@ -1,9 +1,12 @@
 """Abstract LLM service interface and MockLLMService implementation."""
 
 from abc import ABC, abstractmethod
+import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class LLMService(ABC):
@@ -317,7 +320,11 @@ async def get_llm_service(db=None) -> LLMService:
         provider = settings.llm_provider
 
     if provider in ("openai", "custom"):
-        from app.services.llm.openai_provider import OpenAILLMService
+        try:
+            from app.services.llm.openai_provider import OpenAILLMService
+        except ImportError as exc:
+            logger.warning("OpenAI LLM provider unavailable, falling back to mock: %s", exc)
+            return MockLLMService()
 
         if db is not None:
             from app.services.settings_service import SettingsService

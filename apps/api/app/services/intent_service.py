@@ -8,12 +8,18 @@ Design principle: ReAct-first intent detection.
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from app.services.llm_service import get_llm_service
 
 logger = logging.getLogger(__name__)
+
+# How long a cached LLM service stays valid before we re-read model config
+# from the DB (admin UI). Keeps long-lived singletons in sync with frontend
+# config changes without rebuilding the provider on every call.
+_SERVICE_TTL_SECONDS = 30.0
 
 # ── Unambiguous fast-path keywords ─────────────────────────────
 # Only include keywords where there is ZERO ambiguity about the intent.
@@ -61,6 +67,7 @@ class IntentDetector:
 
     def __init__(self) -> None:
         self._llm = None
+        self._llm_cached_at: float = 0.0
 
     async def detect(
         self,
@@ -76,8 +83,11 @@ class IntentDetector:
             return fast_result
 
         # 2. ReAct reasoning (primary path for all non-trivial detection)
-        if self._llm is None:
+        # Rebuild the LLM service if it was never built or the cached one is
+        # older than the TTL, so admin-UI model-config changes take effect live.
+        if self._llm is None or (time.monotonic() - self._llm_cached_at) > _SERVICE_TTL_SECONDS:
             self._llm = await get_llm_service(db)
+            self._llm_cached_at = time.monotonic()
         try:
             from app.services.react_intent import react_classify
             return await react_classify(

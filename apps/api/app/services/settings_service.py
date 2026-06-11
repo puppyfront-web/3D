@@ -23,6 +23,8 @@ _SETTING_KEYS: Dict[str, str] = {
     "image_api_key": "image_api_key",
     "image_base_url": "image_base_url",
     "image_model": "image_model",
+    "image_quality": "image_quality",
+    "embedding_dimensions": "embedding_dimensions",
 }
 
 # Keys that contain sensitive data

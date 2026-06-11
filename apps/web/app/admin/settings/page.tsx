@@ -46,6 +46,10 @@ export default function SettingsPage() {
     model: "dall-e-3",
   });
 
+  // 卡片专属参数：embedding 维度、image 质量
+  const [embeddingDimensions, setEmbeddingDimensions] = useState("1536");
+  const [imageQuality, setImageQuality] = useState("high");
+
   const [showKeys, setShowKeys] = useState({
     llm: false,
     embedding: false,
@@ -75,6 +79,8 @@ export default function SettingsPage() {
         baseUrl: d.image_base_url || "",
         model: d.image_model || "dall-e-3",
       });
+      setEmbeddingDimensions(d.embedding_dimensions || "1536");
+      setImageQuality(d.image_quality || "high");
     }
     setLoading(false);
   }, []);
@@ -99,6 +105,8 @@ export default function SettingsPage() {
       image_api_key: image.apiKey,
       image_base_url: image.baseUrl,
       image_model: image.model,
+      embedding_dimensions: embeddingDimensions,
+      image_quality: imageQuality,
     });
     if (res.success) {
       setSaved(true);
@@ -124,6 +132,7 @@ export default function SettingsPage() {
     onChange: (c: ServiceConfig) => void,
     keyName: "llm" | "embedding" | "image",
     defaultModels: string[],
+    extra?: React.ReactNode,
   ) => (
     <Card className="border-gray-200">
       <CardHeader className="pb-4">
@@ -193,6 +202,7 @@ export default function SettingsPage() {
             onChange={(e) => onChange({ ...config, baseUrl: e.target.value })}
           />
         </div>
+        {extra}
       </CardContent>
     </Card>
   );
@@ -226,6 +236,16 @@ export default function SettingsPage() {
           setEmbedding,
           "embedding",
           ["text-embedding-3-small", "text-embedding-3-large"],
+          <div className="space-y-2">
+            <Label className="text-xs">向量维度</Label>
+            <Input
+              className="h-9"
+              type="number"
+              placeholder="1536"
+              value={embeddingDimensions}
+              onChange={(e) => setEmbeddingDimensions(e.target.value)}
+            />
+          </div>,
         )}
 
         {renderServiceCard(
@@ -235,6 +255,22 @@ export default function SettingsPage() {
           setImage,
           "image",
           ["dall-e-3", "flux-schnell", "cogview-4"],
+          <div className="space-y-2">
+            <Label className="text-xs">图片质量</Label>
+            <Select
+              value={imageQuality}
+              onValueChange={(v) => setImageQuality(v)}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="high">高</SelectItem>
+                <SelectItem value="standard">标准</SelectItem>
+                <SelectItem value="low">低</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>,
         )}
       </div>
 
