@@ -36,6 +36,76 @@ _CONVERSATION_SYSTEM_PROMPT = """你是花生ONE 展厅+文旅 AI 专家系统�
 - 回答要专业、简洁、有建设性""" + GLOBAL_CAPABILITY_CONSTRAINT
 
 
+def _parse_sse(chunk: str) -> Optional[Dict[str, Any]]:
+    """Parse one SSE-formatted line (`data: {json}\\n\\n`) into a dict.
+
+    Returns None for non-SSE or malformed lines (mirrors the frontend, which
+    silently ignores unparseable chunks).
+    """
+    if not chunk or not chunk.startswith("data: "):
+        return None
+    try:
+        return json.loads(chunk[len("data: "):].strip())
+    except (ValueError, TypeError):
+        return None
+
+
+class _StreamAccumulator:
+    """Collects user-facing text + content blocks from an SSE chunk stream.
+
+    Mirrors the frontend's collection logic in apps/web/lib/chat-api.ts
+    (streamChat `done` handler) so that what gets persisted to the DB matches
+    exactly what the user saw during live streaming. This is what makes a
+    conversation survive reload (switching chats and coming back): the agent
+    flows previously persisted only a placeholder string and lost all real
+    content.
+    """
+
+    _STRUCTURAL = {
+        "content_block_start",
+        "content_block_end",
+        "done",
+        "error",
+    }
+
+    def __init__(self) -> None:
+        self._text: List[str] = []
+        self.blocks: List[Dict[str, Any]] = []
+
+    def feed(self, sse_chunk: str) -> None:
+        payload = _parse_sse(sse_chunk)
+        if payload is None:
+            return
+        ctype = payload.get("type")
+        if ctype == "text_delta":
+            text = payload.get("text") or ""
+            if text:
+                self._text.append(text)
+        elif ctype == "content_block_data":
+            data = payload.get("data") or {}
+            if isinstance(data, dict) and data.get("type"):
+                self.blocks.append(data)
+        elif ctype in self._STRUCTURAL:
+            return
+        else:
+            # Raw block type (skill_progress / action_buttons / visual_result /
+            # context_card / artifact_summary / quality_check / ...). The
+            # frontend collects these as {type, data}.
+            data = payload.get("data")
+            if isinstance(data, dict):
+                self.blocks.append({"type": ctype, "data": data})
+            elif payload.get("text"):
+                self._text.append(payload["text"])
+
+    @property
+    def text(self) -> str:
+        return "".join(self._text)
+
+    @property
+    def rich_content(self) -> Optional[Dict[str, Any]]:
+        return {"blocks": self.blocks} if self.blocks else None
+
+
 class ConversationService:
     """Orchestrates the full conversation flow."""
 
@@ -924,16 +994,22 @@ class ConversationService:
             ctx.requirement.raw_input = user_message
 
         agent = VisualConceptAgent()
+        acc = _StreamAccumulator()
         async for chunk in agent.handle_message(user_message, ctx, db, project_id=project_id):
             yield chunk
+            acc.feed(chunk)
 
-        # Save context to assistant message metadata
+        # Persist the real streamed content (text + blocks) so the conversation
+        # survives reload. Internal markers like "[visual concept context
+        # saved]" must never be user-facing message content; the live SSE
+        # stream is exactly what should be persisted.
         await self.save_message(
             db=db,
             conversation_id=conversation_id,
             role="assistant",
-            content="[visual concept context saved]",
-            content_type="text",
+            content=acc.text,
+            content_type="rich" if acc.blocks else "text",
+            rich_content=acc.rich_content,
             metadata=ctx.to_dict(),
             auto_commit=True,
         )
@@ -960,16 +1036,23 @@ class ConversationService:
             ctx.requirement.raw_input = user_message
 
         agent = ProposalAgent()
+        acc = _StreamAccumulator()
         async for chunk in agent.handle_message(user_message, ctx, db, project_id=project_id):
             yield chunk
+            acc.feed(chunk)
 
-        # Save context to assistant message metadata
+        # Persist the real streamed content (text + blocks) so the conversation
+        # survives reload. Internal markers like "[proposal context saved]"
+        # must never be user-facing message content; the live SSE stream is
+        # exactly what should be persisted (proposal_section blocks carry the
+        # 引用来源 used_cases too).
         await self.save_message(
             db=db,
             conversation_id=conversation_id,
             role="assistant",
-            content="[proposal context saved]",
-            content_type="text",
+            content=acc.text,
+            content_type="rich" if acc.blocks else "text",
+            rich_content=acc.rich_content,
             metadata=ctx.to_dict(),
             auto_commit=True,
         )
@@ -1027,18 +1110,23 @@ class ConversationService:
             vctx.requirement.constraints = handoff.get("constraints")
 
         agent = VisualConceptAgent()
+        acc = _StreamAccumulator()
         async for chunk in agent.handle_message(
             vctx.requirement.raw_input, vctx, db, project_id=project_id
         ):
             yield chunk
+            acc.feed(chunk)
 
-        # Persist the visual context so subsequent modify/confirm turns resume it
+        # Persist the visual context (real streamed content + blocks) so
+        # subsequent modify/confirm turns resume it AND the conversation
+        # survives reload without leaking a placeholder string.
         await self.save_message(
             db=db,
             conversation_id=conversation_id,
             role="assistant",
-            content="[visual concept context saved]",
-            content_type="text",
+            content=acc.text,
+            content_type="rich" if acc.blocks else "text",
+            rich_content=acc.rich_content,
             metadata=vctx.to_dict(),
             auto_commit=True,
         )
