@@ -1,18 +1,20 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 # 3D Wall AI 一键部署脚本
-# 用法: ./deploy.sh [--skip-check] [--no-build]
+# 用法: ./deploy.sh [--skip-check] [--no-build] [--skip-mirror]
 # ═══════════════════════════════════════════════════════════════
 set -e
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 SKIP_CHECK=false
 NO_BUILD=false
+SKIP_MIRROR=false
 
 for arg in "$@"; do
     case $arg in
-        --skip-check) SKIP_CHECK=true ;;
-        --no-build)   NO_BUILD=true ;;
+        --skip-check)  SKIP_CHECK=true ;;
+        --no-build)    NO_BUILD=true ;;
+        --skip-mirror) SKIP_MIRROR=true ;;
     esac
 done
 
@@ -40,12 +42,26 @@ if [ "${SKIP_CHECK}" = false ]; then
     fi
     echo "  ✅ Docker Compose: $(docker compose version --short)"
 
-    # 检查镜像加速（仅 Linux 服务器，国内拉取 Docker Hub 镜像更快）
+    # 镜像加速（国内/阿里云无 VPN 环境必备，否则拉 Docker Hub 镜像会超时失败）
     if [ "$(uname -s)" = "Linux" ]; then
         MIRRORS=$(docker info --format '{{range .RegistryMirrors}}{{.}} {{end}}' 2>/dev/null || true)
         if [ -z "${MIRRORS}" ]; then
-            echo "  💡 未配置镜像加速，国内拉取镜像可能较慢"
-            echo "     一键配置（阿里云）: sudo ./scripts/setup-docker-mirror.sh"
+            if [ "${SKIP_MIRROR}" = true ]; then
+                echo "  ⚠️  未配置镜像加速（--skip-mirror），拉取 Docker Hub 镜像可能超时"
+            elif [ -f ./scripts/setup-docker-mirror.sh ] && sudo -n true 2>/dev/null; then
+                echo "  ⚙️  未配置镜像加速，自动配置多源加速（需重启 Docker）..."
+                sudo ./scripts/setup-docker-mirror.sh
+            else
+                echo "❌ 未配置镜像加速，国内拉取 Docker Hub 镜像会超时失败"
+                echo "   请先执行（阿里云强烈推荐用专属加速地址，最快最稳）:"
+                echo "     阿里云控制台 → 容器镜像服务 → 镜像加速器，复制地址后:"
+                echo "     sudo ./scripts/setup-docker-mirror.sh https://xxxx.mirror.aliyuncs.com"
+                echo "   配置完成后重新运行 ./deploy.sh"
+                echo "   或跳过本检查（不推荐）: ./deploy.sh --skip-mirror"
+                exit 1
+            fi
+        else
+            echo "  ✅ 镜像加速已配置"
         fi
     fi
 
@@ -84,6 +100,13 @@ fi
 # ─── Step 2: 构建镜像 ──────────────────────────────────────────────
 if [ "${NO_BUILD}" = false ]; then
     echo "🔨 [2/5] 构建 Docker 镜像..."
+    # 先预拉取基础镜像到本地：BuildKit 不一定读取 daemon.json 的 registry-mirrors，
+    # 直接 build 可能绕过加速直连 Docker Hub 超时。预先 docker pull（走加速）让其
+    # 命中本地缓存后，build 的 FROM 即不再触网。
+    if [ -f ./scripts/pull-base-images.sh ]; then
+        echo "  ⬇️  预拉取基础镜像..."
+        ./scripts/pull-base-images.sh
+    fi
     docker compose -f "${COMPOSE_FILE}" build --parallel 2>&1 | tail -5
     echo "  ✅ 镜像构建完成"
     echo ""
