@@ -29,16 +29,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Edit3, Trash2, Cpu, ToggleLeft, ToggleRight, Loader2 } from "lucide-react";
+import { Plus, Search, Edit3, Trash2, Download, Cpu, ToggleLeft, ToggleRight, Loader2 } from "lucide-react";
 import {
   getTechnicalRules,
   createTechnicalRule,
   updateTechnicalRule,
   deleteTechnicalRule,
   importTechnicalRules,
+  exportTechnicalRules,
+  exportTechnicalRule,
 } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
-import type { TechnicalRule } from "@/types";
+import type { TechnicalRule, ImportMode } from "@/types";
 
 const severityColor = {
   critical: "text-[#EF4444] bg-red-50 border-red-200",
@@ -87,13 +90,23 @@ export default function TechnicalRulesPage() {
     setFormRule("");
   };
 
-  const handleImport = async (file: File) => {
-    const res = await importTechnicalRules(file);
+  const handleImport = async (file: File, mode: ImportMode) => {
+    const res = await importTechnicalRules(file, mode);
     if (res.success && res.data) {
       await fetchRules();
       return res.data;
     }
     throw new Error(res.message || "导入失败");
+  };
+
+  const handleExport = async () => {
+    const blob = await exportTechnicalRules();
+    downloadBlob(blob, "technical_rules.json");
+  };
+
+  const handleExportOne = async (rule: TechnicalRule) => {
+    const blob = await exportTechnicalRule(rule.id);
+    downloadBlob(blob, `${rule.name.replace(/[/\\:*?"<>|]/g, "_")}.json`);
   };
 
   const handleCreate = async () => {
@@ -148,6 +161,10 @@ export default function TechnicalRulesPage() {
             dialogDescription="支持 JSON、TXT 格式。TXT 用空行分隔多条规则。"
             onUpload={handleImport}
           />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+            <Download className="h-3.5 w-3.5" />
+            导出
+          </Button>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
               <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
@@ -257,6 +274,7 @@ export default function TechnicalRulesPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleExportOne(rule)}><Download className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleToggle(rule)}>
                           {rule.isActive ? <ToggleRight className="h-4 w-4 text-[#10B981]" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
                         </Button>

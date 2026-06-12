@@ -4,6 +4,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import Response as RawResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +20,14 @@ from app.schemas.template import (
     ProposalTemplateOut,
     ProposalTemplateUpdate,
 )
+from app.services.config_export_service import ConfigExportService
 from app.services.import_service import ImportService
+
+_CONFLICT_MODE = Query(
+    "skip",
+    pattern="^(skip|overwrite|rename)$",
+    description="冲突策略: skip 跳过已存在 / overwrite 覆盖 / rename 建副本",
+)
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -31,22 +39,35 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 @router.post("/prompts/import", response_model=Response[ImportResponse])
 async def import_prompt_templates(
     file: UploadFile = File(...),
+    mode: str = _CONFLICT_MODE,
     db: AsyncSession = Depends(get_db),
 ):
     """Import prompt templates from JSON, TXT, or MD file."""
-    result = await ImportService.parse_file(file, "prompt_template")
-    for item in result.items:
-        tmpl = PromptTemplate(**item)
-        db.add(tmpl)
-    await db.flush()
-    return Response(
-        data=ImportResponse(
-            imported=result.imported,
-            failed=result.failed,
-            errors=result.errors,
-            message=f"成功导入 {result.imported} 条 Prompt 模板",
-        ),
-        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    parsed = await ImportService.parse_file(file, "prompt_template")
+    applied = await ImportService.apply_items(db, "prompt_template", parsed.items, mode)
+    summary = ImportService.build_import_response(parsed, applied, "Prompt 模板")
+    return Response(data=ImportResponse(**summary), message=summary["message"])
+
+
+@router.get("/prompts/export")
+async def export_prompt_templates(db: AsyncSession = Depends(get_db)):
+    """Export all prompt templates as a re-importable JSON download."""
+    payload = await ConfigExportService.export_many(db, "prompt_template")
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="prompt_templates.json"'},
+    )
+
+
+@router.get("/prompts/{template_id}/export")
+async def export_prompt_template(template_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Export a single prompt template as a re-importable JSON download."""
+    payload = await ConfigExportService.export_one(db, "prompt_template", template_id)
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="prompt_template.json"'},
     )
 
 
@@ -127,22 +148,35 @@ async def delete_prompt_template(template_id: uuid.UUID, db: AsyncSession = Depe
 @router.post("/proposals/import", response_model=Response[ImportResponse])
 async def import_proposal_templates(
     file: UploadFile = File(...),
+    mode: str = _CONFLICT_MODE,
     db: AsyncSession = Depends(get_db),
 ):
     """Import proposal templates from JSON file."""
-    result = await ImportService.parse_file(file, "proposal_template")
-    for item in result.items:
-        tmpl = ProposalTemplate(**item)
-        db.add(tmpl)
-    await db.flush()
-    return Response(
-        data=ImportResponse(
-            imported=result.imported,
-            failed=result.failed,
-            errors=result.errors,
-            message=f"成功导入 {result.imported} 条策划案模板",
-        ),
-        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    parsed = await ImportService.parse_file(file, "proposal_template")
+    applied = await ImportService.apply_items(db, "proposal_template", parsed.items, mode)
+    summary = ImportService.build_import_response(parsed, applied, "策划案模板")
+    return Response(data=ImportResponse(**summary), message=summary["message"])
+
+
+@router.get("/proposals/export")
+async def export_proposal_templates(db: AsyncSession = Depends(get_db)):
+    """Export all proposal templates as a re-importable JSON download."""
+    payload = await ConfigExportService.export_many(db, "proposal_template")
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="proposal_templates.json"'},
+    )
+
+
+@router.get("/proposals/{template_id}/export")
+async def export_proposal_template(template_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Export a single proposal template as a re-importable JSON download."""
+    payload = await ConfigExportService.export_one(db, "proposal_template", template_id)
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="proposal_template.json"'},
     )
 
 

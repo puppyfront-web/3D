@@ -10,16 +10,38 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { ImportMode } from "@/types";
+
+export interface ImportOutcome {
+  imported: number;
+  failed: number;
+  skipped?: number;
+  updated?: number;
+  errors: string[];
+}
 
 interface FileUploadButtonProps {
   accept: string;
-  onUpload: (file: File) => Promise<{ imported: number; failed: number; errors: string[] }>;
+  onUpload: (file: File, mode: ImportMode) => Promise<ImportOutcome>;
   label?: string;
   dialogTitle?: string;
   dialogDescription?: string;
   loading?: boolean;
   variant?: "default" | "outline";
 }
+
+const MODE_LABELS: Record<ImportMode, string> = {
+  skip: "跳过已存在（默认）",
+  overwrite: "覆盖同名记录",
+  rename: "导入为副本",
+};
 
 export function FileUploadButton({
   accept,
@@ -31,7 +53,8 @@ export function FileUploadButton({
 }: FileUploadButtonProps) {
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ imported: number; failed: number; errors: string[] } | null>(null);
+  const [mode, setMode] = useState<ImportMode>("skip");
+  const [result, setResult] = useState<ImportOutcome | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -44,7 +67,7 @@ export function FileUploadButton({
     setError(null);
 
     try {
-      const res = await onUpload(file);
+      const res = await onUpload(file, mode);
       setResult(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : "导入失败");
@@ -80,6 +103,24 @@ export function FileUploadButton({
             <p className="text-sm text-gray-500">{dialogDescription}</p>
           )}
 
+          {/* Conflict mode — what happens when an imported record's natural key
+              (e.g. name) already exists. Skip is the safe, non-destructive default. */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-600">冲突处理方式</label>
+            <Select value={mode} onValueChange={(v) => setMode(v as ImportMode)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(MODE_LABELS) as ImportMode[]).map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {MODE_LABELS[m]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* File input */}
           <div
             className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center cursor-pointer hover:border-[#1E3A5F]/30 hover:bg-[#1E3A5F]/5 transition-colors"
@@ -110,15 +151,21 @@ export function FileUploadButton({
           {/* Result */}
           {result && (
             <div className="rounded-lg border border-gray-200 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-[#10B981]" />
-                <span className="text-sm font-medium">
-                  成功导入 {result.imported} 条
-                </span>
-                {result.failed > 0 && (
-                  <span className="text-sm text-[#EF4444]">
-                    {result.failed} 条失败
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-[#10B981]" />
+                  <span className="text-sm font-medium">
+                    导入 {result.imported} 条
                   </span>
+                </div>
+                {!!result.skipped && result.skipped > 0 && (
+                  <span className="text-sm text-gray-500">跳过 {result.skipped}</span>
+                )}
+                {!!result.updated && result.updated > 0 && (
+                  <span className="text-sm text-[#1E3A5F]">更新 {result.updated}</span>
+                )}
+                {result.failed > 0 && (
+                  <span className="text-sm text-[#EF4444]">{result.failed} 条失败</span>
                 )}
               </div>
               {result.errors.length > 0 && (

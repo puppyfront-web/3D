@@ -1,6 +1,7 @@
 """Tests for ImportService — file parsing and validation logic."""
 import json
 import pytest
+from sqlalchemy import select
 
 from app.services.import_service import ImportService, ImportResult
 
@@ -209,3 +210,122 @@ async def test_mixed_valid_and_invalid_items():
     assert result.imported == 1
     assert result.failed == 2
     assert len(result.items) == 1
+
+
+# ---------------------------------------------------------------------------
+# apply_items — conflict policy (skip / overwrite / rename)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_apply_items_inserts_new(db_session):
+    """No existing match -> insert, count imported."""
+    applied = await ImportService.apply_items(
+        db_session, "sop_workflow",
+        [{"name": "Brand New", "description": "fresh"}],
+        mode="skip",
+    )
+    assert applied.imported == 1
+    assert applied.skipped == 0
+    assert applied.updated == 0
+
+
+@pytest.mark.asyncio
+async def test_apply_items_skip_on_conflict(db_session):
+    """Existing natural-key match + skip -> skipped, no duplicate, no change."""
+    from app.models.workflow import SOPWorkflow
+
+    db_session.add(SOPWorkflow(name="Dup", description="old"))
+    await db_session.flush()
+
+    applied = await ImportService.apply_items(
+        db_session, "sop_workflow",
+        [{"name": "Dup", "description": "new"}],
+        mode="skip",
+    )
+    assert applied.skipped == 1
+    assert applied.imported == 0
+
+    rows = (await db_session.execute(select(SOPWorkflow))).scalars().all()
+    assert len(rows) == 1  # no duplicate created
+    assert rows[0].description == "old"  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_apply_items_overwrite_on_conflict(db_session):
+    """Existing match + overwrite -> updated, fields replaced."""
+    from sqlalchemy import select
+
+    from app.models.workflow import SOPWorkflow
+
+    db_session.add(SOPWorkflow(name="Dup", description="old", version="1.0"))
+    await db_session.flush()
+
+    applied = await ImportService.apply_items(
+        db_session, "sop_workflow",
+        [{"name": "Dup", "description": "new", "version": "2.0"}],
+        mode="overwrite",
+    )
+    assert applied.updated == 1
+    assert applied.imported == 0
+
+    rows = (await db_session.execute(select(SOPWorkflow))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].description == "new"
+    assert rows[0].version == "2.0"
+
+
+@pytest.mark.asyncio
+async def test_apply_items_rename_on_conflict(db_session):
+    """Existing match + rename -> new copy with suffixed name."""
+    from sqlalchemy import select
+
+    from app.models.workflow import SOPWorkflow
+
+    db_session.add(SOPWorkflow(name="Dup"))
+    await db_session.flush()
+
+    applied = await ImportService.apply_items(
+        db_session, "sop_workflow", [{"name": "Dup"}], mode="rename",
+    )
+    assert applied.imported == 1
+
+    names = sorted(r.name for r in (await db_session.execute(select(SOPWorkflow))).scalars().all())
+    assert names == ["Dup", "Dup (副本)"]
+
+
+@pytest.mark.asyncio
+async def test_apply_items_case_natural_key_is_title_and_client(db_session, sample_project_id):
+    """Case conflict matches on (title, client_name), not project_id."""
+    from sqlalchemy import select
+
+    from app.models.case import Case
+
+    db_session.add(Case(project_id=sample_project_id, title="T", client_name="C"))
+    await db_session.flush()
+
+    # Same title+client -> skip; different client -> insert.
+    applied = await ImportService.apply_items(
+        db_session, "case",
+        [
+            {"project_id": sample_project_id, "title": "T", "client_name": "C"},
+            {"project_id": sample_project_id, "title": "T", "client_name": "Other"},
+        ],
+        mode="skip",
+    )
+    assert applied.skipped == 1
+    assert applied.imported == 1
+    assert (await db_session.execute(select(Case))).scalars().all().__len__() == 2
+
+
+def test_build_import_response_merges_counts():
+    """Parse-level failures + apply counts merge into response kwargs."""
+    parsed = ImportResult(failed=1, errors=["第 1 条: bad"])
+    applied = ImportResult(imported=2, skipped=3, updated=4, failed=1, errors=["db err"])
+    out = ImportService.build_import_response(parsed, applied, "工作流")
+    assert out["imported"] == 2
+    assert out["skipped"] == 3
+    assert out["updated"] == 4
+    assert out["failed"] == 2  # 1 parse + 1 apply
+    assert out["errors"] == ["第 1 条: bad", "db err"]
+    assert "工作流" in out["message"]

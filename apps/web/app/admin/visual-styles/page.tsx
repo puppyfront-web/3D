@@ -14,15 +14,18 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Edit3, Trash2, Palette, Eye, Loader2, Lamp, Layers } from "lucide-react";
+import { Plus, Edit3, Trash2, Download, Palette, Eye, Loader2, Lamp, Layers } from "lucide-react";
 import {
   getVisualStyles,
   createVisualStyle,
   deleteVisualStyle,
   importVisualStyles,
+  exportVisualStyles,
+  exportVisualStyle,
 } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
-import type { VisualStyle } from "@/types";
+import type { VisualStyle, ImportMode } from "@/types";
 
 export default function VisualStylesPage() {
   const [styles, setStyles] = useState<VisualStyle[]>([]);
@@ -53,13 +56,23 @@ export default function VisualStylesPage() {
     loadStyles();
   }, [loadStyles]);
 
-  const handleImport = async (file: File) => {
-    const res = await importVisualStyles(file);
+  const handleImport = async (file: File, mode: ImportMode) => {
+    const res = await importVisualStyles(file, mode);
     if (res.success && res.data) {
       await loadStyles();
       return res.data;
     }
     throw new Error(res.message || "导入失败");
+  };
+
+  const handleExport = async () => {
+    const blob = await exportVisualStyles();
+    downloadBlob(blob, "visual_styles.json");
+  };
+
+  const handleExportOne = async (style: VisualStyle) => {
+    const blob = await exportVisualStyle(style.id);
+    downloadBlob(blob, `${style.name.replace(/[/\\:*?"<>|]/g, "_")}.json`);
   };
 
   const handleCreate = async () => {
@@ -109,6 +122,10 @@ export default function VisualStylesPage() {
             dialogDescription="支持 JSON 格式，含颜色、字体、布局参数。"
             onUpload={handleImport}
           />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+            <Download className="h-3.5 w-3.5" />
+            导出
+          </Button>
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
@@ -213,6 +230,7 @@ export default function VisualStylesPage() {
                 >
                   <Palette className="h-8 w-8 text-white/60" />
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button variant="secondary" size="sm" className="h-6 w-6 p-0" onClick={() => handleExportOne(style)}><Download className="h-3 w-3" /></Button>
                     <Button variant="secondary" size="sm" className="h-6 w-6 p-0"><Eye className="h-3 w-3" /></Button>
                     <Button variant="secondary" size="sm" className="h-6 w-6 p-0"><Edit3 className="h-3 w-3" /></Button>
                   </div>

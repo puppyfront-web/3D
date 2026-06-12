@@ -704,9 +704,16 @@ export interface DocumentBatchIndexResponse {
 
 // --- Import ---
 
+/** Conflict policy for re-importing config rows that match an existing natural key. */
+export type ImportMode = "skip" | "overwrite" | "rename";
+
 export interface ImportResult {
   imported: number;
   failed: number;
+  /** Rows skipped because a natural-key match already existed (mode=skip). */
+  skipped?: number;
+  /** Existing rows whose fields were replaced (mode=overwrite). */
+  updated?: number;
   errors: string[];
   message: string;
 }

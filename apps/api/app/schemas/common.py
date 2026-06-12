@@ -78,5 +78,7 @@ class ImportResponse(APIBaseModel):
 
     imported: int
     failed: int
+    skipped: int = 0
+    updated: int = 0
     errors: List[str] = Field(default_factory=list)
     message: str = ""

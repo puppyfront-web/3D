@@ -30,16 +30,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Eye, Edit3, Copy, Trash2, FileText, Loader2 } from "lucide-react";
+import { Plus, Search, Eye, Edit3, Copy, Trash2, Download, FileText, Loader2 } from "lucide-react";
 import {
   getProposalTemplates,
   createProposalTemplate,
   updateProposalTemplate,
   deleteProposalTemplate,
   importProposalTemplates,
+  exportProposalTemplates,
+  exportProposalTemplate,
 } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
-import type { ProposalTemplate } from "@/types";
+import type { ProposalTemplate, ImportMode } from "@/types";
 
 export default function ProposalTemplatesPage() {
   const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
@@ -70,13 +73,23 @@ export default function ProposalTemplatesPage() {
     loadTemplates();
   }, [loadTemplates]);
 
-  const handleImport = async (file: File) => {
-    const res = await importProposalTemplates(file);
+  const handleImport = async (file: File, mode: ImportMode) => {
+    const res = await importProposalTemplates(file, mode);
     if (res.success && res.data) {
       await loadTemplates();
       return res.data;
     }
     throw new Error(res.message || "导入失败");
+  };
+
+  const handleExport = async () => {
+    const blob = await exportProposalTemplates();
+    downloadBlob(blob, "proposal_templates.json");
+  };
+
+  const handleExportOne = async (tpl: ProposalTemplate) => {
+    const blob = await exportProposalTemplate(tpl.id);
+    downloadBlob(blob, `${tpl.name.replace(/[/\\:*?"<>|]/g, "_")}.json`);
   };
 
   const resetForm = () => {
@@ -199,6 +212,10 @@ export default function ProposalTemplatesPage() {
             dialogDescription="支持 JSON 格式，含 sections 结构定义。"
             onUpload={handleImport}
           />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+            <Download className="h-3.5 w-3.5" />
+            导出
+          </Button>
           <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2" onClick={openCreate}>
             <Plus className="h-4 w-4" /> 新建模板
           </Button>
@@ -252,6 +269,7 @@ export default function ProposalTemplatesPage() {
                     <TableCell className="text-sm text-gray-500">{tpl.updatedAt || "-"}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleExportOne(tpl)}><Download className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Eye className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(tpl)}><Edit3 className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleCopy(tpl)}><Copy className="h-3.5 w-3.5" /></Button>

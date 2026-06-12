@@ -4,6 +4,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import Response as RawResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.db.session import get_db
 from app.models.case import Case
 from app.schemas.case import CaseCreate, CaseOut, CaseQualityScore, CaseUpdate
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
+from app.services.config_export_service import ConfigExportService
 from app.services.import_service import ImportService
 
 router = APIRouter(prefix="/cases", tags=["cases"])
@@ -21,23 +23,43 @@ router = APIRouter(prefix="/cases", tags=["cases"])
 async def import_cases(
     file: UploadFile = File(...),
     project_id: uuid.UUID = Query(..., description="Required: project to associate imported cases with"),
+    mode: str = Query(
+        "skip",
+        pattern="^(skip|overwrite|rename)$",
+        description="冲突策略: skip 跳过已存在 / overwrite 覆盖 / rename 建副本",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Import cases from JSON or CSV file."""
-    result = await ImportService.parse_file(file, "case")
-    for item in result.items:
+    parsed = await ImportService.parse_file(file, "case")
+    # project_id is environment-specific (export strips it); re-inject per the
+    # target project before applying the conflict policy.
+    for item in parsed.items:
         item["project_id"] = project_id
-        case = Case(**item)
-        db.add(case)
-    await db.flush()
-    return Response(
-        data=ImportResponse(
-            imported=result.imported,
-            failed=result.failed,
-            errors=result.errors,
-            message=f"成功导入 {result.imported} 条案例",
-        ),
-        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    applied = await ImportService.apply_items(db, "case", parsed.items, mode)
+    summary = ImportService.build_import_response(parsed, applied, "案例")
+    return Response(data=ImportResponse(**summary), message=summary["message"])
+
+
+@router.get("/export")
+async def export_cases(db: AsyncSession = Depends(get_db)):
+    """Export all cases as a re-importable JSON download (project_id stripped)."""
+    payload = await ConfigExportService.export_many(db, "case")
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="cases.json"'},
+    )
+
+
+@router.get("/{case_id}/export")
+async def export_case(case_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Export a single case as a re-importable JSON download (project_id stripped)."""
+    payload = await ConfigExportService.export_one(db, "case", case_id)
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="case.json"'},
     )
 
 

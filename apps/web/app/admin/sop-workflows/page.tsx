@@ -26,6 +26,7 @@ import {
   Clock,
   Bot,
   ArrowRight,
+  Download,
   Loader2,
 } from "lucide-react";
 import {
@@ -33,9 +34,12 @@ import {
   createSOPWorkflow,
   updateSOPWorkflow,
   importSOPWorkflows,
+  exportSOPWorkflows,
+  exportSOPWorkflow,
 } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
-import type { SOPWorkflow } from "@/types";
+import type { SOPWorkflow, ImportMode } from "@/types";
 
 export default function SOPWorkflowsPage() {
   const [workflows, setWorkflows] = useState<SOPWorkflow[]>([]);
@@ -74,13 +78,23 @@ export default function SOPWorkflowsPage() {
     );
   };
 
-  const handleImport = async (file: File) => {
-    const res = await importSOPWorkflows(file);
+  const handleImport = async (file: File, mode: ImportMode) => {
+    const res = await importSOPWorkflows(file, mode);
     if (res.success && res.data) {
       await loadWorkflows();
       return res.data;
     }
     throw new Error(res.message || "导入失败");
+  };
+
+  const handleExport = async () => {
+    const blob = await exportSOPWorkflows();
+    downloadBlob(blob, "sop_workflows.json");
+  };
+
+  const handleExportOne = async (wf: SOPWorkflow) => {
+    const blob = await exportSOPWorkflow(wf.id);
+    downloadBlob(blob, `${wf.name.replace(/[/\\:*?"<>|]/g, "_")}.json`);
   };
 
   const handleCreate = async () => {
@@ -131,6 +145,10 @@ export default function SOPWorkflowsPage() {
             dialogDescription="支持 JSON 格式，含 steps 数组定义。"
             onUpload={handleImport}
           />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+            <Download className="h-3.5 w-3.5" />
+            导出
+          </Button>
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
@@ -233,6 +251,17 @@ export default function SOPWorkflowsPage() {
                       <Play className="h-3 w-3" />
                     )}
                     {wf.isActive ? "停用" : "启用"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleExportOne(wf);
+                    }}
+                  >
+                    <Download className="h-3 w-3" /> 导出
                   </Button>
                   <Button variant="ghost" size="sm" className="h-7 gap-1">
                     <Edit3 className="h-3 w-3" /> 编辑

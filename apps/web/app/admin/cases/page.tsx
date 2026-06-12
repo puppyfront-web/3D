@@ -30,10 +30,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Eye, Edit3, Trash2, Loader2, ImageIcon } from "lucide-react";
-import { getCases, createCase, updateCase, deleteCase, importCases } from "@/lib/api";
+import { Plus, Search, Eye, Edit3, Trash2, Download, Loader2, ImageIcon } from "lucide-react";
+import { getCases, createCase, updateCase, deleteCase, importCases, exportCases, exportCase } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
-import type { CaseItem } from "@/types";
+import type { CaseItem, ImportMode } from "@/types";
 
 const statusColor = {
   published: "text-[#10B981] bg-green-50",
@@ -87,13 +88,24 @@ export default function CasesPage() {
   }, [loadCases]);
 
   // --- Import ---
-  const handleImport = async (file: File) => {
-    const res = await importCases(file);
+  const handleImport = async (file: File, mode: ImportMode) => {
+    const res = await importCases(file, undefined, mode);
     if (res.success && res.data) {
       await loadCases();
       return res.data;
     }
     throw new Error(res.message || "导入失败");
+  };
+
+  // --- Export ---
+  const handleExport = async () => {
+    const blob = await exportCases();
+    downloadBlob(blob, "cases.json");
+  };
+
+  const handleExportOne = async (item: CaseItem) => {
+    const blob = await exportCase(item.id);
+    downloadBlob(blob, `${item.title.replace(/[/\\:*?"<>|]/g, "_")}.json`);
   };
 
   // --- Create ---
@@ -185,6 +197,10 @@ export default function CasesPage() {
             dialogDescription="支持 JSON、CSV 格式。JSON 支持单条或数组。CSV 首行为表头。"
             onUpload={handleImport}
           />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+            <Download className="h-3.5 w-3.5" />
+            导出
+          </Button>
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
@@ -380,6 +396,14 @@ export default function CasesPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0"
+                          onClick={() => handleExportOne(item)}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"

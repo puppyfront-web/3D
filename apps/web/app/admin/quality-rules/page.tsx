@@ -19,6 +19,7 @@ import {
   Plus,
   Edit3,
   Trash2,
+  Download,
   ShieldCheck,
   ToggleLeft,
   ToggleRight,
@@ -33,9 +34,12 @@ import {
   updateQualityRule,
   deleteQualityRule,
   importQualityRules,
+  exportQualityRules,
+  exportQualityRule,
 } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
-import type { QualityRule } from "@/types";
+import type { QualityRule, ImportMode } from "@/types";
 
 export default function QualityRulesPage() {
   const [rules, setRules] = useState<QualityRule[]>([]);
@@ -73,13 +77,23 @@ export default function QualityRulesPage() {
     setFormPassingScore("");
   };
 
-  const handleImport = async (file: File) => {
-    const res = await importQualityRules(file);
+  const handleImport = async (file: File, mode: ImportMode) => {
+    const res = await importQualityRules(file, mode);
     if (res.success && res.data) {
       await fetchRules();
       return res.data;
     }
     throw new Error(res.message || "导入失败");
+  };
+
+  const handleExport = async () => {
+    const blob = await exportQualityRules();
+    downloadBlob(blob, "quality_rules.json");
+  };
+
+  const handleExportOne = async (rule: QualityRule) => {
+    const blob = await exportQualityRule(rule.id);
+    downloadBlob(blob, `${rule.name.replace(/[/\\:*?"<>|]/g, "_")}.json`);
   };
 
   const handleCreate = async () => {
@@ -134,6 +148,10 @@ export default function QualityRulesPage() {
             dialogDescription="支持 JSON、TXT 格式。TXT 用空行分隔多条规则。"
             onUpload={handleImport}
           />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+            <Download className="h-3.5 w-3.5" />
+            导出
+          </Button>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
               <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
@@ -214,6 +232,9 @@ export default function QualityRulesPage() {
                       </Button>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]" onClick={(e) => { e.stopPropagation(); handleDelete(rule.id); }}>
                         <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 gap-1" onClick={(e) => { e.stopPropagation(); handleExportOne(rule); }}>
+                        <Download className="h-3 w-3" /> 导出
                       </Button>
                       <Button variant="ghost" size="sm" className="h-7 gap-1">
                         <Edit3 className="h-3 w-3" /> 编辑

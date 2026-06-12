@@ -22,15 +22,18 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Eye, Edit3, Copy, Trash2, MessageSquareCode, Loader2 } from "lucide-react";
+import { Plus, Search, Eye, Edit3, Copy, Trash2, Download, MessageSquareCode, Loader2 } from "lucide-react";
 import {
   getPromptTemplates,
   createPromptTemplate,
   deletePromptTemplate,
   importPromptTemplates,
+  exportPromptTemplates,
+  exportPromptTemplate,
 } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
-import type { PromptTemplate } from "@/types";
+import type { PromptTemplate, ImportMode } from "@/types";
 
 export default function PromptTemplatesPage() {
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
@@ -64,13 +67,23 @@ export default function PromptTemplatesPage() {
       t.category.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleImport = async (file: File) => {
-    const res = await importPromptTemplates(file);
+  const handleImport = async (file: File, mode: ImportMode) => {
+    const res = await importPromptTemplates(file, mode);
     if (res.success && res.data) {
       await loadTemplates();
       return res.data;
     }
     throw new Error(res.message || "导入失败");
+  };
+
+  const handleExport = async () => {
+    const blob = await exportPromptTemplates();
+    downloadBlob(blob, "prompt_templates.json");
+  };
+
+  const handleExportOne = async (tpl: PromptTemplate) => {
+    const blob = await exportPromptTemplate(tpl.id);
+    downloadBlob(blob, `${tpl.name.replace(/[/\\:*?"<>|]/g, "_")}.json`);
   };
 
   const handleCreate = async () => {
@@ -119,6 +132,10 @@ export default function PromptTemplatesPage() {
             dialogDescription="支持 JSON、TXT、Markdown 格式。TXT/MD 首行为名称，正文为模板，{{变量}} 自动提取。"
             onUpload={handleImport}
           />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+            <Download className="h-3.5 w-3.5" />
+            导出
+          </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
@@ -233,6 +250,7 @@ export default function PromptTemplatesPage() {
                     <TableCell className="text-sm text-gray-500">{tpl.createdAt}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleExportOne(tpl)}><Download className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Eye className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Edit3 className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleCopy(tpl)}><Copy className="h-3.5 w-3.5" /></Button>

@@ -4,6 +4,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import Response as RawResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +20,14 @@ from app.schemas.rule import (
     TechnicalRuleOut,
     TechnicalRuleUpdate,
 )
+from app.services.config_export_service import ConfigExportService
 from app.services.import_service import ImportService
+
+_CONFLICT_MODE = Query(
+    "skip",
+    pattern="^(skip|overwrite|rename)$",
+    description="冲突策略: skip 跳过已存在 / overwrite 覆盖 / rename 建副本",
+)
 
 router = APIRouter(prefix="/rules", tags=["rules"])
 
@@ -31,22 +39,35 @@ router = APIRouter(prefix="/rules", tags=["rules"])
 @router.post("/technical/import", response_model=Response[ImportResponse])
 async def import_technical_rules(
     file: UploadFile = File(...),
+    mode: str = _CONFLICT_MODE,
     db: AsyncSession = Depends(get_db),
 ):
     """Import technical rules from JSON or TXT file."""
-    result = await ImportService.parse_file(file, "technical_rule")
-    for item in result.items:
-        rule = TechnicalRule(**item)
-        db.add(rule)
-    await db.flush()
-    return Response(
-        data=ImportResponse(
-            imported=result.imported,
-            failed=result.failed,
-            errors=result.errors,
-            message=f"成功导入 {result.imported} 条技术规则",
-        ),
-        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    parsed = await ImportService.parse_file(file, "technical_rule")
+    applied = await ImportService.apply_items(db, "technical_rule", parsed.items, mode)
+    summary = ImportService.build_import_response(parsed, applied, "技术规则")
+    return Response(data=ImportResponse(**summary), message=summary["message"])
+
+
+@router.get("/technical/export")
+async def export_technical_rules(db: AsyncSession = Depends(get_db)):
+    """Export all technical rules as a re-importable JSON download."""
+    payload = await ConfigExportService.export_many(db, "technical_rule")
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="technical_rules.json"'},
+    )
+
+
+@router.get("/technical/{rule_id}/export")
+async def export_technical_rule(rule_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Export a single technical rule as a re-importable JSON download."""
+    payload = await ConfigExportService.export_one(db, "technical_rule", rule_id)
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="technical_rule.json"'},
     )
 
 
@@ -131,22 +152,35 @@ async def delete_technical_rule(rule_id: uuid.UUID, db: AsyncSession = Depends(g
 @router.post("/quality/import", response_model=Response[ImportResponse])
 async def import_quality_rules(
     file: UploadFile = File(...),
+    mode: str = _CONFLICT_MODE,
     db: AsyncSession = Depends(get_db),
 ):
     """Import quality rules from JSON or TXT file."""
-    result = await ImportService.parse_file(file, "quality_rule")
-    for item in result.items:
-        rule = QualityRule(**item)
-        db.add(rule)
-    await db.flush()
-    return Response(
-        data=ImportResponse(
-            imported=result.imported,
-            failed=result.failed,
-            errors=result.errors,
-            message=f"成功导入 {result.imported} 条质量规则",
-        ),
-        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    parsed = await ImportService.parse_file(file, "quality_rule")
+    applied = await ImportService.apply_items(db, "quality_rule", parsed.items, mode)
+    summary = ImportService.build_import_response(parsed, applied, "质量规则")
+    return Response(data=ImportResponse(**summary), message=summary["message"])
+
+
+@router.get("/quality/export")
+async def export_quality_rules(db: AsyncSession = Depends(get_db)):
+    """Export all quality rules as a re-importable JSON download."""
+    payload = await ConfigExportService.export_many(db, "quality_rule")
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="quality_rules.json"'},
+    )
+
+
+@router.get("/quality/{rule_id}/export")
+async def export_quality_rule(rule_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Export a single quality rule as a re-importable JSON download."""
+    payload = await ConfigExportService.export_one(db, "quality_rule", rule_id)
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="quality_rule.json"'},
     )
 
 

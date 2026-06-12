@@ -21,6 +21,7 @@ import {
   DocumentIndexResponse,
   DocumentBatchIndexResponse,
   ImportResult,
+  ImportMode,
 } from "@/types";
 import { toast } from "sonner";
 
@@ -246,6 +247,20 @@ export async function exportProposal(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Export failed" }));
     throw new Error(err.detail?.message || err.detail || "Export failed");
+  }
+  return res.blob();
+}
+
+/**
+ * Fetch a config-entity export endpoint and return the JSON as a Blob for
+ * download. The backend serves a bare JSON array (snake_case, auto-managed
+ * fields stripped) that feeds straight back into the matching /import.
+ */
+export async function exportConfig(endpoint: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE_URL}${endpoint}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "导出失败" }));
+    throw new Error(err.detail?.message || err.detail || "导出失败");
   }
   return res.blob();
 }
@@ -780,38 +795,80 @@ async function importFromFile(
 }
 
 // ============================================================
-// Admin: Import API
+// Admin: Import + Export API
 // ============================================================
 
-export async function importCases(file: File, projectId?: string): Promise<ApiResponse<ImportResult>> {
-  const params: Record<string, string> = {};
+export async function importCases(
+  file: File,
+  projectId?: string,
+  mode: ImportMode = "skip"
+): Promise<ApiResponse<ImportResult>> {
+  const params: Record<string, string> = { mode };
   if (projectId) params.project_id = projectId;
   return importFromFile("/api/v1/cases/import", file, params);
 }
 
-export async function importSOPWorkflows(file: File): Promise<ApiResponse<ImportResult>> {
-  return importFromFile("/api/v1/workflows/import", file);
+export async function importSOPWorkflows(
+  file: File,
+  mode: ImportMode = "skip"
+): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/workflows/import", file, { mode });
 }
 
-export async function importProposalTemplates(file: File): Promise<ApiResponse<ImportResult>> {
-  return importFromFile("/api/v1/templates/proposals/import", file);
+export async function importProposalTemplates(
+  file: File,
+  mode: ImportMode = "skip"
+): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/templates/proposals/import", file, { mode });
 }
 
-export async function importPromptTemplates(file: File): Promise<ApiResponse<ImportResult>> {
-  return importFromFile("/api/v1/templates/prompts/import", file);
+export async function importPromptTemplates(
+  file: File,
+  mode: ImportMode = "skip"
+): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/templates/prompts/import", file, { mode });
 }
 
-export async function importVisualStyles(file: File): Promise<ApiResponse<ImportResult>> {
-  return importFromFile("/api/v1/visual-styles/import", file);
+export async function importVisualStyles(
+  file: File,
+  mode: ImportMode = "skip"
+): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/visual-styles/import", file, { mode });
 }
 
-export async function importTechnicalRules(file: File): Promise<ApiResponse<ImportResult>> {
-  return importFromFile("/api/v1/rules/technical/import", file);
+export async function importTechnicalRules(
+  file: File,
+  mode: ImportMode = "skip"
+): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/rules/technical/import", file, { mode });
 }
 
-export async function importQualityRules(file: File): Promise<ApiResponse<ImportResult>> {
-  return importFromFile("/api/v1/rules/quality/import", file);
+export async function importQualityRules(
+  file: File,
+  mode: ImportMode = "skip"
+): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/rules/quality/import", file, { mode });
 }
+
+// --- Config export (all / single) -> JSON Blob for download ---
+
+export const exportSOPWorkflows = () => exportConfig("/api/v1/workflows/export");
+export const exportSOPWorkflow = (id: string) => exportConfig(`/api/v1/workflows/${id}/export`);
+export const exportCases = () => exportConfig("/api/v1/cases/export");
+export const exportCase = (id: string) => exportConfig(`/api/v1/cases/${id}/export`);
+export const exportProposalTemplates = () => exportConfig("/api/v1/templates/proposals/export");
+export const exportProposalTemplate = (id: string) =>
+  exportConfig(`/api/v1/templates/proposals/${id}/export`);
+export const exportPromptTemplates = () => exportConfig("/api/v1/templates/prompts/export");
+export const exportPromptTemplate = (id: string) =>
+  exportConfig(`/api/v1/templates/prompts/${id}/export`);
+export const exportVisualStyles = () => exportConfig("/api/v1/visual-styles/export");
+export const exportVisualStyle = (id: string) => exportConfig(`/api/v1/visual-styles/${id}/export`);
+export const exportTechnicalRules = () => exportConfig("/api/v1/rules/technical/export");
+export const exportTechnicalRule = (id: string) =>
+  exportConfig(`/api/v1/rules/technical/${id}/export`);
+export const exportQualityRules = () => exportConfig("/api/v1/rules/quality/export");
+export const exportQualityRule = (id: string) => exportConfig(`/api/v1/rules/quality/${id}/export`);
 
 // ============================================================
 // Settings

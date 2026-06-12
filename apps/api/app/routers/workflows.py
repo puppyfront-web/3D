@@ -4,6 +4,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import Response as RawResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.db.session import get_db
 from app.models.workflow import SOPWorkflow
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.workflow import SOPWorkflowCreate, SOPWorkflowOut, SOPWorkflowUpdate
+from app.services.config_export_service import ConfigExportService
 from app.services.import_service import ImportService
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -20,22 +22,39 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 @router.post("/import", response_model=Response[ImportResponse])
 async def import_workflows(
     file: UploadFile = File(...),
+    mode: str = Query(
+        "skip",
+        pattern="^(skip|overwrite|rename)$",
+        description="冲突策略: skip 跳过已存在 / overwrite 覆盖 / rename 建副本",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Import SOP workflows from JSON file."""
-    result = await ImportService.parse_file(file, "sop_workflow")
-    for item in result.items:
-        wf = SOPWorkflow(**item)
-        db.add(wf)
-    await db.flush()
-    return Response(
-        data=ImportResponse(
-            imported=result.imported,
-            failed=result.failed,
-            errors=result.errors,
-            message=f"成功导入 {result.imported} 条工作流",
-        ),
-        message=f"导入完成: {result.imported} 成功, {result.failed} 失败",
+    parsed = await ImportService.parse_file(file, "sop_workflow")
+    applied = await ImportService.apply_items(db, "sop_workflow", parsed.items, mode)
+    summary = ImportService.build_import_response(parsed, applied, "工作流")
+    return Response(data=ImportResponse(**summary), message=summary["message"])
+
+
+@router.get("/export")
+async def export_workflows(db: AsyncSession = Depends(get_db)):
+    """Export all SOP workflows as a re-importable JSON download."""
+    payload = await ConfigExportService.export_many(db, "sop_workflow")
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="sop_workflows.json"'},
+    )
+
+
+@router.get("/{workflow_id}/export")
+async def export_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Export a single SOP workflow as a re-importable JSON download."""
+    payload = await ConfigExportService.export_one(db, "sop_workflow", workflow_id)
+    return RawResponse(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="sop_workflow.json"'},
     )
 
 
