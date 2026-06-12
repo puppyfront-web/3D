@@ -39,6 +39,7 @@ apps/web/.env.production
 
 # Storage (local uploads)
 apps/api/storage/
+/storage/
 
 # Node
 node_modules/

@@ -40,6 +40,15 @@ if [ "${SKIP_CHECK}" = false ]; then
     fi
     echo "  ✅ Docker Compose: $(docker compose version --short)"
 
+    # 检查镜像加速（仅 Linux 服务器，国内拉取 Docker Hub 镜像更快）
+    if [ "$(uname -s)" = "Linux" ]; then
+        MIRRORS=$(docker info --format '{{range .RegistryMirrors}}{{.}} {{end}}' 2>/dev/null || true)
+        if [ -z "${MIRRORS}" ]; then
+            echo "  💡 未配置镜像加速，国内拉取镜像可能较慢"
+            echo "     一键配置（阿里云）: sudo ./scripts/setup-docker-mirror.sh"
+        fi
+    fi
+
     # 检查 .env 文件
     if [ ! -f .env ]; then
         echo "❌ 未找到 .env 文件"

@@ -39,6 +39,22 @@ docker compose up -d
 # API 文档：http://localhost:8000/docs
 ```
 
+### 生产部署（国内服务器）
+
+```bash
+# 1. 配置环境变量（POSTGRES_PASSWORD / SECRET_KEY / API_KEY 用 openssl rand -hex 32 生成）
+cp .env.example .env
+
+# 2.（可选但推荐）配置阿里云镜像加速，加快拉取 Docker Hub 镜像
+sudo ./scripts/setup-docker-mirror.sh
+
+# 3. 一键部署（含前置检查、构建、健康检查）
+./deploy.sh
+```
+
+部署后访问前端 `http://<服务器IP>:3000`、API `http://<服务器IP>:8000`。
+常用运维：`./scripts/backup.sh` 备份、`docker compose -f docker-compose.prod.yml logs -f api` 看日志。
+
 ### 本地开发
 
 ```bash
