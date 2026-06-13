@@ -67,9 +67,12 @@ IMAGE_API_KEY=sk-xxx
 IMAGE_BASE_URL=https://your-provider.com/v1
 IMAGE_MODEL=gpt-image-2
 
-# ─── 前端 API 地址 ───
-# 改为你的服务器实际地址（宝塔/1Panel 反向代理后的域名）
+# ─── 前端 API 地址（重点！详见第 4 节「同源 /api 设计」）───
+# ① 只填域名根，【不带 /api】（接口路径已自带 /api/v1，加了会变成 /api/api/v1）
+# ② 协议要和站点一致：站点 http 就填 http://，加了 SSL 再换 https://
+# ③ 这是【构建时】注入值——改完必须重建 web 镜像，否则不生效（见第 4 节）
 NEXT_PUBLIC_API_URL=https://yourdomain.com
+# 走同域 /api 反代时请求是同源、CORS 不会触发；这里仍填上以备直连/开发场景
 CORS_ORIGINS=https://yourdomain.com
 ```
 
@@ -174,6 +177,47 @@ server {
 }
 ```
 
+### 同源 /api 设计（关键概念，部署前必读）
+
+前端访问后端走的是 **同域 `/api` 反向代理**（nginx 把 `/api/*` 转给 api 容器），不是浏览器直连 8000 端口。理解以下几点可避免 90% 的「前端连不上后端 / CORS 报错」。
+
+**请求链路：**
+
+```
+浏览器页面:   https://yourdomain.com              ← nginx location / → web:3000
+前端发请求:   https://yourdomain.com/api/v1/...   ← NEXT_PUBLIC_API_URL(域名根) + 接口路径(自带 /api/v1)
+nginx 转发:   location /api/ → proxy_pass http://127.0.0.1:8000   （保留 /api 前缀，不要 rewrite 掉）
+FastAPI:      路由统一挂在 /api/v1 下 → 命中 ✅
+```
+
+因为页面和 API **同域**，浏览器视为同源请求，**CORS 根本不会触发**——这也是 `CORS_ORIGINS` 在同源部署下其实用不上的原因（它只是给直连/本地开发兜底）。
+
+**`NEXT_PUBLIC_API_URL` 的三个关键认知：**
+
+| # | 认知 | 说明 |
+|---|------|------|
+| ① | **不带 `/api`** | 接口路径已自带 `/api/v1`，base 只填域名根；填了 `/api` 会变成 `/api/api/v1` |
+| ② | **协议与页面一致** | 页面是 `http://` 就填 `http://yourdomain.com`；加了 SSL 再换 `https://`。不一致会触发混合内容拦截或直接连不上 |
+| ③ | **构建时注入** | `NEXT_PUBLIC_*` 在 `next build` 时被写死进 JS bundle。**改 `.env` 后必须重建 web 镜像**，否则浏览器还在跑带旧地址的 bundle |
+
+**`.env` 会覆盖 compose 默认值（最隐蔽的坑）：**
+
+`docker compose` 启动时会自动读取项目根目录的 `.env`，其中同名变量会 **覆盖** `docker-compose.prod.yml` 里的 `${VAR:-默认}`。所以仓库里改了默认域名 **不够**——服务器上已存在的 `.env` 才是真正生效点。升级时若改了默认域名，务必同步改服务器 `.env`。
+
+**改了 `NEXT_PUBLIC_API_URL` 后必须重建（最高频踩坑）：**
+
+```bash
+# ❌ 只 up -d：复用旧镜像，bundle 不变，等于没改
+docker compose -f docker-compose.prod.yml up -d
+
+# ✅ 带 --build 重建 web 镜像（或直接 ./deploy.sh）
+docker compose -f docker-compose.prod.yml up -d --build web
+```
+
+**验证 bundle 已更新：** 浏览器硬刷新（Ctrl/Cmd+Shift+R，绕过旧 bundle 缓存）→ Network 面板里请求应指向 `https://yourdomain.com/api/v1/...`，**不再是 `localhost:8000`**。若仍是 localhost，说明镜像没重建或 `.env` 没改。
+
+**加 SSL 时：** 站点从 `http://` 切到 `https://` 后，把 `.env` 里 `NEXT_PUBLIC_API_URL` 的协议同步改成 `https://`，再重建一次 web 镜像。
+
 ## 5. 验证清单
 
 部署完成后逐项检查：
@@ -275,23 +319,28 @@ docker compose -f docker-compose.prod.yml logs db
 docker compose -f docker-compose.prod.yml exec db pg_isready -U postgres
 ```
 
-### Q: 前端页面空白 / API 连接失败
+### Q: 前端页面空白 / API 连接失败 / Network 面板里请求打到 `localhost:8000`
 
-检查 `NEXT_PUBLIC_API_URL` 配置：
+**典型症状：** 浏览器 Console 报 `Access to fetch at 'http://localhost:8000/api/v1/...' has been blocked by CORS`，或 `net::ERR_FAILED`。这说明 **web 镜像的 JS bundle 里还固化着 `localhost:8000`**——`.env` 没改、或改了但没重建镜像。
+
+详见第 4 节「同源 /api 设计」。修复：
 ```bash
-# 在 .env 中确认
-NEXT_PUBLIC_API_URL=https://yourdomain.com  # 不能是 localhost
+# 1. 改 .env：协议要和站点一致（站点 http 就填 http://yourdomain.com），不带 /api
+#    NEXT_PUBLIC_API_URL=https://yourdomain.com
+nano .env
 
-# 修改后需要重新构建前端
-docker compose -f docker-compose.prod.yml build web
-docker compose -f docker-compose.prod.yml up -d web
+# 2. 必须带 --build 重建 web 镜像（只 up -d 无效，bundle 不变）
+docker compose -f docker-compose.prod.yml up -d --build web
+
+# 3. 浏览器硬刷新（Ctrl/Cmd+Shift+R）→ Network 面板确认请求指向 yourdomain.com
 ```
 
 ### Q: CORS 报错
 
-检查 `CORS_ORIGINS` 是否包含前端域名：
+**先确认请求地址对不对：** 走同域 `/api` 反代时，浏览器看到的请求是 `https://yourdomain.com/api/v1/...`，与页面同源，**CORS 本不该触发**。如果 Console 里的请求是 `http://localhost:8000/...`，那不是 CORS 配置问题——是 bundle 没重建，按上一条「前端页面空白 / API 连接失败」处理。
+
+只有在 **直连后端端口**（如开发场景 `http://localhost:8000`）时才需要 CORS 白名单，此时在 `.env` 把前端域名加进去：
 ```bash
-# .env 中设置
 CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
