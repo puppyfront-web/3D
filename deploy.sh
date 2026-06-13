@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 # 3D Wall AI 一键部署脚本
-# 用法: ./deploy.sh [--skip-check] [--no-build] [--skip-mirror]
+# 用法: ./deploy.sh [--skip-check] [--no-build] [--skip-mirror] [--force]
 # ═══════════════════════════════════════════════════════════════
 set -e
 
@@ -9,12 +9,14 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 SKIP_CHECK=false
 NO_BUILD=false
 SKIP_MIRROR=false
+FORCE=false
 
 for arg in "$@"; do
     case $arg in
         --skip-check)  SKIP_CHECK=true ;;
         --no-build)    NO_BUILD=true ;;
         --skip-mirror) SKIP_MIRROR=true ;;
+        --force)       FORCE=true ;;
     esac
 done
 
@@ -88,6 +90,53 @@ if [ "${SKIP_CHECK}" = false ]; then
         exit 1
     fi
     echo "  ✅ 必需变量已配置"
+
+    # 检查 pgdata 数据卷与当前 POSTGRES_PASSWORD 的一致性
+    # 背景: POSTGRES_PASSWORD 只在【首次创建卷】时生效；事后改 .env 不会同步已有库，
+    #       会导致 api 用新密码连旧卷 → "password authentication failed"。
+    if [ "${FORCE}" = false ]; then
+        echo "  🔐 检查 pgdata 数据卷密码一致性..."
+        # 1) 定位 pgdata 卷真实名（compose 项目前缀 + pgdata）。优先从 db 容器挂载取，最准。
+        PG_VOLUME=""
+        DB_CID=$(docker compose -f "${COMPOSE_FILE}" ps -q db 2>/dev/null || true)
+        if [ -n "${DB_CID}" ]; then
+            PG_VOLUME=$(docker inspect "${DB_CID}" \
+                --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' 2>/dev/null || true)
+        fi
+        if [ -z "${PG_VOLUME}" ]; then
+            # 兜底: 按卷名后缀查找
+            PG_VOLUME=$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E '_pgdata$' | head -1)
+        fi
+
+        if [ -n "${PG_VOLUME}" ]; then
+            # 2) db 健康 → 用当前密码走 TCP（强制密码认证）试连
+            DB_HEALTH=$(docker inspect "${DB_CID}" --format '{{.State.Health.Status}}' 2>/dev/null || echo "")
+            if [ "${DB_HEALTH}" = "healthy" ]; then
+                if docker compose -f "${COMPOSE_FILE}" exec -T -e PGPASSWORD="${POSTGRES_PASSWORD}" db \
+                        psql -h localhost -U postgres -d postgres -c 'SELECT 1' >/dev/null 2>&1; then
+                    echo "     ✅ 密码一致（卷: ${PG_VOLUME}）"
+                else
+                    # 3) 不匹配 → 报错退出，给三种解决办法
+                    echo "     ❌ 当前 .env 的 POSTGRES_PASSWORD 与已有数据卷中的密码不一致！"
+                    echo "        POSTGRES_PASSWORD 仅在首次创建卷时生效，事后改 .env 不会同步已有库。"
+                    echo ""
+                    echo "        请选一种办法处理后重试："
+                    echo "          1) 强制继续部署（可能连不上库）: ./deploy.sh --force"
+                    echo "          2) 删除旧卷、重建空库（⚠️ 数据全丢）:"
+                    echo "             docker compose -f ${COMPOSE_FILE} down -v"
+                    echo "             （或仅删卷: docker volume rm ${PG_VOLUME}）"
+                    echo "          3) 把 .env 的 POSTGRES_PASSWORD 改回【首次部署时】使用的旧密码"
+                    exit 1
+                fi
+            else
+                echo "     ⚠️  db 未健康（${DB_HEALTH:-未运行}），暂无法验证密码一致性（卷: ${PG_VOLUME}）"
+                echo "        若你曾改过 POSTGRES_PASSWORD，启动后可能因旧卷密码不匹配而连不上库；"
+                echo "        全新卷可忽略；旧卷改过密码请参照上面 3 种办法处理。"
+            fi
+        else
+            echo "     ℹ️  未发现 pgdata 卷（首次部署），跳过"
+        fi
+    fi
 
     # 检查 LLM API Key
     if [ -z "${LLM_API_KEY:-}" ]; then
