@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm
+FROM docker.m.daocloud.io/python:3.12-slim-bookworm
 
 WORKDIR /app
 

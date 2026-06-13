@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM docker.m.daocloud.io/node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production
-FROM node:20-alpine AS runner
+FROM docker.m.daocloud.io/node:20-alpine AS runner
 
 WORKDIR /app
 
