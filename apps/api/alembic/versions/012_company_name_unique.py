@@ -29,10 +29,13 @@ depends_on = None
 def upgrade() -> None:
     # Snapshot the keeper (MIN id) per duplicated name into a temp table so the
     # subsequent UPDATEs/DELETEs don't GROUP BY rows they're mutating.
+    # NOTE: PostgreSQL's MIN()/MAX() do not accept the uuid type, so cast to
+    # text for the aggregate and back to uuid. SQLite (local dev) is fine with
+    # either form, but the text-cast also works there.
     op.execute(
         """
         CREATE TEMP TABLE _company_keep AS
-        SELECT name, MIN(id) AS keep_id
+        SELECT name, MIN(id::text)::uuid AS keep_id
         FROM companies
         GROUP BY name
         HAVING COUNT(*) > 1

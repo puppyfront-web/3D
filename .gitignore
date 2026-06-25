@@ -60,5 +60,8 @@ test_output.png
 test_image_gen.py
 outputs/
 
+# Local docker dev override (host path mounts, not for production)
+docker-compose.override.yml
+
 # Claude Code
 .claude/

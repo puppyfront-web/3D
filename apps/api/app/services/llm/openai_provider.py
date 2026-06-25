@@ -184,8 +184,19 @@ class OpenAILLMService:
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
     ) -> AsyncGenerator[str, None]:
-        """Async generator yielding completion chunks."""
-        messages = self._build_messages(prompt, system_prompt)
+        """Async generator yielding completion chunks (content only)."""
+        async for kind, text in self._stream_rich(
+            self._build_messages(prompt, system_prompt), temperature
+        ):
+            if kind == "content":
+                yield text
+
+    async def _stream_rich(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """Shared streaming core yielding (kind, text) tuples."""
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
@@ -196,8 +207,13 @@ class OpenAILLMService:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
+            reasoning = getattr(delta, "reasoning_content", None) or getattr(
+                delta, "reasoning", None
+            )
+            if reasoning:
+                yield ("thinking", reasoning)
             if delta.content:
-                yield delta.content
+                yield ("content", delta.content)
 
     async def generate_with_history(
         self,
@@ -222,20 +238,32 @@ class OpenAILLMService:
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
     ) -> AsyncGenerator[str, None]:
-        """Stream with full multi-turn message history."""
+        """Stream with full multi-turn message history (content only).
+
+        For reasoning/thinking content, use generate_with_history_stream_rich.
+        """
+        async for kind, text in self.generate_with_history_stream_rich(
+            messages, system_prompt, temperature
+        ):
+            if kind == "content":
+                yield text
+
+    async def generate_with_history_stream_rich(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """Stream with history, yielding (kind, text) tuples.
+
+        kind is "thinking" for reasoning_content (o-series / thinking models)
+        or "content" for the normal visible reply. Models without a reasoning
+        channel only produce "content" chunks, so callers get the same stream
+        they would have before — plus optional thinking when available.
+        """
         api_messages = self._build_history_messages(messages, system_prompt)
-        stream = await self._client.chat.completions.create(
-            model=self._model,
-            messages=api_messages,
-            temperature=temperature,
-            stream=True,
-        )
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta.content:
-                yield delta.content
+        async for item in self._stream_rich(api_messages, temperature):
+            yield item
 
     @staticmethod
     def _build_history_messages(

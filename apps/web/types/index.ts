@@ -599,6 +599,7 @@ export interface ContentBlock {
 export interface StreamChunk {
   type:
     | "text_delta"
+    | "thinking_delta"
     | "content_block_start"
     | "content_block_data"
     | "content_block_end"

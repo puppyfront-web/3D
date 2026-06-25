@@ -89,6 +89,7 @@ function ChatContent() {
         <MessageList
           messages={state.messages}
           streamingText={state.streamingText}
+          streamingThinkingText={state.streamingThinkingText}
           streamingBlocks={state.streamingBlocks}
           isStreaming={state.isStreaming}
         />

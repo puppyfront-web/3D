@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 # System prompt instructs the LLM to search the web and return STRICT JSON with
 # normalised sources. This keeps traceability uniform regardless of provider.
-_SEARCH_SYSTEM_PROMPT = """你是一个联网研究助手。请使用你的联网搜索能力，针对用户的查询检索最新公开信息，并按如下 JSON 格式严格返回（仅返回 JSON，不要任何额外文字）：
+_SEARCH_SYSTEM_PROMPT = """你是一个联网研究助手。请使用你的联网搜索能力，针对用户的查询检索最新公开信息。
+
+【输出格式】必须且只能返回一个合法 JSON 对象（以 { 开头，以 } 结尾），禁止在 JSON 之前或之后输出任何文字、解释、思考过程、 markdown 标记。结构如下：
 
 {
   "answer": "对查询的核心回答（中文，200字内，客观陈述）",
@@ -38,6 +40,7 @@ _SEARCH_SYSTEM_PROMPT = """你是一个联网研究助手。请使用你的联�
 }
 
 要求：
+- 第一个字符必须是 { ，最后一个字符必须是 }
 - sources 中的 url 必须是真实检索到的公开网页链接，禁止编造
 - 若无法联网或无相关结果，answer 留空，sources 返回空数组
 - 客观信息优先（业务、产品、行业、公开动态），主观信息标注进 missing_info"""
@@ -63,22 +66,20 @@ class LLMNativeSearchProvider(SearchProvider):
         min_confidence: float = 0.5,
     ) -> WebSearchResult:
         try:
+            # Note: we deliberately do NOT pass response_format=json_object here.
+            # Some OpenAI-compatible providers (e.g. deepkey) return empty content
+            # when json_object is combined with web-search behaviour. The strict
+            # system prompt already constrains output to JSON; _parse_json then
+            # robustly extracts it. Likewise we don't pass a tools=[web_search]
+            # arg — providers that search natively (deepkey/GLM) do so based on
+            # the prompt, and an unrecognised tools key can cause empty replies.
             resp = await self._client.chat.completions.create(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": _SEARCH_SYSTEM_PROMPT},
                     {"role": "user", "content": query},
                 ],
-                # Provider-agnostic web_search tool. Providers that don't
-                # recognise this key typically ignore it (→ no search happens,
-                # we degrade on empty sources). Providers that do (GLM/Kimi)
-                # perform a live web search before answering.
-                tools=[{
-                    "type": self._tool_name,
-                    self._tool_name: {"enable": True, "search_result": True},
-                }],
                 temperature=0.3,
-                response_format={"type": "json_object"},
             )
         except Exception as e:
             logger.warning(
@@ -162,17 +163,36 @@ class LLMNativeSearchProvider(SearchProvider):
 
     @staticmethod
     def _parse_json(content: str) -> Optional[Dict[str, Any]]:
+        # 1. Direct parse
         try:
             return json.loads(content)
         except json.JSONDecodeError:
-            import re
-            m = re.search(r"\{[\s\S]*\}", content)
+            pass
+        # 2. Greedy extract first { ... last } — handles leading prose / thoughts
+        import re
+        first = content.find("{")
+        last = content.rfind("}")
+        if first != -1 and last != -1 and last > first:
+            candidate = content[first:last + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+            # 3. Try ```json ... ``` fenced block inside the candidate region
+            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
             if m:
                 try:
-                    return json.loads(m.group(0))
+                    return json.loads(m.group(1))
                 except json.JSONDecodeError:
-                    return None
-            return None
+                    pass
+        if not content.strip():
+            logger.warning("LLM-native search returned empty content")
+        elif first == -1:
+            logger.warning(
+                "LLM-native search returned no JSON object: %s",
+                content[:200],
+            )
+        return None
 
 
 def _domain(url: str) -> str:

@@ -403,6 +403,14 @@ class ConversationService:
             registry = SkillRegistry.get_instance()
             if not registry.list_skills():
                 registry.auto_register()
+            # Tools (web_search, knowledge_search, ...) must be registered too —
+            # skills call ToolRegistry.get_instance().get(...) at runtime, and an
+            # unregistered tool registry makes web_search silently degrade as
+            # "tool_not_registered" instead of actually searching.
+            from app.tools.registry import ToolRegistry
+            tool_registry = ToolRegistry.get_instance()
+            if not tool_registry.list_tools():
+                tool_registry.auto_register()
             if not registry.has(skill_id):
                 # Skill not registered — fall back to conversational
                 async for chunk in self._handle_conversational(
@@ -824,6 +832,11 @@ class ConversationService:
         registry = SkillRegistry.get_instance()
         if not registry.list_skills():
             registry.auto_register()
+        # Same as run_skill: ensure tools are registered so web_search etc. work.
+        from app.tools.registry import ToolRegistry
+        tool_registry = ToolRegistry.get_instance()
+        if not tool_registry.list_tools():
+            tool_registry.auto_register()
 
         from app.db.session import async_session_factory
 
@@ -1314,17 +1327,43 @@ class ConversationService:
         user_message: str,
         history: List[Dict[str, str]],
     ) -> AsyncGenerator[str, None]:
-        """Handle conversational intent with streaming LLM response."""
+        """Handle conversational intent with streaming LLM response.
+
+        Emits an optional 'thinking_delta' stream before the visible reply when
+        the model exposes a reasoning channel (o-series / thinking models). For
+        models without one, a lightweight 'thinking' step indicator is still
+        sent so the UI shows a reasoning panel while it waits for the first
+        content token.
+        """
         llm = await get_llm_service(db)
         full_text = ""
 
-        async for chunk in llm.generate_with_history_stream(
-            messages=history,
-            system_prompt=_CONVERSATION_SYSTEM_PROMPT,
-            temperature=0.7,
-        ):
-            full_text += chunk
-            yield f"data: {json.dumps({'type': 'text_delta', 'text': chunk})}\n\n"
+        # Prefer the rich stream (thinking + content). Fall back gracefully for
+        # providers that only implement the plain stream (e.g. MockLLMService).
+        rich_stream = getattr(llm, "generate_with_history_stream_rich", None)
+
+        if rich_stream is not None:
+            async for kind, text in rich_stream(
+                messages=history,
+                system_prompt=_CONVERSATION_SYSTEM_PROMPT,
+                temperature=0.7,
+            ):
+                if kind == "thinking":
+                    yield f"data: {json.dumps({'type': 'thinking_delta', 'text': text})}\n\n"
+                else:
+                    full_text += text
+                    yield f"data: {json.dumps({'type': 'text_delta', 'text': text})}\n\n"
+        else:
+            # No reasoning channel — send a transient thinking step so the UI's
+            # reasoning panel has something to show while the model warms up.
+            yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '正在理解你的问题并组织回复…'})}\n\n"
+            async for chunk in llm.generate_with_history_stream(
+                messages=history,
+                system_prompt=_CONVERSATION_SYSTEM_PROMPT,
+                temperature=0.7,
+            ):
+                full_text += chunk
+                yield f"data: {json.dumps({'type': 'text_delta', 'text': chunk})}\n\n"
 
         # Save complete assistant message
         await self.save_message(

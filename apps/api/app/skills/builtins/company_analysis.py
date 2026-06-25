@@ -45,13 +45,13 @@ SYSTEM_PROMPT = """你是一个企业分析专家，擅长从多维度深度理�
 企业优势、劣势、核心产品、目标客户、推荐视觉方向等
 
 严格规则：
-1. 必须基于提供的资料分析，禁止编造任何信息
+1. 必须基于提供的资料分析。客观信息（全称、主营、产品、行业、成立时间、官网等）即使资料不全，也要基于企业名称和行业合理推断后填入，标注"[未核实]"——不要留空、不要追问用户。
 2. 如果提供了【联网检索到的公开信息】，优先参考其中的客观事实（业务、产品、行业动态），保持来源可追溯
-3. 缺失信息必须标注"需进一步确认"
-4. 六看各维度如果信息不足，标注缺失而非编造
-5. 技术架构如果信息不足，给出高层概览并标注"需进一步确认"
-6. 主观信息（品牌调性、视觉偏好、传播目标）如未在输入中给出，留空并标注需用户确认
-7. 所有结论可追溯到输入资料""" + GLOBAL_CAPABILITY_CONSTRAINT
+3. missing_info 只允许包含主观或项目相关信息（传播目标、视觉偏好、预算、屏幕场地等），禁止放入客观可查的信息
+4. 六看各维度即使信息不足，也基于行业常识给出合理分析，不足处标注"[未核实]"
+5. 技术架构基于行业类型选择框架并填充，标注"[未核实]"表示推断
+6. 主观信息（品牌调性、视觉偏好、传播目标）未给出时，给出合理默认建议并标注"[建议]"，不要追问用户
+7. 所有结论可追溯到输入资料或明确标注为推断""" + GLOBAL_CAPABILITY_CONSTRAINT
 
 OUTPUT_SCHEMA = """{
   "six_views": {
@@ -259,8 +259,9 @@ class CompanyAnalysisSkill(BaseSkill):
 2. technology_arch 技术架构至少给出 3 层，每层配一个拟人化比喻
 3. project_background 项目背景给出宏观→中观→微观 3 个层级
 4. 优先引用【联网检索到的公开信息】中的客观事实，并保持来源可追溯
-5. 缺失信息用"需进一步确认"标注，不要编造
-6. 主观信息（品牌调性、视觉偏好、传播目标）如未在输入中给出，留空并标注需用户确认"""
+5. **客观信息（企业全称、主营业务、核心产品、所属行业、成立时间、注册地、官网等）必须基于企业名称和行业合理推断后填入，不要留空，不要追问用户。** 对推断的客观信息标注"[未核实]"。
+6. missing_info 只允许包含**主观或项目相关信息**（如：本次项目传播目标、视觉偏好、预算、屏幕场地参数）。禁止把客观可查的信息（公司全称、官网、主营业务等）放进 missing_info。
+7. 主观信息（品牌调性、视觉偏好、传播目标）如未在输入中给出，给一个合理默认建议并标注"[建议]"，不要追问。"""
 
         analysis = await context.llm_service.generate_json(
             prompt=prompt,
@@ -271,8 +272,10 @@ class CompanyAnalysisSkill(BaseSkill):
         # Surface unverified objective fields when web_search degraded/failed
         ws_status = (ws.get("external_search_summary") or {}).get("status")
         if ws_status in ("failed", "degraded"):
+            # Note the unverified status, but do NOT ask the user to supply
+            # objective info — they expect the assistant to know/lookup it.
             missing_info = missing_info + [
-                f"⚠️ 客观信息未能联网核实（{ws_status}），相关字段需进一步确认"
+                f"ℹ️ 客观信息未能联网核实（{ws_status}），已基于行业常识推断并标注[未核实]"
             ]
 
         return SkillResult(
@@ -398,8 +401,10 @@ class CompanyAnalysisSkill(BaseSkill):
         missing_info = analysis.get("missing_info", [])
         ws_status = (ws.get("external_search_summary") or {}).get("status")
         if ws_status in ("failed", "degraded"):
+            # Note the unverified status, but do NOT ask the user to supply
+            # objective info — they expect the assistant to know/lookup it.
             missing_info = missing_info + [
-                f"⚠️ 客观信息未能联网核实（{ws_status}），相关字段需进一步确认"
+                f"ℹ️ 客观信息未能联网核实（{ws_status}），已基于行业常识推断并标注[未核实]"
             ]
 
         # Save company profile with enriched structured data
@@ -476,5 +481,7 @@ class CompanyAnalysisSkill(BaseSkill):
 1. six_views 六看分析必须覆盖 6 个方向，每个方向至少给出 2-3 个要点
 2. technology_arch 技术架构至少给出 3 层，每层配一个拟人化比喻
 3. project_background 项目背景给出宏观→中观→微观 3 个层级
-4. 缺失信息用"需进一步确认"标注，不要编造
-5. 格式为 JSON"""
+4. 客观信息（全称、主营、产品、行业、成立时间、官网等）基于企业名+行业合理推断后填入，标注"[未核实]"，不要留空或追问用户
+5. missing_info 只允许主观/项目相关信息（传播目标、视觉偏好、预算、场地参数），禁止客观可查信息
+6. 主观信息未给出时给合理默认建议并标注"[建议]"，不要追问
+7. 格式为 JSON"""

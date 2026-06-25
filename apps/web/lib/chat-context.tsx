@@ -32,6 +32,7 @@ interface ChatState {
   isStreaming: boolean;
   isUploading: boolean;
   streamingText: string;
+  streamingThinkingText: string;
   streamingBlocks: ContentBlock[];
   error: string | null;
 }
@@ -43,6 +44,7 @@ type ChatAction =
   | { type: "ADD_USER_MESSAGE"; payload: ChatMessage }
   | { type: "START_STREAM" }
   | { type: "APPEND_TEXT_DELTA"; payload: string }
+  | { type: "APPEND_THINKING_DELTA"; payload: string }
   | { type: "ADD_STREAM_BLOCK"; payload: ContentBlock }
   | { type: "COMPLETE_STREAM"; payload: ChatMessage }
   | { type: "STREAM_ERROR"; payload: string }
@@ -60,6 +62,7 @@ const initialState: ChatState = {
   isStreaming: false,
   isUploading: false,
   streamingText: "",
+  streamingThinkingText: "",
   streamingBlocks: [],
   error: null,
 };
@@ -86,6 +89,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         isStreaming: true,
         streamingText: "",
+        streamingThinkingText: "",
         streamingBlocks: [],
         error: null,
       };
@@ -94,6 +98,12 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         streamingText: state.streamingText + action.payload,
+      };
+
+    case "APPEND_THINKING_DELTA":
+      return {
+        ...state,
+        streamingThinkingText: state.streamingThinkingText + action.payload,
       };
 
     case "ADD_STREAM_BLOCK":
@@ -113,6 +123,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         isStreaming: false,
         streamingText: "",
+        streamingThinkingText: "",
         streamingBlocks: [],
         messages,
       };
@@ -123,6 +134,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         isStreaming: false,
         streamingText: "",
+        streamingThinkingText: "",
         streamingBlocks: [],
         error: action.payload,
       };
@@ -266,6 +278,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const callbacks: StreamCallbacks = {
         onTextDelta: (text) => {
           dispatch({ type: "APPEND_TEXT_DELTA", payload: text });
+        },
+        onThinkingDelta: (text) => {
+          dispatch({ type: "APPEND_THINKING_DELTA", payload: text });
         },
         onContentBlockData: (data) => {
           if (data?.type) {

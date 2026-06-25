@@ -84,6 +84,7 @@ export async function updateConversation(
 
 export interface StreamCallbacks {
   onTextDelta: (text: string) => void;
+  onThinkingDelta?: (text: string) => void;
   onContentBlockStart?: (data: Record<string, unknown>) => void;
   onContentBlockData?: (data: Record<string, unknown>) => void;
   onContentBlockEnd?: () => void;
@@ -157,6 +158,10 @@ export function streamChat(
               case "text_delta":
                 fullText += chunk.text || "";
                 callbacks.onTextDelta(chunk.text || "");
+                break;
+
+              case "thinking_delta":
+                callbacks.onThinkingDelta?.(chunk.text || "");
                 break;
 
               case "content_block_start":

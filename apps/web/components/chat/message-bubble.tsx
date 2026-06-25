@@ -8,6 +8,7 @@ import { VersionTreeDrawer } from "@/components/chat/version-tree-drawer";
 import { useVisualConcept } from "@/lib/visual-concept-context";
 import { useChat } from "@/lib/chat-context";
 import { Bot, User } from "lucide-react";
+import { ThinkingPanel } from "@/components/chat/thinking-panel";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -132,11 +133,17 @@ export function MessageBubble({ message, onAction }: MessageBubbleProps) {
 // Streaming message bubble (shown while AI is generating)
 interface StreamingBubbleProps {
   text: string;
+  thinkingText: string;
   blocks: ContentBlock[];
   onAction?: (value: string, action: string) => void;
 }
 
-export function StreamingBubble({ text, blocks, onAction }: StreamingBubbleProps) {
+export function StreamingBubble({
+  text,
+  thinkingText,
+  blocks,
+  onAction,
+}: StreamingBubbleProps) {
   // During streaming: hide skill_executing (redundant with streaming text) and skill_progress (running)
   // After completion: MessageBubble hides skill_executing entirely
   const displayBlocks = blocks.filter((b) => {
@@ -145,12 +152,21 @@ export function StreamingBubble({ text, blocks, onAction }: StreamingBubbleProps
     return true;
   });
 
+  const hasContent = text.length > 0;
+
   return (
     <div className="flex gap-3 flex-row">
       <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-[#00D4FF]/20 text-[#00D4FF]">
         <Bot className="h-4 w-4" />
       </div>
       <div className="max-w-[75%] min-w-0">
+        {thinkingText && (
+          <ThinkingPanel
+            text={thinkingText}
+            isThinking
+            hasContent={hasContent}
+          />
+        )}
         <div className="rounded-2xl rounded-tl-sm px-4 py-3 bg-white text-gray-800 shadow-sm border border-gray-100 text-sm leading-relaxed">
           <MarkdownRenderer content={text} />
           <span className="inline-block w-1.5 h-4 bg-[#00D4FF] ml-0.5 animate-pulse rounded-sm" />
@@ -171,6 +187,7 @@ export function StreamingBubble({ text, blocks, onAction }: StreamingBubbleProps
 interface MessageListProps {
   messages: ChatMessage[];
   streamingText: string;
+  streamingThinkingText: string;
   streamingBlocks: ContentBlock[];
   isStreaming: boolean;
 }
@@ -178,6 +195,7 @@ interface MessageListProps {
 export function MessageList({
   messages,
   streamingText,
+  streamingThinkingText,
   streamingBlocks,
   isStreaming,
 }: MessageListProps) {
@@ -200,7 +218,12 @@ export function MessageList({
           <MessageBubble key={msg.id} message={msg} onAction={onBlockAction} />
         ))}
         {isStreaming && (
-          <StreamingBubble text={streamingText} blocks={streamingBlocks} onAction={onBlockAction} />
+          <StreamingBubble
+            text={streamingText}
+            thinkingText={streamingThinkingText}
+            blocks={streamingBlocks}
+            onAction={onBlockAction}
+          />
         )}
         <div ref={bottomRef} />
       </div>
