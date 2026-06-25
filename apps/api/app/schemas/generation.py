@@ -26,6 +26,8 @@ class GenerationOutputCreate(APIBaseModel):
     used_cases: Optional[List[str]] = Field(default_factory=list)
     used_documents: Optional[List[str]] = Field(default_factory=list)
     used_chunks: Optional[List[str]] = Field(default_factory=list)
+    used_external_sources: Optional[List[dict]] = Field(default_factory=list)
+    external_search_summary: Optional[dict] = None
     used_sop_version: Optional[str] = Field(None, max_length=50)
 
 
@@ -37,6 +39,8 @@ class GenerationOutputOut(APIBaseModel):
     used_cases: Optional[List[str]] = None
     used_documents: Optional[List[str]] = None
     used_chunks: Optional[List[str]] = None
+    used_external_sources: Optional[List[dict]] = None
+    external_search_summary: Optional[dict] = None
     used_sop_version: Optional[str] = None
     sections_meta: Optional[List[dict]] = None
     version: int = 1

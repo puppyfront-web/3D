@@ -59,6 +59,7 @@ class ToolRegistry:
         from app.tools.builtins.rule_query import TechRuleQueryTool, QualityRuleQueryTool
         from app.tools.builtins.company_profile_load import CompanyProfileLoadTool
         from app.tools.builtins.knowledge_search import KnowledgeSearchTool
+        from app.tools.builtins.web_search import WebSearchTool
 
         for cls in [
             CaseSearchTool,
@@ -70,6 +71,7 @@ class ToolRegistry:
             QualityRuleQueryTool,
             CompanyProfileLoadTool,
             KnowledgeSearchTool,
+            WebSearchTool,
         ]:
             self.register(cls())
         logger.info("Auto-registered %d tools", len(self._tools))

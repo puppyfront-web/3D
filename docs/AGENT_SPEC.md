@@ -85,12 +85,83 @@ class AgentResult:
     used_cases: list[str]
     used_documents: list[str]
     used_chunks: list[str]
+    used_external_sources: list[dict]
+    external_search_summary: dict | None
     used_sop_version: str | None
     used_prompt_templates: list[str]
     missing_info: list[str]
     quality_score: float | None
     status: str  # draft | completed | needs_review
 ```
+
+### 2.3 联网搜索 Tool 边界
+
+`web_search` 采用**双触发模式**：在企业解析阶段强制触发收集客观信息，在后续阶段作为内部 RAG 的补充。
+
+#### 触发模式
+
+- **模式 A — 强制触发**：`company_analysis` 阶段，用户输入企业信息（公司名 / 品牌 / 行业）后**必定执行**。自动收集客观信息（主营业务、产品线、行业定位、公开动态），填充画像客观字段，仅主观字段交用户确认。
+- **模式 B — 补充触发**：`proposal_generation` 等后续阶段，内部 `knowledge_search` / `case_search` 命中不足时执行。
+
+触发判定由服务端代码显式控制，**不让 LLM 自主决定是否调用**。
+
+允许触发的前提：
+
+- 企业信息输入后强制触发（模式 A）
+- 或内部 `knowledge_search` 和 `case_search` 结果不足以回答问题（模式 B）
+- 搜索目标可以限定到公开网页、白名单域名或可信搜索提供方
+
+禁止触发的场景：
+
+- 报价、工期、施工承诺等应由人工确认的内容
+- 需要登录、付费、私有链接或客户私密资料的页面
+- 主观偏好（品牌调性、视觉风格）— 此类信息不外搜，由用户确认
+
+#### 降级策略
+
+web_search 失败（超时 / 无结果 / 低置信度 / provider 不可用）时**不阻断流程**：
+
+1. 客观字段标记 `verified: false`
+2. 在 `missing_info` 追加「未核实」项
+3. 继续基于「用户输入 + 内部 RAG」生成企业画像
+
+#### 客观 / 主观字段拆分
+
+- **客观字段**（web_search 自动填充，标注来源 + 置信度）：`industry`、`business_type`、`core_products`、`market_position`、`public_news`、`brand_official_info`
+- **主观字段**（必须用户确认，不自动填充）：`brand_keywords`、`target_audience`、`communication_goal`、`visual_preferences`、`forbidden_expressions`
+
+详细字段结构与触发流程见 `docs/superpowers/specs/2026-06-25-web-search-tool-boundary.md`。
+
+#### 输出结构
+
+`web_search` 的输出必须先归一化再进入生成链路：
+
+```json
+{
+  "query": "xxx",
+  "status": "ok | degraded | failed",
+  "results": [
+    {
+      "title": "来源标题",
+      "url": "https://...",
+      "domain": "example.com",
+      "snippet": "命中的摘要",
+      "published_at": "2026-06-20",
+      "source_type": "news | official | article",
+      "confidence": 0.82
+    }
+  ],
+  "summary": {
+    "key_points": ["..."],
+    "conflicts": ["..."],
+    "missing_info": ["..."],
+    "recommended_usage": "可引用 / 仅背景参考 / 需人工确认"
+  },
+  "degraded_reason": "timeout | no_results | low_confidence | provider_unavailable"
+}
+```
+
+外部搜索结果不能直接拼接给 LLM。必须先做一层结构化总结，提取关键信息、冲突信息和待确认项，再写入 `rag_context` 或 Artifact。
 
 ---
 
@@ -111,34 +182,43 @@ class AgentResult:
 RAG 检索同行业企业画像
   │
   ▼
+强制调用 web_search 收集企业客观信息（模式 A）
+  │  └─ 失败/降级 → 客观字段标记「未核实」，进入 missing_info，不阻断
+  ▼
+web_search 结果归一化（key_points / conflicts / missing_info / sources）
+  │
+  ▼
+自动填充客观字段（标注来源 + 置信度）
+  │
+  ▼
 读取企业解析 SOP
   │
   ▼
 加载企业解析 Prompt 模板
   │
   ▼
-组装 Context Pack
+组装 Context Pack（含 web_search 总结）
   │
   ▼
-调用 LLM 生成企业画像
+调用 LLM 生成企业画像（客观字段引用搜索结果，主观字段留待确认）
   │
   ▼
 质量自检
   │
   ▼
-识别缺失信息
+识别缺失信息（主观字段 + 未核实的客观字段）
   │
   ▼
 保存 company_profile
   │
   ▼
-记录 generation_output + 引用
+记录 generation_output + 引用（含 used_external_sources）
   │
   ▼
 记录 retrieval_log
   │
   ▼
-返回结果
+返回结果（客观字段已填充，仅主观/未核实项交用户确认）
 ```
 
 ### 3.2 输入要求
@@ -155,20 +235,51 @@ RAG 检索同行业企业画像
   - 用户补充说明
 ```
 
+> 注：客观字段（行业、业务类型、主营产品等）由 web_search 自动收集填充；主观字段（品牌调性、视觉偏好、传播目标等）由用户在确认环节提供或修改。详见 §2.3 与 `docs/superpowers/specs/2026-06-25-web-search-tool-boundary.md`。
+
 ### 3.3 输出结构
+
+客观字段由 web_search 自动填充，结构为 `{value, verified, source, confidence}`；主观字段由用户确认，结构保持原样。
 
 ```json
 {
   "company_profile": {
-    "industry": "汽车",
-    "business_type": "汽车制造与销售",
-    "core_products": ["SUV", "新能源汽车"],
+    "industry": {
+      "value": "汽车",
+      "verified": true,
+      "source": {
+        "title": "...",
+        "url": "https://...",
+        "domain": "example.com",
+        "published_at": "2026-06-20"
+      },
+      "confidence": 0.85
+    },
+    "business_type": {
+      "value": "汽车制造与销售",
+      "verified": true,
+      "source": { "url": "https://...", "domain": "example.com" },
+      "confidence": 0.82
+    },
+    "core_products": {
+      "value": ["SUV", "新能源汽车"],
+      "verified": true,
+      "source": { "url": "https://...", "domain": "example.com" },
+      "confidence": 0.78
+    },
+    "market_position": {
+      "value": null,
+      "verified": false,
+      "source": null,
+      "confidence": 0
+    },
     "brand_keywords": ["科技", "运动", "年轻"],
     "target_audience": "25-40岁都市白领",
     "communication_goal": "品牌形象升级，展示科技实力",
     "visual_preferences": ["科技感", "动感", "简约"],
     "forbidden_expressions": ["竞品对比", "降价促销"],
     "missing_info": [
+      "⚠️ market_position 未能从公开来源核实，需要进一步确认",
       "主推车型需要进一步确认",
       "品牌VI规范需要进一步确认"
     ]
@@ -189,6 +300,8 @@ RAG 检索同行业企业画像
 ✅ 品牌关键词是否已提取
 ✅ 目标受众是否已分析
 ✅ 是否标记了缺失信息
+✅ 客观字段是否标注了来源与核实状态（verified / source / confidence）
+✅ 未核实的客观字段是否进入了 missing_info
 ✅ 是否引用了真实资料（如有上传）
 ❌ 是否编造了不存在的品牌信息
 ```
@@ -219,6 +332,12 @@ RAG 检索案例（按行业、场景、风格匹配）
   │
   ▼
 RAG 检索文档（按需求关键词检索）
+  │
+  ▼
+必要时调用 web_search（仅补充外部公开信息）
+  │
+  ▼
+汇总外部搜索结果（关键信息 / 冲突 / 待确认项）
   │
   ▼
 检索技术规则（按屏幕类型、场景）

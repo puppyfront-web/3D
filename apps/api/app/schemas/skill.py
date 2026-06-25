@@ -55,5 +55,7 @@ class SkillExecutionOut(APIBaseModel):
     used_cases: Optional[List[str]] = None
     used_documents: Optional[List[str]] = None
     used_chunks: Optional[List[str]] = None
+    used_external_sources: Optional[List[dict]] = None
+    external_search_summary: Optional[dict] = None
     created_at: Optional[str] = None
     completed_at: Optional[str] = None

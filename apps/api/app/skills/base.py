@@ -48,6 +48,8 @@ class SkillResult:
     used_cases: List[str] = field(default_factory=list)
     used_documents: List[str] = field(default_factory=list)
     used_chunks: List[str] = field(default_factory=list)
+    used_external_sources: List[Dict[str, Any]] = field(default_factory=list)
+    external_search_summary: Optional[Dict[str, Any]] = None
     missing_info: List[str] = field(default_factory=list)
     duration_ms: int = 0
 
@@ -59,6 +61,8 @@ class SkillResult:
             "used_cases": self.used_cases,
             "used_documents": self.used_documents,
             "used_chunks": self.used_chunks,
+            "used_external_sources": self.used_external_sources,
+            "external_search_summary": self.external_search_summary,
             "missing_info": self.missing_info,
             "duration_ms": self.duration_ms,
         }

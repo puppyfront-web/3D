@@ -88,6 +88,8 @@ class SkillRunner:
                 execution_record.used_cases = result.used_cases
                 execution_record.used_documents = result.used_documents
                 execution_record.used_chunks = result.used_chunks
+                execution_record.used_external_sources = result.used_external_sources or None
+                execution_record.external_search_summary = result.external_search_summary
                 execution_record.error_message = result.error
                 execution_record.completed_at = datetime.now(timezone.utc)
                 await context.db.flush()

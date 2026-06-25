@@ -58,6 +58,7 @@ htmlcov/
 # Test artifacts
 test_output.png
 test_image_gen.py
+outputs/
 
 # Claude Code
 .claude/

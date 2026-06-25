@@ -34,7 +34,7 @@ Skill（业务能力原子单元）
 
 Tool（标准化数据访问接口）
   → case_search / sop_load / template_load / prompt_template / visual_style_match
-  → tech_rule_check / quality_check / knowledge_search / image_generate
+  → tech_rule_check / quality_check / knowledge_search / web_search / image_generate
 ```
 
 - 每个专业能力封装为独立 Skill，通过标准 Manifest 定义输入输出
@@ -61,6 +61,7 @@ Tool（标准化数据访问接口）
 | **案例必须来自案例库** | 引用案例必须可追溯来源，禁止虚构 |
 | **技术参数必须可验证** | 屏幕参数、施工条件等必须来自技术规则库或人工确认 |
 | **报价/工期必须人工确认** | 涉及金额和交付时间的内容，必须标记"需要进一步确认" |
+| **联网搜索必须受控执行** | `web_search` 采用双触发：① 企业信息输入后**强制触发**，自动收集客观信息并填充画像客观字段；② 后续阶段内部知识不足时**补充触发**。搜索失败不阻断流程，降级标记「未核实」。主观信息、商业承诺、私有内容禁止外搜，禁止自由浏览和无边界抓取。详见 `docs/superpowers/specs/2026-06-25-web-search-tool-boundary.md` |
 
 ---
 
@@ -79,6 +80,7 @@ Tool（标准化数据访问接口）
 
 - 引用了哪些案例（case_id）
 - 引用了哪些文档和 chunk（document_id, chunk_id）
+- 引用了哪些外部来源（source_title, url, domain, published_at, snippet）
 - 使用了哪个 SOP 版本（sop_workflow_id, version）
 - 使用了哪个 Prompt 模板（prompt_template_id）
 - 使用了哪个方案模板（proposal_template_id）
@@ -113,6 +115,7 @@ Tool（标准化数据访问接口）
 | 5 | 承诺最终投屏效果 | 效果受现场条件影响，不能保证 |
 | 6 | 未经审核直接导出 | 所有 AI 生成内容必须经过人工审核 |
 | 7 | 将内部 SOP/Prompt 暴露给外部客户 | 内部运营数据不可外泄 |
+| 8 | 无边界联网搜索或抓取私有/需登录内容 | 外部搜索仅限公开网页和白名单域名，且必须保留来源 |
 
 ---
 
@@ -137,6 +140,8 @@ Tool（标准化数据访问接口）
 - `used_cases` — 引用的案例列表
 - `used_documents` — 引用的文档列表
 - `used_chunks` — 引用的 chunk 列表
+- `used_external_sources` — 引用的外部来源列表
+- `external_search_summary` — 对外部检索结果的归纳摘要与待确认项
 - `used_sop_version` — 使用的 SOP 版本
 - `used_prompt_templates` — 使用的 Prompt 模板
 - `status` — 执行状态
@@ -206,4 +211,5 @@ Tool（标准化数据访问接口）
 | `tech_rule_check` | 技术规则校验 | 校验技术参数是否符合规则库 |
 | `quality_check` | 质量标准评估 | 按质量标准评估生成内容 |
 | `knowledge_search` | 知识检索 | RAG 语义检索知识库（文档、chunk） |
+| `web_search` | 联网搜索 | 在受控边界内检索公开网页信息，并返回可追溯来源与摘要 |
 | `image_generate` | 图片生成 | 调用图片生成服务 |

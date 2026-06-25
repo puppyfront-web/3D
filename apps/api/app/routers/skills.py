@@ -85,6 +85,8 @@ async def list_executions(
         used_cases=e.used_cases,
         used_documents=e.used_documents,
         used_chunks=e.used_chunks,
+        used_external_sources=e.used_external_sources,
+        external_search_summary=e.external_search_summary,
         created_at=e.created_at.isoformat() if e.created_at else None,
         completed_at=e.completed_at.isoformat() if e.completed_at else None,
     ).model_dump() for e in executions]
@@ -115,6 +117,8 @@ async def get_execution(
         used_cases=execution.used_cases,
         used_documents=execution.used_documents,
         used_chunks=execution.used_chunks,
+        used_external_sources=execution.used_external_sources,
+        external_search_summary=execution.external_search_summary,
         created_at=execution.created_at.isoformat() if execution.created_at else None,
         completed_at=execution.completed_at.isoformat() if execution.completed_at else None,
     ).model_dump())

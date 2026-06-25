@@ -103,6 +103,8 @@ class SkillExecution(Base):
     used_cases: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     used_documents: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     used_chunks: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    used_external_sources: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    external_search_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

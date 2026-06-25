@@ -46,10 +46,12 @@ SYSTEM_PROMPT = """你是一个企业分析专家，擅长从多维度深度理�
 
 严格规则：
 1. 必须基于提供的资料分析，禁止编造任何信息
-2. 缺失信息必须标注"需进一步确认"
-3. 六看各维度如果信息不足，标注缺失而非编造
-4. 技术架构如果信息不足，给出高层概览并标注"需进一步确认"
-5. 所有结论可追溯到输入资料""" + GLOBAL_CAPABILITY_CONSTRAINT
+2. 如果提供了【联网检索到的公开信息】，优先参考其中的客观事实（业务、产品、行业动态），保持来源可追溯
+3. 缺失信息必须标注"需进一步确认"
+4. 六看各维度如果信息不足，标注缺失而非编造
+5. 技术架构如果信息不足，给出高层概览并标注"需进一步确认"
+6. 主观信息（品牌调性、视觉偏好、传播目标）如未在输入中给出，留空并标注需用户确认
+7. 所有结论可追溯到输入资料""" + GLOBAL_CAPABILITY_CONSTRAINT
 
 OUTPUT_SCHEMA = """{
   "six_views": {
@@ -129,6 +131,96 @@ class CompanyAnalysisSkill(BaseSkill):
         # --- Mode 2: Conversation mode (no company_id, use text input) ---
         return await self._execute_chat_mode(company_info, additional_context, context)
 
+    async def _run_web_search(
+        self,
+        company_name: str,
+        industry: str,
+        context: SkillContext,
+    ) -> Dict[str, Any]:
+        """Force-trigger web_search (mode A) to collect objective public info.
+
+        Never raises — returns a dict with keys:
+          external_context: str  — text block to inject into the LLM prompt
+          used_external_sources: list[dict]
+          external_search_summary: dict | None
+        Failures degrade gracefully (empty context, status recorded) so the
+        analysis pipeline keeps running — see AGENT_SPEC §2.3.
+        """
+        empty = {"external_context": "", "used_external_sources": [], "external_search_summary": None}
+        if not context.db:
+            return {**empty, "external_search_summary": {"status": "failed", "reason": "no_db_session"}}
+
+        # Build a focused query for objective info only (no subjective/quote terms).
+        query = f"{company_name} {industry}".strip() or company_name
+        if not query:
+            return empty
+
+        try:
+            from app.tools.registry import ToolRegistry
+            from app.tools.base import ToolContext
+
+            ws_tool = ToolRegistry.get_instance().get("web_search")
+            if ws_tool is None:
+                return {**empty, "external_search_summary": {"status": "failed", "reason": "tool_not_registered"}}
+
+            ws_result = await ws_tool.execute(
+                {"query": query, "max_results": 5},
+                ToolContext(db=context.db),
+            )
+        except Exception as e:
+            logger.warning("web_search failed during company_analysis: %s", e)
+            return {**empty, "external_search_summary": {"status": "failed", "reason": str(e)}}
+
+        data = ws_result.data if ws_result.success else {}
+        hits = data.get("results", [])
+        summary = data.get("summary") or {}
+        status = data.get("status", "failed")
+
+        # Normalise provenance fields for traceability
+        used_external_sources = [
+            {
+                "title": h.get("title", ""),
+                "url": h.get("url", ""),
+                "domain": h.get("domain", ""),
+                "snippet": h.get("snippet", ""),
+                "published_at": h.get("published_at"),
+                "source_type": h.get("source_type", "article"),
+                "confidence": h.get("confidence", 0.5),
+            }
+            for h in hits
+        ]
+        external_search_summary = {
+            "status": status,
+            "provider": data.get("provider", ""),
+            "degraded_reason": data.get("degraded_reason"),
+            "key_points": summary.get("key_points", []),
+            "conflicts": summary.get("conflicts", []),
+            "missing_info": summary.get("missing_info", []),
+            "recommended_usage": summary.get("recommended_usage", ""),
+        }
+
+        # Build a context block from usable results. Degraded/failed → empty.
+        if status != "ok" or not hits:
+            return {
+                "external_context": "",
+                "used_external_sources": used_external_sources,
+                "external_search_summary": external_search_summary,
+            }
+
+        lines = []
+        for h in hits:
+            src = f"（来源：{h.get('domain', '')}）" if h.get("domain") else ""
+            pub = f" [{h.get('published_at')}]" if h.get("published_at") else ""
+            snippet = (h.get("snippet") or "").strip().replace("\n", " ")
+            lines.append(f"- {h.get('title', '')}{pub}{src}：{snippet}")
+        external_context = "【联网检索到的公开信息】\n" + "\n".join(lines)
+
+        return {
+            "external_context": external_context,
+            "used_external_sources": used_external_sources,
+            "external_search_summary": external_search_summary,
+        }
+
     async def _execute_chat_mode(
         self,
         company_info: str,
@@ -149,6 +241,13 @@ class CompanyAnalysisSkill(BaseSkill):
                 missing_info=["企业名称", "行业", "主要产品/服务"],
             )
 
+        # --- Force web_search (mode A): collect objective public info ---
+        company_name = self._extract_company_name(company_info)
+        industry = self._extract_industry(company_info, additional_context)
+        ws = await self._run_web_search(company_name, industry, context)
+        if ws["external_context"]:
+            context_parts.append(ws["external_context"])
+
         prompt = "根据以下信息对企业进行深度分析：\n\n" + "\n\n".join(context_parts) + f"""
 
 请严格按照以下 JSON 结构输出分析结果：
@@ -159,7 +258,9 @@ class CompanyAnalysisSkill(BaseSkill):
 1. six_views 六看分析必须覆盖 6 个方向，每个方向至少给出 2-3 个要点
 2. technology_arch 技术架构至少给出 3 层，每层配一个拟人化比喻
 3. project_background 项目背景给出宏观→中观→微观 3 个层级
-4. 缺失信息用"需进一步确认"标注，不要编造"""
+4. 优先引用【联网检索到的公开信息】中的客观事实，并保持来源可追溯
+5. 缺失信息用"需进一步确认"标注，不要编造
+6. 主观信息（品牌调性、视觉偏好、传播目标）如未在输入中给出，留空并标注需用户确认"""
 
         analysis = await context.llm_service.generate_json(
             prompt=prompt,
@@ -167,6 +268,12 @@ class CompanyAnalysisSkill(BaseSkill):
         )
 
         missing_info = analysis.get("missing_info", [])
+        # Surface unverified objective fields when web_search degraded/failed
+        ws_status = (ws.get("external_search_summary") or {}).get("status")
+        if ws_status in ("failed", "degraded"):
+            missing_info = missing_info + [
+                f"⚠️ 客观信息未能联网核实（{ws_status}），相关字段需进一步确认"
+            ]
 
         return SkillResult(
             success=True,
@@ -176,9 +283,42 @@ class CompanyAnalysisSkill(BaseSkill):
                 "technology_arch": analysis.get("technology_arch"),
                 "project_background": analysis.get("project_background"),
                 "missing_info": missing_info,
+                "external_search": ws.get("external_search_summary"),
             },
+            used_external_sources=ws.get("used_external_sources", []),
+            external_search_summary=ws.get("external_search_summary"),
             missing_info=missing_info,
         )
+
+    @staticmethod
+    def _extract_company_name(company_info: str) -> str:
+        """Best-effort extract a company name token for the search query."""
+        if not company_info:
+            return ""
+        # First short line / first quoted token often is the company name.
+        first_line = company_info.strip().splitlines()[0].strip()
+        # Strip common prefixes
+        for prefix in ("企业：", "公司：", "公司是", "企业是", "客户："):
+            if first_line.startswith(prefix):
+                first_line = first_line[len(prefix):]
+        # Heuristic: a CJK name up to ~12 chars before a delimiter
+        import re
+        m = re.match(r"([\u4e00-\u9fa5A-Za-z0-9·]{2,20})", first_line)
+        return m.group(1) if m else first_line[:12]
+
+    @staticmethod
+    def _extract_industry(company_info: str, additional_context: str) -> str:
+        """Best-effort extract an industry keyword."""
+        text = f"{company_info} {additional_context}"
+        for kw in ("行业：", "行业是", "属于"):
+            idx = text.find(kw)
+            if idx >= 0:
+                tail = text[idx + len(kw):].strip()
+                import re
+                m = re.match(r"([\u4e00-\u9fa5A-Za-z/]{2,10})", tail)
+                if m:
+                    return m.group(1)
+        return ""
 
     async def _execute_db_mode(
         self,
@@ -232,13 +372,21 @@ class CompanyAnalysisSkill(BaseSkill):
         except Exception as e:
             logger.warning("Prompt template load failed: %s", e)
 
+        # --- Force web_search (mode A): collect objective public info ---
+        ws = await self._run_web_search(company.name, company.industry or "", context)
+
         prompt = self._assemble_prompt(
             default_prompt=self._default_prompt(),
             db_template=db_template,
             variables={
                 "company_name": company.name,
                 "industry": company.industry or "未知行业",
-                "context": retrieved_context or additional_context or "无额外上下文",
+                "context": "\n\n".join(
+                    p for p in [
+                        retrieved_context or additional_context or "无额外上下文",
+                        ws.get("external_context", ""),
+                    ] if p
+                ),
             },
         )
 
@@ -246,6 +394,13 @@ class CompanyAnalysisSkill(BaseSkill):
             prompt=prompt,
             system_prompt=SYSTEM_PROMPT,
         )
+
+        missing_info = analysis.get("missing_info", [])
+        ws_status = (ws.get("external_search_summary") or {}).get("status")
+        if ws_status in ("failed", "degraded"):
+            missing_info = missing_info + [
+                f"⚠️ 客观信息未能联网核实（{ws_status}），相关字段需进一步确认"
+            ]
 
         # Save company profile with enriched structured data
         from app.models.company_profile import CompanyProfile
@@ -295,9 +450,12 @@ class CompanyAnalysisSkill(BaseSkill):
                 "six_views": analysis.get("six_views"),
                 "technology_arch": analysis.get("technology_arch"),
                 "project_background": analysis.get("project_background"),
+                "external_search": ws.get("external_search_summary"),
             },
             used_documents=used_documents,
             used_chunks=used_chunks,
+            used_external_sources=ws.get("used_external_sources", []),
+            external_search_summary=ws.get("external_search_summary"),
             missing_info=missing_info,
         )
 

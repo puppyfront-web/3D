@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     #   zhipu: cogview-4, cogview-3-plus, cogview-3
     image_quality: str = "high"  # low | medium | high | auto | hd (vendor-specific)
 
+    # Web search — used by WebSearchTool for external information retrieval.
+    # Precedence at runtime: tavily (if api key set) → llm native → degraded fallback.
+    # All configurable via admin settings UI (DB-first, .env fallback) — see settings_service.py.
+    web_search_enabled: bool = True
+    web_search_mode: str = "auto"  # auto | tavily | llm_native | disabled
+    web_search_tavily_api_key: str = ""
+    web_search_max_results: int = 5
+    web_search_timeout: int = 15  # seconds, per provider call
+    web_search_min_confidence: float = 0.5  # below this → degraded
+
     # Storage
     storage_path: str = "./storage"
 
