@@ -33,11 +33,13 @@ from app.schemas.canvas import (
     CanvasNodeOut,
     CanvasNodeUpdate,
     CanvasOut,
+    NodeAdoptIn,
     ProjectVersionCreate,
     ProjectVersionOut,
     VersionRestoreOut,
 )
 from app.schemas.common import Response
+from app.services.canvas_adopt_service import adopt_node_draft
 from app.services.canvas_agent_orchestrator import canvas_agent_orchestrator
 from app.services.canvas_service import canvas_service
 
@@ -276,6 +278,34 @@ async def update_node(
     # the commit potentially expired the relationship state.
     node = await canvas_service.get_node(db, node_id)
     return Response(data=_to_node_out(node), message="节点已更新")
+
+
+@router.post(
+    "/projects/{project_id}/nodes/{node_id}/adopt",
+    response_model=Response[CanvasNodeOut],
+)
+async def adopt_node(
+    project_id: uuid.UUID,
+    node_id: uuid.UUID,
+    body: NodeAdoptIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """Adopt a node-edit draft (from the node-scoped conversation) into the
+    node: merge content, set status=filled, append provenance NodeSources.
+    Like PATCH .../nodes/{id}, this does NOT auto-snapshot.
+    """
+    node = await adopt_node_draft(
+        db,
+        project_id=project_id,
+        node_id=node_id,
+        planning=body.planning,
+        pending_questions=body.pending_questions,
+        extracted=body.extracted,
+        sources=body.sources,
+    )
+    await db.commit()
+    node = await canvas_service.get_node(db, node_id)
+    return Response(data=_to_node_out(node), message="已采纳到节点")
 
 
 @router.post(

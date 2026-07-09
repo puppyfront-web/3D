@@ -73,6 +73,23 @@ class CanvasNodeCreate(APIBaseModel):
     position: Optional[Dict[str, Any]] = None
 
 
+class NodeAdoptIn(APIBaseModel):
+    """Body for POST /projects/{pid}/nodes/{nid}/adopt (Task 3).
+
+    Adopts the structured ``node_draft`` (Task 2's node-scoped conversation
+    output) into the node: ``planning``/``pending_questions`` overwrite the
+    old slots; ``extracted`` is optional (falls back to the existing value
+    when omitted); ``sources`` carries provenance (only ``web_search`` rows
+    are materialised as NodeSource rows; the adopt itself always writes one
+    ``ai_completed`` row).
+    """
+
+    planning: List[str] = Field(default_factory=list)
+    pending_questions: List[str] = Field(default_factory=list)
+    extracted: Optional[List[str]] = None
+    sources: Optional[List[Dict[str, Any]]] = None
+
+
 # ─── Canvas groups ───────────────────────────────────────────────────────────
 
 
