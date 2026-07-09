@@ -40,6 +40,7 @@ import { deleteAsset, indexDocument, updateAssetCategory } from "@/lib/api";
 import type { ChatMessage, ContentBlock } from "@/types";
 import ReactMarkdown from "react-markdown";
 import { CompanyAnalysisCard } from "@/components/canvas/company-analysis-card";
+import { NodeDraftBlock, type NodeDraftData } from "@/components/canvas/node-draft-block";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -116,7 +117,11 @@ function asStringList(value: unknown): string[] {
   return value.map((item) => String(item)).filter(Boolean);
 }
 
-function renderContentBlock(block: ContentBlock, key: string) {
+function renderContentBlock(
+  block: ContentBlock,
+  key: string,
+  ctx?: { projectId?: string; activeNodeId?: string | null; onNodeAdopted?: () => void },
+) {
   const data = block.data ?? {};
   if (block.type === "skill_executing") {
     return (
@@ -189,6 +194,22 @@ function renderContentBlock(block: ContentBlock, key: string) {
     );
   }
 
+  if (block.type === "node_draft") {
+    const draft = (block.data ?? {}) as unknown as NodeDraftData;
+    if (ctx?.projectId && ctx?.activeNodeId) {
+      return (
+        <NodeDraftBlock
+          key={key}
+          projectId={ctx.projectId}
+          nodeId={ctx.activeNodeId}
+          data={draft}
+          onAdopted={ctx.onNodeAdopted}
+        />
+      );
+    }
+    return null;
+  }
+
   const fallbackText =
     block.content ||
     (typeof data.content === "string" ? data.content : "") ||
@@ -200,7 +221,13 @@ function renderContentBlock(block: ContentBlock, key: string) {
   );
 }
 
-function AssistantMessage({ message }: { message: ChatMessage }) {
+function AssistantMessage({
+  message,
+  ctx,
+}: {
+  message: ChatMessage;
+  ctx?: { projectId?: string; activeNodeId?: string | null; onNodeAdopted?: () => void };
+}) {
   const blocks = message.richContent?.blocks ?? [];
   return (
     <div className="flex gap-3">
@@ -213,7 +240,7 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
             <ReactMarkdown>{message.content}</ReactMarkdown>
           </div>
         ) : null}
-        {blocks.map((block, index) => renderContentBlock(block, `${message.id}-${index}`))}
+        {blocks.map((block, index) => renderContentBlock(block, `${message.id}-${index}`, ctx))}
         <span className="block text-[10px] text-outline mt-2">
           {fmtTime(message.createdAt)}
         </span>
@@ -228,6 +255,7 @@ export function ConversationPanel({
   activeNodeId,
   activeNodeTitle,
   onClearNode,
+  onNodeAdopted,
 }: {
   projectId: string;
   initialPrompt?: string;
@@ -237,6 +265,8 @@ export function ConversationPanel({
   activeNodeTitle?: string;
   /** Exit node-scoped chat and return to the project-global conversation. */
   onClearNode?: () => void;
+  /** Called after a node draft is adopted, so the canvas can reload. */
+  onNodeAdopted?: () => void;
 }) {
   const {
     messages,
@@ -387,7 +417,7 @@ export function ConversationPanel({
 
         {messages.map((m) =>
           m.role === "assistant" ? (
-            <AssistantMessage key={m.id} message={m} />
+            <AssistantMessage key={m.id} message={m} ctx={{ projectId, activeNodeId, onNodeAdopted }} />
           ) : (
             <div key={m.id} className="flex gap-3 flex-row-reverse">
               <div className="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center shrink-0">
@@ -465,7 +495,7 @@ export function ConversationPanel({
               </div>
 
               {streamingBlocks.map((block, index) =>
-                renderContentBlock(block, `streaming-${index}`),
+                renderContentBlock(block, `streaming-${index}`, { projectId, activeNodeId, onNodeAdopted }),
               )}
 
               {/* Response text with typewriter cursor — only once body starts. */}

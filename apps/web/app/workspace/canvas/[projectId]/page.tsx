@@ -559,6 +559,7 @@ function CanvasWorkspaceInner() {
         activeNodeId={conversationNodeId}
         activeNodeTitle={activeNodeTitle}
         onClearNode={() => setConversationNode(null)}
+        onNodeAdopted={() => loadCurrent()}
       />
 
       <section className="flex-1 flex flex-col relative bg-surface-bright overflow-hidden">
