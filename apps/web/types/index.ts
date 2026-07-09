@@ -688,7 +688,8 @@ export interface ContentBlock {
     | "parameter_card"
     | "stage_summary"
     | "plan_progress"
-    | "node_draft";
+    | "node_draft"
+    | "canvas_fill_proposal";
   content?: string;
   data?: Record<string, unknown>;
 }

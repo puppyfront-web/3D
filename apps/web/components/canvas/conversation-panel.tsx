@@ -42,6 +42,10 @@ import ReactMarkdown from "react-markdown";
 import { CompanyAnalysisCard } from "@/components/canvas/company-analysis-card";
 import { NodeDraftBlock, type NodeDraftData } from "@/components/canvas/node-draft-block";
 import {
+  CanvasFillProposalBlock,
+  type CanvasFillProposalData,
+} from "@/components/canvas/canvas-fill-proposal-block";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -208,6 +212,11 @@ function renderContentBlock(
       );
     }
     return null;
+  }
+
+  if (block.type === "canvas_fill_proposal") {
+    const proposal = (block.data ?? {}) as unknown as CanvasFillProposalData;
+    return <CanvasFillProposalBlock key={key} data={proposal} />;
   }
 
   const fallbackText =
