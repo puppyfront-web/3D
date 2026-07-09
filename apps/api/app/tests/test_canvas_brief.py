@@ -49,11 +49,8 @@ def _parse_events(chunks):
     return events
 
 
-class _FakeSkillResult:
-    def __init__(self, output):
-        self.output = output
-
-
+# run_with_react 返回 dict(runner.py:97-118),output 在 "output" 键下 ——
+# 用 dict mock 反映真实契约,确保被测代码用 dict 访问(.get)而非 getattr(dict, "output")。
 # ─── Fixtures (mirror of test_canvas_research_service — Task 4 extended teardown) ──
 
 
@@ -175,7 +172,7 @@ async def test_auto_fill_then_brief(canvas_project_with_version, db_session, mon
     monkeypatch.setattr(svc, "save_message", AsyncMock())
     monkeypatch.setattr(svc, "_load_ref_docs_context", AsyncMock(return_value=(None, [])))
     runner = MagicMock()
-    runner.run_with_react = AsyncMock(return_value=_FakeSkillResult(skill_output))
+    runner.run_with_react = AsyncMock(return_value={"success": True, "output": skill_output})
     with patch("app.services.search_helper.acquire_web_context",
                AsyncMock(return_value=([], {"status": "ok", "key_points": [], "missing_info": []}))), \
          patch("app.services.canvas_agent_orchestrator.canvas_agent_orchestrator.fill_canvas",

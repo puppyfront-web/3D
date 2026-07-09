@@ -1763,7 +1763,9 @@ class ConversationService:
                     },
                     skill_ctx,
                 )
-            skill_output = getattr(skill_result, "output", None) or {}
+            # run_with_react 返回 dict(runner.py:97-118),output 在 "output" 键下 ——
+            # 不能用 getattr(dict, "output")(恒为 None)。镜像 _handle_skill_execution:860。
+            skill_output = skill_result.get("output", {})
             if skill_output:
                 yield f"data: {json.dumps({'type': 'proposal_section', 'data': skill_output}, ensure_ascii=False)}\n\n"
         except Exception:
