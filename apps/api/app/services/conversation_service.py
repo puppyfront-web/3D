@@ -14,6 +14,7 @@ from app.core.prompts import GLOBAL_CAPABILITY_CONSTRAINT
 from app.models.conversation import Conversation, ConversationThread, Message
 from app.services.intent_service import IntentDetector, IntentResult
 from app.services.llm_service import get_llm_service
+from app.services.search_helper import acquire_web_context
 
 logger = logging.getLogger(__name__)
 _REF_DOC_RE = re.compile(r"\[ref_doc:([0-9a-fA-F-]{32,36})\]")
@@ -1346,31 +1347,31 @@ class ConversationService:
         history: List[Dict[str, str]],
         thread_id: uuid.UUID,
     ) -> AsyncGenerator[str, None]:
-        """Handle a node-scoped conversation (PRD §15).
+        """Handle a node-scoped conversation (PRD §15) — DIRECT-OUTPUT mode.
 
-        Loads the canvas node's current content + sources, then asks the LLM —
-        streaming — for a modification suggestion constrained to THAT single
-        node. Per product decision (单节点隔离 / AI建议→手动应用):
-          - The reply is plain advisory text; we do NOT write to CanvasNode.
-            The user reads it, then manually edits in NodeDetailDrawer and
-            saves via PATCH /nodes/{id} when satisfied.
-          - Only the current node is in scope; the prompt forbids touching
-            sibling nodes even if the change would logically propagate.
+        Loads the node's current content + sources + a web-search pass, then
+        asks the LLM — streaming — to WRITE the finished copy for THIS single
+        node (not advise on how to write it). The streamed body is shown to
+        the user as-is; after streaming we split out an optional
+        「【还需你提供】」tail into pending questions and emit a structured
+        ``node_draft`` block so the UI can offer a one-click 「采纳到节点」.
+
+        Per product decision (单节点隔离 + AI 直出成品 → 用户一键采纳):
+          - Reply IS the finished node copy; the user adopts it via the
+            adopt endpoint (Task 3) when satisfied — we do NOT write here.
+          - Only the current node is in scope.
         """
-        # Local import to avoid a module-load cycle (canvas_service does not
-        # depend back on conversation_service, but keep symmetry with other
-        # handlers that import services lazily).
         from app.services.canvas_service import canvas_service
 
         try:
             node = await canvas_service.get_node(db, uuid.UUID(node_id))
         except Exception:
             logger.exception("node_edit: failed to load node %s", node_id)
-            yield f"data: {json.dumps({'type': 'text_delta', 'text': '无法加载该节点，请返回全局对话后重试。'})}\n\n"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': '无法加载该节点，请返回全局对话后重试。'}, ensure_ascii=False)}\n\n"
             return
 
         if not node:
-            yield f"data: {json.dumps({'type': 'text_delta', 'text': '未找到该节点，可能已被删除。'})}\n\n"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': '未找到该节点，可能已被删除。'}, ensure_ascii=False)}\n\n"
             return
 
         node_title = node.title or node.node_key or "该节点"
@@ -1387,28 +1388,56 @@ class ConversationService:
             or "（暂无来源）"
         )
 
-        # ── Build the node-edit system prompt ──
+        # ── Task 1: web-search pass with a context-aware rewritten query ──
+        context_hint = f"画布节点：{node_title}；用户要求：{user_message}；已有资料：{self._fmt_slot(extracted)}"
+        web_hits: List[Dict[str, Any]] = []
+        web_summary: Dict[str, Any] = {}
+        try:
+            web_hits, web_summary = await acquire_web_context(
+                db, user_message, max_results=5, context_hint=context_hint
+            )
+        except Exception:
+            logger.exception("node_edit: web search failed for node %s; continuing without.", node_id)
+
+        web_block = (
+            "（无网络命中）"
+            if not web_hits
+            else "\n".join(
+                f"- {h.get('title') or h.get('domain')}：{(h.get('snippet') or '').strip()[:120]}"
+                for h in web_hits[:5]
+            )
+        )
+
+        # ── Build the node-edit system prompt (direct-output, not advisory) ──
         context_block = (
             f"当前节点：{node_title}\n\n"
             f"【已有资料提取】\n{self._fmt_slot(extracted)}\n\n"
             f"【已有策划内容】\n{self._fmt_slot(planning)}\n\n"
             f"【待确认项】\n{self._fmt_slot(pending)}\n\n"
-            f"【信息来源】{sources_brief}\n"
+            f"【信息来源】{sources_brief}\n\n"
+            f"【网络搜索命中】\n{web_block}\n"
         )
         system_prompt = (
-            "你是花生ONE 画布节点编辑助手。用户正在「节点级对话」中修改画布上的单个节点。\n"
+            "你是花生ONE 售前文案撰写助手。用户正在「节点级对话」中，要你为画布上的单个节点撰写内容。\n"
             "硬性约束：\n"
-            "1. 只能针对「当前节点」给出修改建议，绝不要涉及其它节点（即便逻辑上相关）。\n"
-            "2. 输出修改建议，不要直接给出最终 JSON；用户会阅读后手动应用。\n"
-            "3. 建议要具体、可执行：指出当前内容的不足、给出补充或改写方向、必要时给出示例措辞。\n"
-            "4. 引用必须可追溯：建议补充内容时，说明应来自用户资料 / 内部案例 / 网络搜索 / AI 补全中的哪一类，不得编造。\n"
-            "5. 若用户要的内容超出该节点范围（如涉及多个板块），明确提示「这超出本节点范围，建议在全局对话处理」。\n"
+            "1. 只为「当前节点」撰写内容，绝不要涉及其它节点。\n"
+            "2. 直接输出该节点可用的成品售前文案——也就是用户采纳后能直接写进节点的内容。"
+            "不要输出「建议这样写」「应该包含 X」「需要考虑 Y」之类的元指导或方法论。\n"
+            "3. 不得使用「建议、应该、可以提炼、需要考虑」等空泛建议措辞；写就是了。\n"
+            "4. 内容要基于【已有资料提取】和【网络搜索命中】。引用必须可追溯、不得编造；"
+            "基于网络命中的内容即视为来自网络搜索，基于已有资料的视为来自用户资料。\n"
+            "5. 只有当关键信息确实缺失、必须用户客观提供时，才在成品正文最末尾另起一段，"
+            "以「【还需你提供】」为标题，每行一项列出具体缺失项及其用途，例如：\n"
+            "   【还需你提供】\n"
+            "   - 营业执照上的成立时间：用于企业简介基础信息\n"
+            "   - 主营业务的具体描述：用于准确表述业务范围\n"
+            "   若无缺失，不要输出该段。\n"
+            "6. 若用户要的内容明显超出该节点范围（涉及多个板块），在正文开头用一句话提示"
+            "「这超出本节点范围，建议在全局对话处理」，然后仍尽量给出本节点能写的部分。\n"
             f"\n{context_block}"
         )
 
-        # Surface a reasoning step before the streamed reply, so the UI's
-        # thinking panel narrates the plan (consistent with the other handlers).
-        thinking_text = f"正在分析节点「{node_title}」的当前内容，结合你的修改要求生成针对性建议…"
+        thinking_text = f"正在结合资料与联网搜索为节点「{node_title}」撰写内容…"
         yield f"data: {json.dumps({'type': 'thinking_delta', 'text': thinking_text}, ensure_ascii=False)}\n\n"
 
         llm = await get_llm_service(db)
@@ -1419,18 +1448,63 @@ class ConversationService:
             temperature=0.5,
         ):
             full_text += chunk
-            yield f"data: {json.dumps({'type': 'text_delta', 'text': chunk})}\n\n"
+            yield f"data: {json.dumps({'type': 'text_delta', 'text': chunk}, ensure_ascii=False)}\n\n"
 
-        # Persist the advisory reply as an assistant message tagged with the
-        # node id, so the conversation history stays coherent on reload.
+        # ── Split finished copy vs pending-questions tail, emit node_draft ──
+        planning_items, pending_items = self._split_node_draft(full_text)
+        draft_sources = [
+            {
+                "type": "web_search",
+                "name": h.get("title") or h.get("domain") or "网络来源",
+                "quote": (h.get("snippet") or "").strip()[:200],
+            }
+            for h in web_hits[:3]
+        ]
+        node_draft = {
+            "type": "node_draft",
+            "data": {
+                "planning": planning_items,
+                "pending_questions": pending_items,
+                "sources": draft_sources,
+            },
+        }
+        yield f"data: {json.dumps(node_draft, ensure_ascii=False)}\n\n"
+
         await self.save_message(
             db, conversation_id, "assistant",
             content=full_text,
             thread_id=thread_id,
             content_type="text",
-            metadata={"intent": "node_edit", "node_id": node_id, "node_title": node_title},
+            metadata={
+                "intent": "node_edit",
+                "node_id": node_id,
+                "node_title": node_title,
+                "node_draft": node_draft["data"],
+            },
             auto_commit=True,
         )
+
+    @staticmethod
+    def _split_node_draft(raw: str) -> tuple:
+        """Split streamed copy into (planning_items, pending_questions).
+
+        Anything after the「【还需你提供】」marker is parsed as a bullet list
+        of pending questions; the rest is the finished copy, split into
+        paragraphs. Always returns two lists (never None).
+        """
+        marker = "【还需你提供】"
+        body, pending_block = raw, ""
+        if marker in raw:
+            body, _, pending_block = raw.partition(marker)
+        planning = [p.strip() for p in body.strip().split("\n\n") if p.strip()]
+        pending = []
+        for line in pending_block.strip().splitlines():
+            item = re.sub(r"^[\s\-•*]+", "", line).strip()
+            # drop the trailing "：用途" rationale but keep the asked item readable
+            item = item.split("：", 1)[0].strip() if "：" in item else item
+            if item:
+                pending.append(item)
+        return planning, pending
 
     @staticmethod
     def _fmt_slot(items: Any) -> str:
