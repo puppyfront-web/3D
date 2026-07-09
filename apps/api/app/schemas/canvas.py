@@ -90,6 +90,19 @@ class NodeAdoptIn(APIBaseModel):
     sources: Optional[List[Dict[str, Any]]] = None
 
 
+class CanvasFillAcceptIn(APIBaseModel):
+    """用户勾选采纳的采集提案(body 由前端回传,服务端再校验 node_key)。
+
+    ``boards`` carries the curated research proposal (same shape produced by
+    ``research_and_propose``): each board has a ``board_key`` and a list of
+    ``nodes`` with ``node_key``/``points``/``citations``. ``change_summary``
+    is an optional human-readable label attached to the new ProjectVersion.
+    """
+
+    boards: List[Dict[str, Any]]
+    change_summary: Optional[str] = None
+
+
 # ─── Canvas groups ───────────────────────────────────────────────────────────
 
 

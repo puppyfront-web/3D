@@ -18,7 +18,7 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +29,7 @@ from app.models.canvas import ProjectVersion
 from app.models.skill import SkillExecution
 from app.models.skill import Skill as SkillModel
 from app.schemas.canvas import (
+    CanvasFillAcceptIn,
     CanvasNodeCreate,
     CanvasNodeOut,
     CanvasNodeUpdate,
@@ -41,6 +42,7 @@ from app.schemas.canvas import (
 from app.schemas.common import Response
 from app.services.canvas_adopt_service import adopt_node_draft
 from app.services.canvas_agent_orchestrator import canvas_agent_orchestrator
+from app.services.canvas_research_service import accept_fill_proposal
 from app.services.canvas_service import canvas_service
 
 router = APIRouter(tags=["canvas"])
@@ -306,6 +308,37 @@ async def adopt_node(
     await db.commit()
     node = await canvas_service.get_node(db, node_id)
     return Response(data=_to_node_out(node), message="已采纳到节点")
+
+
+@router.post(
+    "/projects/{project_id}/canvas/fill-accept",
+    response_model=Response[CanvasOut],
+)
+async def accept_canvas_fill(
+    project_id: uuid.UUID,
+    body: CanvasFillAcceptIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """采纳采集提案:创建新版本快照 + 按 node_key 合并节点 + 追加 web_search 溯源。
+
+    Wraps ``accept_fill_proposal`` (Task 4). The service creates the new
+    ProjectVersion FIRST and raises ``ValueError`` on an illegal ``node_key``
+    afterwards; it does NOT commit, so on error the partial version is
+    discarded by the session rollback. We translate that ``ValueError`` to a
+    400 (never a raw 500) and skip the commit on any failure.
+    """
+    try:
+        new_version = await accept_fill_proposal(
+            db,
+            project_id=project_id,
+            body=body.model_dump(),
+        )
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    await db.commit()
+    canvas = await canvas_service.get_canvas(db, new_version.id)
+    return Response(data=_to_canvas_out(canvas), message="已采纳并生成新版本")
 
 
 @router.post(
