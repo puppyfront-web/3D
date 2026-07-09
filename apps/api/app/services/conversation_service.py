@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.prompts import GLOBAL_CAPABILITY_CONSTRAINT
 from app.models.conversation import Conversation, ConversationThread, Message
+from app.services import canvas_research_service
 from app.services.intent_service import IntentDetector, IntentResult
 from app.services.llm_service import get_llm_service
 from app.services.search_helper import acquire_web_context
@@ -1674,6 +1675,17 @@ class ConversationService:
                 auto_commit=True,
             )
             return
+
+        # 可见化:从 fill_canvas 写回结果派生 Proposal,让用户看到填了什么(所见即所写)
+        try:
+            proposal = await canvas_research_service.build_fill_proposal_from_canvas(
+                db, proj_uuid
+            )
+            if proposal.get("boards"):
+                yield f"data: {json.dumps({'type': 'canvas_fill_proposal', 'data': proposal}, ensure_ascii=False)}\n\n"
+        except Exception:
+            # 派生失败不阻断主流程(fill 已成功)
+            pass
 
         # ── Stage 3: summary reply ──
         filled = fill_result.get("filled_count", 0)
