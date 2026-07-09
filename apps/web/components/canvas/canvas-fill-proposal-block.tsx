@@ -5,8 +5,7 @@
 // grouped by board → node, with source citations. ask mode (Task 7): adds
 // per-node checkboxes + 「采纳所选」 that POSTs to /canvas/fill-accept.
 
-import { useState } from "react";
-import { Check, Loader2, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 export interface FillCitation {
   name?: string;
