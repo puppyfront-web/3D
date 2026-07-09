@@ -101,9 +101,14 @@ async def canvas_project_with_version(db_session):
 
     yield (project_id, version_id)
 
-    # Teardown: cascade-delete canvas rows that the adopt service may have added.
+    # Teardown: cascade-delete canvas rows that the adopt/accept services may
+    # have added. accept_fill_proposal (Task 4) creates a NEW ProjectVersion +
+    # cloned canvas, so we must sweep ALL canvases/versions for this project,
+    # not just the original V1 — otherwise the Project FK delete fails.
     cv_res = await db_session.execute(
-        select(Canvas.id).where(Canvas.project_version_id == version_id)
+        select(Canvas.id).join(
+            ProjectVersion, ProjectVersion.id == Canvas.project_version_id
+        ).where(ProjectVersion.project_id == project_id)
     )
     canvas_ids = [r[0] for r in cv_res.all()]
     if canvas_ids:
@@ -118,7 +123,9 @@ async def canvas_project_with_version(db_session):
         await db_session.execute(delete(CanvasNode).where(CanvasNode.canvas_id.in_(canvas_ids)))
         await db_session.execute(delete(CanvasGroup).where(CanvasGroup.canvas_id.in_(canvas_ids)))
         await db_session.execute(delete(Canvas).where(Canvas.id.in_(canvas_ids)))
-    await db_session.execute(delete(ProjectVersion).where(ProjectVersion.id == version_id))
+    await db_session.execute(
+        delete(ProjectVersion).where(ProjectVersion.project_id == project_id)
+    )
     await db_session.execute(delete(Project).where(Project.id == project_id))
     await db_session.execute(delete(Company).where(Company.id == company_id))
     await db_session.execute(delete(User).where(User.id == user_id))
@@ -245,3 +252,80 @@ def test_filter_new_points_empty_when_all_dup():
     }
     out = filter_new_points(proposal, nodes_by_key)
     assert out["boards"] == []  # 全重复 → 清空,上层据此不 emit
+
+
+# ─── accept_fill_proposal (Task 4: 版本化写回) ────────────────────────────────
+
+
+async def test_accept_fill_proposal_creates_version_and_merges(
+    db_session, canvas_project_with_version
+):
+    """采纳:新建 ProjectVersion(is_current 翻转)、节点 planning 被覆盖、
+    ui_suggestion/extracted 保留、status=filled、citation 写 NodeSource。"""
+    from sqlalchemy import select
+    from app.models.canvas import CanvasNode, NodeSource, ProjectVersion
+
+    project_id, version_id = canvas_project_with_version
+
+    # 先给目标节点塞一点既有 ui_suggestion(验证保留)
+    node = await _first_node_in_version(db_session, None, "company_profile", project_id=project_id)
+    node.content = {"extracted": ["旧 extracted"], "planning": [],
+                    "ui_suggestion": ["旧 ui 建议"], "pending_questions": []}
+    await db_session.flush()
+
+    body = {
+        "boards": [{
+            "board_key": "company_intro",
+            "nodes": [{
+                "node_key": "company_profile",
+                "points": ["成立于 2016 年", "员工 200 人"],
+                "citations": [{"name": "官网", "url": "https://x", "snippet": "..."}],
+            }],
+        }],
+        "change_summary": "采集填充：1 个节点",
+    }
+    new_version = await accept_fill_proposal(db_session, project_id, body, user_id=None)
+    await db_session.commit()
+
+    assert isinstance(new_version, ProjectVersion)
+    assert new_version.is_current is True
+    old = await db_session.get(ProjectVersion, version_id)
+    assert old.is_current is False  # 旧版本被 demote
+
+    # 新版本上的节点被合并写回(create_version 克隆了旧画布,故 ui_suggestion/extracted 保留)
+    new_node = await _first_node_in_version(db_session, new_version.id, "company_profile")
+    c = new_node.content
+    assert c["planning"] == ["成立于 2016 年", "员工 200 人"]
+    assert c["ui_suggestion"] == ["旧 ui 建议"]  # 保留
+    assert c["extracted"] == ["旧 extracted"]    # 保留
+    assert new_node.status == "filled"
+    srcs = (await db_session.execute(
+        select(NodeSource).where(NodeSource.node_id == new_node.id)
+    )).scalars().all()
+    web_srcs = [s for s in srcs if s.source_type == "web_search"]
+    assert any(s.source_name == "官网" for s in web_srcs)
+
+
+async def test_accept_fill_proposal_rejects_illegal_node_key(
+    db_session, canvas_project_with_version
+):
+    project_id, version_id = canvas_project_with_version
+    body = {"boards": [{"board_key": "company_intro",
+                        "nodes": [{"node_key": "DOES_NOT_EXIST", "points": ["x"], "citations": []}]}]}
+    with pytest.raises(Exception):
+        await accept_fill_proposal(db_session, project_id, body)
+
+
+# --- helpers ---
+async def _first_node_in_version(db, version_id, node_key, project_id=None):
+    # canvas_service is the singleton instance imported at top of file (not the
+    # module). The brief wrote `from app.services import canvas_service` which
+    # would resolve to the module here; use the already-imported instance.
+    if version_id is None:
+        version_id = (await canvas_service.get_current_version(db, project_id)).id
+    canvas = await canvas_service.get_canvas(db, version_id)
+    for g in canvas.groups:
+        for n in g.nodes:
+            if (n.node_key or n.title) == node_key:
+                return n
+    raise AssertionError(f"node {node_key} not found")

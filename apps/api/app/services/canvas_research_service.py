@@ -287,4 +287,69 @@ async def accept_fill_proposal(
     body: Dict[str, Any],
     user_id=None,
 ) -> ProjectVersion:
-    raise NotImplementedError("Task 4 implements this")
+    """版本化写回:新建 ProjectVersion 快照 → 按 node_key 合并节点 → 追加 NodeSource。
+
+    body: {"boards":[{"board_key","nodes":[{"node_key","points","citations"}]}],
+           "change_summary"?: str}
+    合并语义(与 adopt_node_draft 一致):保留 ui_suggestion/extracted,覆盖 planning/pending,
+    status=filled;每条 citation(type=web_search 或缺省)写一行 NodeSource(web_search)。
+
+    create_version 会把当前画布的 groups/nodes/edges 深拷贝到新版本(canvas_service
+    ._clone_canvas_into_version 把 content 原样复制),所以合并读到的 old.content 已包含
+    旧版本上既有的 ui_suggestion/extracted,无需跨版本回查。
+    """
+    import uuid as _uuid
+
+    # 1) 新建版本快照(自动 demote 旧 current + 翻 is_current)
+    new_version = await canvas_service.create_version(
+        db,
+        project_id,
+        version_name=None,
+        change_summary=body.get("change_summary") or "采集填充",
+        based_on_version_id=None,
+        created_by=user_id,
+    )
+    canvas = await canvas_service.get_canvas(db, new_version.id)
+
+    # 建 (board_key -> {node_key -> node}) 查表
+    board_nodes: Dict[str, Dict[str, CanvasNode]] = {}
+    for group in canvas.groups:
+        board_nodes.setdefault(group.group_key, {})
+        for n in group.nodes:
+            board_nodes[group.group_key][n.node_key or n.title] = n
+
+    # 2) 对每个选中 node 合并 + 写溯源
+    for board in body.get("boards", []) or []:
+        bk = board.get("board_key")
+        node_map = board_nodes.get(bk)
+        if node_map is None:
+            continue  # 非法 board 跳过(整体已在 create_version 后,不回滚)
+        for entry in board.get("nodes", []) or []:
+            nk = entry.get("node_key")
+            node = node_map.get(nk)
+            if node is None:
+                raise ValueError(f"非法 node_key: {nk}(board={bk})")
+            points = [str(p) for p in (entry.get("points") or []) if str(p).strip()]
+            citations = entry.get("citations") or []
+            old = node.content or {}
+            node.content = {
+                "extracted": list(old.get("extracted") or []),
+                "planning": points,
+                "ui_suggestion": list(old.get("ui_suggestion") or []),
+                "pending_questions": list(old.get("pending_questions") or []),
+            }
+            node.status = "filled" if points else (node.status or "draft")
+            db.add(node)
+            for c in citations:
+                if not isinstance(c, dict):
+                    continue
+                db.add(NodeSource(
+                    id=_uuid.uuid4(),
+                    node_id=node.id,
+                    source_type="web_search",
+                    source_name=str(c.get("name") or "网络来源"),
+                    confidence="low",
+                    quote=str(c.get("snippet") or "")[:500] or None,
+                    metadata_json={"url": c.get("url", "")},
+                ))
+    return new_version
