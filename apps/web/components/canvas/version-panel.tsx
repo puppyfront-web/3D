@@ -251,6 +251,9 @@ export function VersionPanel({
                   {/* Related knowledge assets (PRD §16.3 / §23.6) */}
                   <RelatedAssets version={detail} />
 
+                  {/* Changed nodes vs prior version (PRD §16.3 变更节点) */}
+                  <ChangedNodes version={detail} />
+
                   {detail.isCurrent && onExport && (
                     <div className="flex gap-2">
                       <Button
@@ -348,6 +351,54 @@ function RelatedAssets({ version }: { version: ProjectVersion }) {
             ),
         )}
       </div>
+    </div>
+  );
+}
+
+/** Renders the per-node diff vs the prior version (PRD §16.3 变更节点). */
+const CHANGE_LABEL: Record<string, string> = {
+  added: "新增",
+  removed: "删除",
+  content: "内容修改",
+  status: "状态变更",
+  title: "重命名",
+};
+const CHANGE_BADGE: Record<string, string> = {
+  added: "bg-emerald-100 text-emerald-700",
+  removed: "bg-red-100 text-red-700",
+  content: "bg-primary-fixed text-primary",
+  status: "bg-amber-100 text-amber-700",
+  title: "bg-surface-container text-on-surface-variant",
+};
+
+function ChangedNodes({ version }: { version: ProjectVersion }) {
+  const changes = version.changedNodes ?? [];
+  if (changes.length === 0) return null;
+  return (
+    <div>
+      <p className="text-[10px] text-outline uppercase font-semibold mb-2 flex items-center gap-1">
+        <GitBranch className="h-3 w-3" /> 变更节点 ({changes.length})
+      </p>
+      <ul className="space-y-1 max-h-44 overflow-y-auto scrollbar-thin">
+        {changes.map((c, i) => (
+          <li
+            key={`${c.nodeKey ?? c.title ?? ""}-${i}`}
+            className="flex items-center gap-2 text-xs"
+          >
+            <span
+              className={cn(
+                "shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium",
+                CHANGE_BADGE[c.change ?? ""] ?? "bg-surface-container text-on-surface-variant",
+              )}
+            >
+              {CHANGE_LABEL[c.change ?? ""] ?? c.change}
+            </span>
+            <span className="text-on-surface-variant truncate">
+              {c.title ?? c.nodeKey ?? "—"}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

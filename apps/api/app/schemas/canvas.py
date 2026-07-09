@@ -139,6 +139,10 @@ class ProjectVersionOut(APIBaseModel):
     # this field was introduced.
     related_materials: Optional[List[str]] = None
     related_internal_assets: Optional[dict] = None
+    # Per-node diff vs the prior version (PRD §16.3 变更节点). Each item:
+    # {node_key, title, change: added|removed|content|status|title}. Empty for
+    # the first version or snapshots predating this field.
+    changed_nodes: Optional[List[dict]] = None
 
 
 class ProjectVersionCreate(APIBaseModel):

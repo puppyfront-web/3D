@@ -85,9 +85,9 @@ def _to_canvas_out(canvas, is_read_only: bool = False) -> CanvasOut:
 
 
 def _version_to_out(v) -> ProjectVersionOut:
-    """Build ProjectVersionOut, merging related-asset aggregates from the
-    version snapshot (PRD §16.3). Falls back to empty when the snapshot
-    predates these fields."""
+    """Build ProjectVersionOut, merging related-asset aggregates + changed_nodes
+    from the version snapshot (PRD §16.3). Falls back to empty when the
+    snapshot predates these fields."""
     out = ProjectVersionOut.model_validate(v)
     snapshot = getattr(v, "snapshot", None)
     if isinstance(snapshot, dict):
@@ -97,6 +97,9 @@ def _version_to_out(v) -> ProjectVersionOut:
             out.related_materials = list(rel_mats)
         if rel_internal is not None:
             out.related_internal_assets = dict(rel_internal)
+        changed = snapshot.get("changed_nodes")
+        if changed is not None:
+            out.changed_nodes = list(changed)
     return out
 
 

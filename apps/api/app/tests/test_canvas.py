@@ -503,3 +503,56 @@ async def test_seed_if_needed_does_not_create_tables(monkeypatch):
     await init_db_module.seed_if_needed()
 
     assert calls["seed"] == 1
+
+
+async def test_version_records_changed_nodes_against_previous(client, canvas_project_id):
+    """PRD §16.3 变更节点: each version's snapshot.diff vs the prior version
+    lists which nodes were added / removed / had content or status changes.
+    Surfaced via ProjectVersionOut.changed_nodes."""
+    # V1 (default topology, first version → changed_nodes empty).
+    v1 = (await client.post(f"/api/v1/projects/{canvas_project_id}/versions")).json()["data"]
+    assert v1["changedNodes"] == []
+
+    # Edit two nodes: fill one's content, change another's status.
+    canvas_v1 = (await client.get(f"/api/v1/projects/{canvas_project_id}/canvas")).json()["data"]
+    n_a, n_b = canvas_v1["nodes"][0], canvas_v1["nodes"][1]
+    await client.patch(
+        f"/api/v1/projects/{canvas_project_id}/nodes/{n_a['id']}",
+        json={"status": "filled", "content": {
+            "extracted": ["新事实"], "planning": ["新文案"],
+            "ui_suggestion": [], "pendingQuestions": [],
+        }},
+    )
+    await client.patch(
+        f"/api/v1/projects/{canvas_project_id}/nodes/{n_b['id']}",
+        json={"status": "pending_review"},
+    )
+
+    # V2 — should record both edits as changed_nodes (content + status).
+    v2 = (
+        await client.post(
+            f"/api/v1/projects/{canvas_project_id}/versions",
+            json={"versionName": "V2"},
+        )
+    ).json()["data"]
+    changed = {c["nodeKey"]: c["change"] for c in (v2["changedNodes"] or [])}
+    assert changed.get(n_a["nodeKey"]) == "content", changed
+    assert changed.get(n_b["nodeKey"]) == "status", changed
+
+    # Add a custom node, then V3 — it must surface as "added".
+    canvas_v2 = (await client.get(f"/api/v1/projects/{canvas_project_id}/canvas")).json()["data"]
+    gid = canvas_v2["groups"][0]["id"]
+    added = (
+        await client.post(
+            f"/api/v1/projects/{canvas_project_id}/nodes",
+            json={"groupId": gid, "title": "国际合作"},
+        )
+    ).json()["data"]
+    v3 = (
+        await client.post(
+            f"/api/v1/projects/{canvas_project_id}/versions",
+            json={"versionName": "V3"},
+        )
+    ).json()["data"]
+    changed3 = {c["nodeKey"]: c["change"] for c in (v3["changedNodes"] or [])}
+    assert changed3.get(added["nodeKey"]) == "added", changed3

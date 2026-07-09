@@ -327,7 +327,19 @@ class CanvasService:
         if change_summary is None and prev_canvas is not None:
             change_summary = self._summarize_version(new_canvas)
 
-        version.snapshot = self._build_snapshot(new_canvas, change_summary)
+        # PRD §16.3 changed_nodes: diff the new snapshot against the PREVIOUS
+        # version's snapshot so the version-detail panel can list exactly
+        # which nodes changed (added / removed / content / status). The first
+        # version (no previous) gets an empty list.
+        prev_snapshot: Optional[Dict[str, Any]] = None
+        if project.current_version_id:
+            prev_version = await db.get(ProjectVersion, project.current_version_id)
+            if prev_version is not None:
+                prev_snapshot = prev_version.snapshot or None
+
+        version.snapshot = self._build_snapshot(
+            new_canvas, change_summary, prev_snapshot=prev_snapshot,
+        )
         if change_summary:
             version.change_summary = change_summary
 
@@ -616,8 +628,20 @@ class CanvasService:
     ) -> Optional[Canvas]:
         if version_id is None:
             return None
+        # Eager-load groups/nodes/edges + populate_existing so a fresh node
+        # added to the canvas earlier in the SAME session is visible here.
+        # Without populate_existing, the identity-map cache returns the stale
+        # relationship collection (missing the new node), and create_version's
+        # clone would silently drop it — the V3-after-adding-a-node case.
         result = await db.execute(
-            select(Canvas).where(Canvas.project_version_id == version_id)
+            select(Canvas)
+            .options(
+                selectinload(Canvas.groups),
+                selectinload(Canvas.nodes).selectinload(CanvasNode.sources),
+                selectinload(Canvas.edges),
+            )
+            .execution_options(populate_existing=True)
+            .where(Canvas.project_version_id == version_id)
         )
         return result.scalar_one_or_none()
 
@@ -756,14 +780,82 @@ class CanvasService:
             parts.append("引用" + "、".join(ref_knowledge))
         return "，".join(parts) + "。" if parts else "保存当前画布快照"
 
+    @staticmethod
+    def _diff_nodes(
+        prev_snapshot: Optional[Dict[str, Any]],
+        cur_nodes: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Compute the per-node change set between two snapshots (PRD §16.3).
+
+        Indexes both sides by ``node_key`` (falls back to title) and classifies
+        each node as added / removed / content / status / title. A node whose
+        extracted/planning/ui_suggestion/pending_questions slots all match the
+        prior version is unchanged and excluded. First version (no prev) → [].
+
+        Returns ``[{"nodeKey", "title", "change": "added|removed|content|status|title"}]``
+        ordered added → content/status/title → removed for stable display.
+        """
+        if not prev_snapshot:
+            return []
+        prev_nodes_list = prev_snapshot.get("nodes") or []
+        # Index by node_key, falling back to title for custom nodes without one.
+        def _key(n: Dict[str, Any]) -> str:
+            return (n.get("node_key") or n.get("title") or "") or ""
+
+        prev_by_key: Dict[str, Dict[str, Any]] = {}
+        for n in prev_nodes_list:
+            k = _key(n)
+            if k:
+                prev_by_key[k] = n
+        cur_by_key: Dict[str, Dict[str, Any]] = {}
+        for n in cur_nodes:
+            k = _key(n)
+            if k:
+                cur_by_key[k] = n
+
+        def _slots(n: Dict[str, Any]) -> Dict[str, Any]:
+            c = n.get("content") or {}
+            return {
+                "extracted": c.get("extracted") or [],
+                "planning": c.get("planning") or [],
+                "ui_suggestion": c.get("ui_suggestion") or [],
+                "pending_questions": c.get("pending_questions") or [],
+            }
+
+        changes: List[Dict[str, Any]] = []
+        for k, cur in cur_by_key.items():
+            prev = prev_by_key.get(k)
+            if prev is None:
+                changes.append({"nodeKey": k, "title": cur.get("title"), "change": "added"})
+                continue
+            # Changed: content slots, status, or title.
+            if _slots(cur) != _slots(prev):
+                changes.append({"nodeKey": k, "title": cur.get("title"), "change": "content"})
+            elif (cur.get("status") or "") != (prev.get("status") or ""):
+                changes.append({"nodeKey": k, "title": cur.get("title"), "change": "status"})
+            elif (cur.get("title") or "") != (prev.get("title") or ""):
+                changes.append({"nodeKey": k, "title": cur.get("title"), "change": "title"})
+        for k, prev in prev_by_key.items():
+            if k not in cur_by_key:
+                changes.append({"nodeKey": k, "title": prev.get("title"), "change": "removed"})
+        return changes
+
     def _build_snapshot(
-        self, canvas: Canvas, change_summary: Optional[str]
+        self,
+        canvas: Canvas,
+        change_summary: Optional[str],
+        prev_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Serialize the canvas into a self-contained snapshot blob.
 
         Includes per-node sources so the version-detail panel can surface the
         related materials / SOP / cases / templates a version used (PRD §16.3)
         without re-resolving against the live canvas.
+
+        When ``prev_snapshot`` is supplied (the immediately-prior version's
+        snapshot), also computes ``changed_nodes`` — the per-node diff (added /
+        removed / content / status / title) so PRD §16.3's "变更节点" panel
+        can list exactly what this version changed.
         """
         # Aggregate related assets across all node sources for quick display.
         related_materials: List[str] = []
@@ -782,6 +874,28 @@ class CanvasService:
                 elif s.source_type in related_internal:
                     if name not in related_internal[s.source_type]:
                         related_internal[s.source_type].append(name)
+
+        nodes_blob = [
+            {
+                "node_key": n.node_key,
+                "title": n.title,
+                "node_type": n.node_type,
+                "status": n.status,
+                "priority": n.priority,
+                "position": n.position,
+                "content": n.content,
+                "sources": [
+                    {
+                        "source_type": s.source_type,
+                        "source_name": s.source_name,
+                        "confidence": s.confidence,
+                    }
+                    for s in (n.sources or [])
+                ],
+            }
+            for n in canvas.nodes
+        ]
+
         return {
             "viewport": canvas.viewport,
             "layout_config": canvas.layout_config,
@@ -795,27 +909,10 @@ class CanvasService:
                 }
                 for g in canvas.groups
             ],
-            "nodes": [
-                {
-                    "node_key": n.node_key,
-                    "title": n.title,
-                    "node_type": n.node_type,
-                    "status": n.status,
-                    "priority": n.priority,
-                    "position": n.position,
-                    "content": n.content,
-                    "sources": [
-                        {
-                            "source_type": s.source_type,
-                            "source_name": s.source_name,
-                            "confidence": s.confidence,
-                        }
-                        for s in (n.sources or [])
-                    ],
-                }
-                for n in canvas.nodes
-            ],
+            "nodes": nodes_blob,
             "edges_count": len(canvas.edges),
+            # PRD §16.3 变更节点 — diff against the prior version's snapshot.
+            "changed_nodes": self._diff_nodes(prev_snapshot, nodes_blob),
             "change_logs": [{"summary": change_summary or "初始版本"}],
             # PRD §16.3 / §23.6 — surfaced in the version-detail panel.
             "related_materials": related_materials,

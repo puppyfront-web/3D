@@ -116,6 +116,12 @@ export interface ProjectVersion {
     internal_template?: string[];
     internal_ui?: string[];
   };
+  /** Per-node diff vs the prior version (PRD §16.3 变更节点). */
+  changedNodes?: Array<{
+    nodeKey?: string;
+    title?: string;
+    change?: "added" | "removed" | "content" | "status" | "title";
+  }>;
 }
 
 // ─── API response wrapper (matches backend Response[T]) ──────────────────────
