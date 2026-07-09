@@ -58,6 +58,21 @@ _BLOCK_SUMMARY_HINTS: Dict[str, str] = {
 }
 
 
+def _serialize_proposal_to_profile(proposal: dict) -> str:
+    """把 canvas_fill_proposal 的 Proposal 序列化成企业画像文本,作为 proposal_generation 的 context_pack。"""
+    lines = ["【企业画像（来自画布采集填充）】"]
+    for board in proposal.get("boards", []):
+        lines.append(f"\n## {board.get('board_title','')}")
+        for n in board.get("nodes", []):
+            pts = n.get("points") or []
+            if pts:
+                lines.append(f"- {n.get('node_title','')}：{'；'.join(pts)}")
+    summary = proposal.get("summary") or {}
+    if summary.get("missing_info"):
+        lines.append("\n【待确认/缺失信息】：" + "；".join(summary["missing_info"]))
+    return "\n".join(lines)
+
+
 class _StreamAccumulator:
     """Collects user-facing text + content blocks from an SSE chunk stream.
 
@@ -1708,6 +1723,51 @@ class ConversationService:
         except Exception:
             # 派生失败不阻断主流程(fill 已成功)
             pass
+
+        # 设计 Brief:基于已填画布(企业画像)+ 项目上下文,调 proposal_generation 生成策划案。
+        # 复用既有 proposal_section block(与 _handle_skill_execution:865 一致,data = skill output 整体),
+        # 不新增 design_brief block,前端既有 proposal_section 渲染不变。
+        # 镜像 _handle_skill_execution(765-798):独立 session + SkillRegistry.get_instance() +
+        # SkillContext(user_id=None) + run_with_react,避免 SQLite 单写者死锁。
+        # Brief 失败不阻断主流程(画布已填、可见化已 emit)。
+        try:
+            from app.skills.base import SkillContext
+            from app.skills.registry import SkillRegistry
+            from app.skills.runner import SkillRunner
+            from app.db.session import async_session_factory as _asf
+            from app.services.embedding_service import get_embedding_service
+            from app.services.image_service import get_image_service
+
+            # 把已填画布序列化成企业画像文本(重新派生,解耦上面 proposal 变量作用域)
+            brief_proposal = await canvas_research_service.build_fill_proposal_from_canvas(
+                db, proj_uuid
+            )
+            profile_text = _serialize_proposal_to_profile(brief_proposal)
+            async with _asf() as skill_db:
+                skill_ctx = SkillContext(
+                    project_id=str(proj_uuid),   # SkillContext.project_id: Optional[str]
+                    user_id=None,                # _handle_auto_fill 无 user_id 入参
+                    db=skill_db,
+                    llm_service=await get_llm_service(skill_db),
+                    embedding_service=await get_embedding_service(skill_db),
+                    image_service=await get_image_service(skill_db),
+                )
+                registry = SkillRegistry.get_instance()
+                runner = SkillRunner(registry)
+                skill_result = await runner.run_with_react(
+                    "proposal_generation",
+                    {
+                        "project_id": str(proj_uuid),
+                        "requirement_text": user_message or "",
+                        "context_pack": profile_text,
+                    },
+                    skill_ctx,
+                )
+            skill_output = getattr(skill_result, "output", None) or {}
+            if skill_output:
+                yield f"data: {json.dumps({'type': 'proposal_section', 'data': skill_output}, ensure_ascii=False)}\n\n"
+        except Exception:
+            logger.exception("auto_fill: brief generation failed; continuing")
 
         # ── Stage 3: summary reply ──
         filled = fill_result.get("filled_count", 0)
