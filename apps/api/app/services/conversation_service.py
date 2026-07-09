@@ -19,24 +19,16 @@ from app.services.search_helper import acquire_web_context
 logger = logging.getLogger(__name__)
 _REF_DOC_RE = re.compile(r"\[ref_doc:([0-9a-fA-F-]{32,36})\]")
 
-# System prompt for conversational mode
-_CONVERSATION_SYSTEM_PROMPT = """你是花生ONE 展厅+文旅 AI 专家系统的助手。
+# System prompt for conversational mode — direct answers, not advice.
+_CONVERSATION_SYSTEM_PROMPT = """你是花生ONE 展厅+文旅 售前问答助手。
 
-你的职责：
-1. 帮助用户理解项目需求和技术参数
-2. 解释企业解析、策划案、视觉方案的细节
-3. 根据上下文建议下一步操作（仅限系统已注册的 Skill）
-4. 回答关于以下领域的问题：
-   - 3D 展示幕墙、裸眼 3D、LED 媒体立面
-   - 展厅设计与展陈规划（企业展厅、博物馆、规划馆、科技馆）
-   - 文旅项目策划（文旅夜游、沉浸式体验、光影秀）
-   - 多媒体展项设计（互动装置、数字沙盘、AR/VR体验）
-
-重要规则：
-- 如果缺少关键信息（场地面积、屏幕尺寸、预算、工期等），明确标注「需进一步确认」
-- 不要编造案例、报价、屏幕参数或工期
-- 推荐用户使用技能卡片执行专业任务（企业解析、策划案生成、视觉生成等）
-- 回答要专业、简洁、有建设性""" + GLOBAL_CAPABILITY_CONSTRAINT
+回答原则：
+1. 能直接回答就直接回答，专业、具体、落地。不要用「建议你考虑…」「你可以去…」式空话。
+2. 用户问的是事实/区别/参数/方案思路时，基于【网络搜索命中】和已有上下文直接作答，并在行内简述依据。
+3. 如果缺少关键信息（场地面积、屏幕尺寸、预算、工期等）才能给出确切结论，明确告诉用户「为了给你准确结论，我还需要：X、Y（具体）」，而不是泛泛地建议。
+4. 不要编造案例、报价、屏幕参数或工期；不承诺最终投屏效果。
+5. 涉及以下领域：3D 展示幕墙、裸眼 3D、LED 媒体立面；展厅设计与展陈规划；文旅项目策划（夜游、沉浸式、光影秀）；多媒体展项设计（互动装置、数字沙盘、AR/VR）。
+""" + GLOBAL_CAPABILITY_CONSTRAINT
 
 
 def _parse_sse(chunk: str) -> Optional[Dict[str, Any]]:
@@ -1278,44 +1270,55 @@ class ConversationService:
     ) -> AsyncGenerator[str, None]:
         """Handle conversational intent with streaming LLM response.
 
-        Always emits a 'thinking_delta' before the visible reply:
-          - If the provider exposes a reasoning channel, stream the real
-            thinking trace token-by-token.
-          - Otherwise emit a lightweight "正在理解…" placeholder so the UI's
-            reasoning panel has something to show while the model warms up,
-            and a "正在组织回复…" marker right before the first content token.
+        Task 4: searches the web first when the user asks a real question
+        (not a greeting / tiny message), then answers directly with the hits
+        folded into the system prompt. Preserves the rich-stream thinking
+        trace + fallback behaviour of the original.
         """
         llm = await get_llm_service(db)
         full_text = ""
 
-        # Prefer the rich stream (thinking + content). Fall back gracefully for
-        # providers that only implement the plain stream (e.g. MockLLMService).
+        # ── Task 4: web-search pass for real questions (skip greetings/tiny) ──
+        msg = (user_message or "").strip()
+        web_hits: List[Dict[str, Any]] = []
+        if msg and not self._is_social_greeting(msg) and len(msg) >= 4:
+            try:
+                web_hits, _ = await acquire_web_context(
+                    db, msg, max_results=5, context_hint=msg
+                )
+            except Exception:
+                logger.exception("conversational: web search failed; continuing.")
+
+        system_prompt = _CONVERSATION_SYSTEM_PROMPT
+        if web_hits:
+            web_block = "\n".join(
+                f"- {h.get('title') or h.get('domain')}：{(h.get('snippet') or '').strip()[:120]}"
+                for h in web_hits[:5]
+            )
+            system_prompt = (
+                system_prompt
+                + f"\n\n【网络搜索命中】（回答时可引用，标注来自网络）\n{web_block}\n"
+            )
+
         rich_stream = getattr(llm, "generate_with_history_stream_rich", None)
 
-        # Always emit at least one thinking delta up front so the UI shows a
-        # visible "thinking" state instead of a bare "正在生成…". This makes
-        # the SSE stream feel alive even when the provider has no reasoning
-        # channel and the first content token takes a while to arrive.
-        yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '正在理解你的问题并组织回复…'}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '正在检索网络信息…' if web_hits else '正在理解你的问题并组织回复…'}, ensure_ascii=False)}\n\n"
 
         if rich_stream is not None:
             got_real_thinking = False
             first_content_sent = False
             async for kind, text in rich_stream(
                 messages=history,
-                system_prompt=_CONVERSATION_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 temperature=0.7,
             ):
                 if kind == "thinking":
                     if not got_real_thinking:
-                        # Replace the placeholder with the first real trace.
                         got_real_thinking = True
                     yield f"data: {json.dumps({'type': 'thinking_delta', 'text': text}, ensure_ascii=False)}\n\n"
                 else:
                     if not first_content_sent:
                         first_content_sent = True
-                        # Marker right before the first body token, so the UI
-                        # can tell "still reasoning" from "now answering".
                         if not got_real_thinking:
                             yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '已理解需求，正在组织回复…'}, ensure_ascii=False)}\n\n"
                     full_text += text
@@ -1323,7 +1326,7 @@ class ConversationService:
         else:
             async for chunk in llm.generate_with_history_stream(
                 messages=history,
-                system_prompt=_CONVERSATION_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 temperature=0.7,
             ):
                 full_text += chunk
