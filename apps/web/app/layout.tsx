@@ -1,15 +1,7 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-inter",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "花生ONE",
@@ -21,8 +13,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Font: --font-inter is defined in globals.css as a system font stack
+  // (Inter → ui-sans-serif → system-ui → …). We intentionally do NOT use
+  // next/font/google here — that fetches Google Fonts at build time, which
+  // fails in CN environments without Google access and breaks the build.
   return (
-    <html lang="zh-CN" className={`h-full antialiased ${inter.variable}`}>
+    <html lang="zh-CN" className="h-full antialiased">
       <body className="min-h-full h-full">
         <TooltipProvider>
           {/*
