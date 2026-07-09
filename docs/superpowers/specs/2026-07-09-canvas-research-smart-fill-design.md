@@ -10,12 +10,13 @@
 
 ## 目标
 
-把助手从"搜资料只为自己回答"升级为"搜资料 → 整理可见 → 智能归档进画布模块":
+把助手从"搜资料只为自己回答"升级为"搜资料 → 整理可见 → 智能归档进画布模块 → 生成设计 Brief":
 
 1. **搜索整理结果在对话里富文本可见**:把 `acquire_web_context` 的产出整理成「按目标模块分组的要点 + 来源引用」展示给用户,不再隐形塞进 prompt。
 2. **AI 智能归档到多个模块**:搜到资料后,AI 判断每条要点属于哪个模块,整理后分发到对应模块。
 3. **人确认 + 版本化写回**:首条消息自动填充(可见化);后续发现新内容时,先在对话里列出、问用户,用户接受才填,每次填充做好版本管理。
-4. **不与刚做的能力冲突**:节点对话的单节点 `node_draft`/adopt 保留不动;全局问答的"搜后直答"保留。
+4. **填完画布后生成设计 Brief**:企业画像(画布)填充完成后,基于画布内容 + 项目上下文生成设计 Brief。**Brief = 现有策划案**(复用 `proposal_generation` skill),不新建产物。
+5. **不与刚做的能力冲突**:节点对话的单节点 `node_draft`/adopt 保留不动;全局问答的"搜后直答"保留。
 
 ## 非目标
 
@@ -74,16 +75,30 @@ research_and_propose(db, project_id, context_hint, mode) -> Proposal
    → 引擎(mode=auto)
    → 流式 emit canvas_fill_proposal(可见化:让用户看到填了什么)
    → 自动写回(复用现有 fill_canvas 多节点写回 + 版本化)   ← 现有行为,加"可见"
+   → 画布填充完成后 → ④ 生成设计 Brief
 
 ② 后续问答  _handle_conversational(搜到模块相关新信息时)
    → 先正常 text_delta 直答用户问题
    → 引擎(mode=ask)
    → emit canvas_fill_proposal(询问态:不写)
    → 用户点「采纳」→ POST /fill-accept → 版本化写回
+   → (可选)采纳后用户要 Brief → ④
 
 ③ 节点对话  _handle_node_edit
    → 保持上一轮的单节点 node_draft / adopt 不动(不纳入本特性)
+
+④ 生成设计 Brief  (复用 proposal_generation skill)
+   → 输入:已填画布(企业画像)+ 项目/企业上下文 + 搜索命中
+   → 调 proposal_generation skill 生成策划案(结构:需求理解/企业解析摘要/项目目标/
+      创意主题/方案亮点/视觉方向/参考案例/实施建议/风险与待确认)
+   → 结果作为结构化产物(Artifact)展示,可编辑、可版本、可导出
+   → 复用现有 Skill Runtime + 反编造 + 引用追溯纪律
 ```
+
+**Brief 触发时机**(plan 落实,取决于 proposal_generation 的成本/接口):
+- 首条消息 auto-fill 完成后,自动生成首版 Brief;或
+- 作为显式下一步(用户「生成策划案」/ 点按钮)触发。
+- 默认倾向:首条 auto 生成首版(一次贯通到 Brief),后续版本由用户反馈驱动(对应流程第 6-8 步)。
 
 ### 版本管理(核心要求)
 
@@ -104,6 +119,7 @@ research_and_propose(db, project_id, context_hint, mode) -> Proposal
 | 反编造 prompt(复用) | 从 fill_canvas ~987 行抽成共享常量 | 整理 pass 的语气纪律 |
 | `canvas_service` 版本 helper + `update_node` + `NodeSource`(复用) | canvas_service.py | 版本快照 + 合并写回 + 溯源 |
 | `conversation_service.py`(改) | services/ | 引擎接进 `_handle_auto_fill`(auto/可见)和 `_handle_conversational`(ask/达标时);`_handle_node_edit` 不动 |
+| `proposal_generation` skill(复用,Phase C) | skills/builtins/ | 画布填充后生成设计 Brief(策划案);输入已填画布 + 项目上下文 |
 
 ### 新 SSE block:`canvas_fill_proposal`
 
@@ -137,8 +153,9 @@ research_and_propose(db, project_id, context_hint, mode) -> Proposal
 
 - **Phase A**(先做,低风险):引擎 + `canvas_fill_proposal` block + 渲染 + **首条消息 auto 模式可见化**。交付:用户能看到 auto-fill 搜了/填了什么。
 - **Phase B**:后续问答 ask 模式 + `fill-accept` 接口 + 版本化写回 + 勾选采纳 UX。交付:完整"搜到新内容 → 问你 → 接受才填 → 版本化"闭环。
+- **Phase C**:画布填充后生成设计 Brief —— 接入 `proposal_generation` skill,把已填画布(企业画像)+ 项目上下文喂给它,生成策划案作为 Brief,产物可编辑/版本/导出。交付:第 2-4 步一次贯通(搜索 → 画像 → Brief)。
 
-两期共用引擎和 block,Phase A 是 Phase B 的子集,不返工。
+三期共用引擎和 block;Phase A 是 Phase B 的子集,不返工;Phase C 在画布填充能力之上独立叠加。
 
 ## 测试计划
 
@@ -150,6 +167,7 @@ research_and_propose(db, project_id, context_hint, mode) -> Proposal
 4. **门槛**:mock 节点已有内容 → 断言只对"新增"信息产出 group(去重)。
 5. **`fill-accept`**:创建新 `CanvasVersion`、合并正确(保留 ui_suggestion/extracted)、status=filled、每条 citation 写 `NodeSource`;非法 module_key 拒绝;项目归属校验。
 6. **版本**:accept 后 is_current 指向新版本、旧版本保留(可回退)。
+7. **Brief 生成(Phase C)**:画布填充后调 `proposal_generation`,断言以已填画布内容为输入、产物含策划案各章节、有引用追溯、无「建议/应该/可以」空话(照搬策划案现有断言)。
 
 ### 前端(人工 + 基础检查)
 
@@ -176,6 +194,7 @@ research_and_propose(db, project_id, context_hint, mode) -> Proposal
 4. ask 模式绝不自动写库;只有首条 auto 和用户采纳才写。
 5. 搜索/LLM 失败 → 对话照常直答,不阻断、不报错。
 6. 后端测试全绿;前端 tsc + lint 通过。
+7. **(Phase C)** 画布填充后生成设计 Brief(策划案):产物含各章节、有引用追溯、可编辑/版本/导出;无空话。
 
 ## 实现待定项(写 plan 时落实,不影响设计方向)
 
@@ -183,6 +202,8 @@ research_and_propose(db, project_id, context_hint, mode) -> Proposal
 2. **`context_hint` 来源**:auto 模式 = 用户首条消息;ask 模式 = 用户当前问题 + 项目/企业背景摘要。搜索 query 复用上一轮 Task 1 的智能改写。
 3. **整理 pass 模型**:用快模型 / 低 temperature(plan 按项目 Model Gateway 配置落实具体 provider)。
 4. **版本创建 helper**:复用 `fill_canvas` 现有的版本创建/`is_current` 翻转逻辑,plan 落实精确函数(优先抽成 `canvas_service` 上的可复用 helper)。
+5. **Brief 触发时机**:`proposal_generation` 在画布填充后自动跑(首条 auto 贯通)还是显式触发,plan 据 skill 成本/接口落实;产物落在 generation_outputs/Artifact 还是画布新板块,plan 落实。
+6. **`proposal_generation` 接口**:核实其 input_schema(company_profile_id / project_requirement / template_id 等)与现有 Skill Runtime 调用方式,plan 第一步读 [`skills/builtins/proposal_generation.py`](../../apps/api/app/skills/builtins/proposal_generation.py)。
 
 ## 与上一轮改造的关系
 
