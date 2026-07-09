@@ -173,6 +173,32 @@ export async function adoptNode(
   );
 }
 
+/** Accept a canvas-fill proposal in ask mode (Task 5 backend): POST the
+ * selected board→node→points selections to /canvas/fill-accept, which merges
+ * them into the current canvas. The backend returns the whole updated canvas;
+ * callers ignore the body and reload via loadCurrent() instead. */
+export interface CanvasFillAcceptInput {
+  boards: Array<{
+    board_key: string;
+    nodes: Array<{
+      node_key: string;
+      points: string[];
+      citations?: Array<{ name?: string; url?: string; snippet?: string }>;
+    }>;
+  }>;
+  change_summary?: string;
+}
+
+export async function acceptCanvasFill(
+  projectId: string,
+  body: CanvasFillAcceptInput,
+): Promise<ApiResponse<CanvasNode>> {
+  return canvasFetch<CanvasNode>(
+    `/api/v1/projects/${projectId}/canvas/fill-accept`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
 /** Add a custom node under one of the three boards (PRD P1 #2: 节点新增). */
 export async function addNode(
   projectId: string,

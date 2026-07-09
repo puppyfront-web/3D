@@ -124,7 +124,12 @@ function asStringList(value: unknown): string[] {
 function renderContentBlock(
   block: ContentBlock,
   key: string,
-  ctx?: { projectId?: string; activeNodeId?: string | null; onNodeAdopted?: () => void },
+  ctx?: {
+    projectId?: string;
+    activeNodeId?: string | null;
+    onNodeAdopted?: () => void;
+    onCanvasAccepted?: () => void;
+  },
 ) {
   const data = block.data ?? {};
   if (block.type === "skill_executing") {
@@ -216,7 +221,14 @@ function renderContentBlock(
 
   if (block.type === "canvas_fill_proposal") {
     const proposal = (block.data ?? {}) as unknown as CanvasFillProposalData;
-    return <CanvasFillProposalBlock key={key} data={proposal} />;
+    return (
+      <CanvasFillProposalBlock
+        key={key}
+        data={proposal}
+        projectId={ctx?.projectId}
+        onAccepted={ctx?.onCanvasAccepted}
+      />
+    );
   }
 
   const fallbackText =
@@ -235,7 +247,12 @@ function AssistantMessage({
   ctx,
 }: {
   message: ChatMessage;
-  ctx?: { projectId?: string; activeNodeId?: string | null; onNodeAdopted?: () => void };
+  ctx?: {
+    projectId?: string;
+    activeNodeId?: string | null;
+    onNodeAdopted?: () => void;
+    onCanvasAccepted?: () => void;
+  };
 }) {
   const blocks = message.richContent?.blocks ?? [];
   return (
@@ -265,6 +282,7 @@ export function ConversationPanel({
   activeNodeTitle,
   onClearNode,
   onNodeAdopted,
+  onCanvasAccepted,
 }: {
   projectId: string;
   initialPrompt?: string;
@@ -276,6 +294,8 @@ export function ConversationPanel({
   onClearNode?: () => void;
   /** Called after a node draft is adopted, so the canvas can reload. */
   onNodeAdopted?: () => void;
+  /** Called after a canvas-fill proposal is accepted, so the canvas reloads. */
+  onCanvasAccepted?: () => void;
 }) {
   const {
     messages,
@@ -426,7 +446,7 @@ export function ConversationPanel({
 
         {messages.map((m) =>
           m.role === "assistant" ? (
-            <AssistantMessage key={m.id} message={m} ctx={{ projectId, activeNodeId, onNodeAdopted }} />
+            <AssistantMessage key={m.id} message={m} ctx={{ projectId, activeNodeId, onNodeAdopted, onCanvasAccepted }} />
           ) : (
             <div key={m.id} className="flex gap-3 flex-row-reverse">
               <div className="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center shrink-0">
@@ -504,7 +524,7 @@ export function ConversationPanel({
               </div>
 
               {streamingBlocks.map((block, index) =>
-                renderContentBlock(block, `streaming-${index}`, { projectId, activeNodeId, onNodeAdopted }),
+                renderContentBlock(block, `streaming-${index}`, { projectId, activeNodeId, onNodeAdopted, onCanvasAccepted }),
               )}
 
               {/* Response text with typewriter cursor — only once body starts. */}
