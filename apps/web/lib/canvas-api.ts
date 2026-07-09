@@ -153,6 +153,26 @@ export async function updateNode(
   });
 }
 
+/** Adopt a node-edit draft (from the node-scoped conversation) into the node.
+ * Backend: POST /api/v1/projects/{pid}/nodes/{nid}/adopt (Task 3). */
+export interface NodeAdoptInput {
+  planning: string[];
+  pending_questions?: string[];
+  extracted?: string[];
+  sources?: Array<{ type: string; name?: string; quote?: string }>;
+}
+
+export async function adoptNode(
+  projectId: string,
+  nodeId: string,
+  body: NodeAdoptInput,
+): Promise<ApiResponse<CanvasNode>> {
+  return canvasFetch<CanvasNode>(
+    `/api/v1/projects/${projectId}/nodes/${nodeId}/adopt`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
 /** Add a custom node under one of the three boards (PRD P1 #2: 节点新增). */
 export async function addNode(
   projectId: string,
