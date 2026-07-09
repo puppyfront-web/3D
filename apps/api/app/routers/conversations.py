@@ -1,5 +1,6 @@
 """Conversations router — chat endpoints with SSE streaming."""
 
+import asyncio
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ from app.schemas.conversation import (
     ConversationCreate,
     ConversationDetail,
     ConversationOut,
+    MessageCreate,
     ConversationUpdate,
     MessageOut,
 )
@@ -45,6 +47,7 @@ def _message_to_out(m: Message) -> MessageOut:
     return MessageOut(
         id=str(m.id),
         conversation_id=str(m.conversation_id),
+        thread_id=str(m.thread_id) if m.thread_id else None,
         role=m.role,
         content=m.content,
         content_type=m.content_type,
@@ -96,11 +99,17 @@ async def _conv_with_stats(db: AsyncSession, conv: Conversation) -> Conversation
 @router.get("", response_model=Response[list[ConversationOut]])
 async def list_conversations(
     status: str | None = None,
+    project_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    """List conversations for the sidebar."""
-    conversations = await _conv_service.list_conversations(db, status=status, limit=limit)
+    """List conversations for the sidebar.
+
+    Optional `project_id` scopes the list to a single project (canvas workspace).
+    """
+    conversations = await _conv_service.list_conversations(
+        db, status=status, project_id=project_id, limit=limit
+    )
     items = [await _conv_with_stats(db, c) for c in conversations]
     return Response(data=items, message="Conversations listed")
 
@@ -139,6 +148,7 @@ async def get_conversation(
 
     detail = ConversationDetail(
         id=str(conv.id),
+        thread_id=None,
         project_id=str(conv.project_id) if conv.project_id else None,
         title=conv.title,
         status=conv.status,
@@ -182,49 +192,6 @@ async def update_conversation(
     return Response(data=out, message="Conversation updated")
 
 
-# ─── Messages ────────────────────────────────────────────────────
-
-
-@router.get("/{conversation_id}/messages", response_model=Response[list[MessageOut]])
-async def list_messages(
-    conversation_id: str,
-    limit: int = Query(default=50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get paginated message history for a conversation."""
-    messages = await _conv_service.get_history(
-        db, uuid.UUID(conversation_id), limit=limit
-    )
-    items = [_message_to_out(m) for m in messages]
-    return Response(data=items, message="Messages listed")
-
-
-@router.post("/{conversation_id}/messages", response_model=Response[MessageOut])
-async def send_message(
-    conversation_id: str,
-    body: ChatRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """Send a message (non-streaming fallback)."""
-    conv = await _conv_service.get_conversation_detail(db, conversation_id)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    # Save user message
-    await _conv_service.save_message(db, conv.id, "user", body.message)
-
-    # Save a simple assistant response
-    assistant_msg = await _conv_service.save_message(
-        db, conv.id, "assistant",
-        "收到您的消息，请使用流式接口获取实时回复。",
-    )
-
-    return Response(
-        data=_message_to_out(assistant_msg),
-        message="Message sent",
-    )
-
-
 # ─── SSE Streaming Chat ─────────────────────────────────────────
 
 
@@ -237,16 +204,56 @@ async def stream_chat(
     """SSE streaming chat endpoint.
 
     Returns Server-Sent Events with text deltas and content blocks.
+
+    Acquires a per-conversation lock before streaming so two concurrent
+    messages can't both drive fill_canvas / ProposalAgent against the same
+    conversation (Defect #2). Returns 409 if the conversation is busy.
     """
     conv = await _conv_service.get_conversation_detail(db, conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # Acquire the conversation lock using a dedicated short-lived session
+    # (NOT the request-scoped streaming db session — that one lives for the
+    # whole SSE stream and would pin the lock row's transaction).
+    from app.db.session import async_session_factory
+    from app.services.conversation_lock_service import conversation_lock_service
+
+    conv_uuid = conv.id
+    async with async_session_factory() as lock_db:
+        lock_token = await conversation_lock_service.try_acquire(lock_db, conv_uuid)
+    if lock_token is None:
+        raise HTTPException(
+            status_code=409,
+            detail="该会话正在处理中，请稍候再试",
+        )
+
     async def event_generator():
-        async for sse_chunk in _conv_service.process_message_stream(
-            db, conversation_id, body.message
-        ):
-            yield sse_chunk
+        try:
+            async for sse_chunk in _conv_service.process_message_stream(
+                db,
+                conversation_id,
+                body.message,
+                node_id=body.node_id,
+                thread_id=body.thread_id,
+                force_intent=body.force_intent,
+                force_skill_id=body.force_skill_id,
+            ):
+                yield sse_chunk
+        except asyncio.CancelledError:
+            # The client disconnected — StreamingResponse cancels the generator,
+            # surfacing as CancelledError inside the async for. Log it and stop
+            # driving the (now-useless) LLM / agent work into the void, instead
+            # of letting the stream run to completion against nobody.
+            logger.info(
+                "SSE client disconnected for conversation %s", conversation_id
+            )
+            raise  # Re-raise so the framework can finish cleaning up.
+        finally:
+            # Always release the lock — even on exception / client disconnect —
+            # so a crashed handler doesn't hold the lock until TTL expires.
+            async with async_session_factory() as release_db:
+                await conversation_lock_service.release(release_db, conv_uuid, lock_token)
 
     return StreamingResponse(
         event_generator(),
@@ -287,14 +294,50 @@ async def execute_action(
     )
 
 
+@router.post("/{conversation_id}/messages", response_model=Response[MessageOut])
+async def create_message(
+    conversation_id: str,
+    body: MessageCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Non-streaming fallback used by tests and simple message posting."""
+    conv = await _conv_service.get_conversation_detail(db, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    user_msg = await _conv_service.save_message(
+        db,
+        conv.id,
+        "user",
+        body.content,
+        content_type=body.content_type,
+    )
+    await _conv_service.save_message(
+        db,
+        conv.id,
+        "assistant",
+        f"已记录你的消息：{body.content}",
+    )
+    await db.commit()
+
+    return Response(
+        data=_message_to_out(user_msg),
+        message="Message created",
+    )
+
+
 # ─── File Upload ─────────────────────────────────────────────────
 
 
 from app.core.config import settings
 
 # Allowed file types for chat attachments
+# NOTE: legacy binary .doc/.ppt removed — no parser handles them. Users must
+# convert to .docx/.pptx. Knowledge-base upload (document_service.py) is the
+# stricter allowlist; this one is for chat attachments which may also include
+# images/video/archives that are stored but not content-parsed.
 _CHAT_ALLOWED_EXTENSIONS = {
-    ".pdf", ".ppt", ".pptx", ".doc", ".docx", ".txt", ".md",
+    ".pdf", ".pptx", ".docx", ".txt", ".md",
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
     ".mp4", ".mov", ".avi",
     ".zip", ".rar",
@@ -312,6 +355,10 @@ async def upload_chat_file(
     """Upload a file as a chat message attachment.
 
     Stores the file locally and creates a user message with attachment metadata.
+    For text-parseable types (pdf/pptx/docx/txt/md) a Document row is also
+    created so the attachment shows up in the project's document list with a
+    parse_status, and can be re-parsed / categorised / deleted from the
+    workspace attachment tray (PRD §11).
     """
     conv = await _conv_service.get_conversation_detail(db, conversation_id)
     if not conv:
@@ -324,7 +371,15 @@ async def upload_chat_file(
     if ext not in _CHAT_ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"File type '{ext}' not allowed. Allowed: {', '.join(sorted(_CHAT_ALLOWED_EXTENSIONS))}",
+            detail=f"不支持的文件类型 '{ext}'，允许：{', '.join(sorted(_CHAT_ALLOWED_EXTENSIONS))}",
+        )
+
+    # Read content and enforce size limit before touching disk.
+    content = await file.read()
+    if len(content) > settings.max_upload_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"文件过大：{len(content)} 字节，上限 {settings.max_upload_size} 字节",
         )
 
     # Store file
@@ -333,7 +388,6 @@ async def upload_chat_file(
     os.makedirs(storage_dir, exist_ok=True)
     file_path = os.path.join(storage_dir, stored_name)
 
-    content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
 
@@ -342,18 +396,45 @@ async def upload_chat_file(
     # Build message content
     display_text = caption.strip() if caption.strip() else f"上传了 {original_filename}"
 
+    # Parseable text documents also get a Document row so the attachment tray
+    # can track parse_status / category / re-parse / delete (PRD §11.3-11.5).
+    parseable_exts = {".pdf", ".pptx", ".docx", ".txt", ".md", ".xlsx", ".xls", ".csv"}
+    document_id_str: str | None = None
+    initial_parse_status = "uploaded"
+    if ext in parseable_exts:
+        try:
+            from app.models.document import Document
+
+            doc = Document(
+                project_id=conv.project_id,
+                filename=stored_name,
+                original_filename=original_filename,
+                content_type=file.content_type or "application/octet-stream",
+                file_size=len(content),
+                file_path=file_path,
+                title=original_filename,
+                status="uploaded",
+                parse_status="uploaded",
+                chunk_count=0,
+            )
+            db.add(doc)
+            await db.flush()
+            document_id_str = str(doc.id)
+        except Exception:  # noqa: BLE001 — Document creation is best-effort
+            logger.warning("Failed to create Document row for chat attachment", exc_info=True)
+
     # Rich content with attachment info
-    attachment_block = {
-        "type": "attachment",
-        "data": {
-            "filename": original_filename,
-            "stored_name": stored_name,
-            "content_type": file.content_type or "application/octet-stream",
-            "file_size": len(content),
-            "is_image": is_image,
-            "url": f"/storage/chat/{stored_name}",
-        },
+    attachment_data = {
+        "filename": original_filename,
+        "stored_name": stored_name,
+        "content_type": file.content_type or "application/octet-stream",
+        "file_size": len(content),
+        "is_image": is_image,
+        "url": f"/api/v1/conversations/files/{stored_name}",
+        "document_id": document_id_str,
+        "parse_status": initial_parse_status,
     }
+    attachment_block = {"type": "attachment", "data": attachment_data}
 
     # If image, also add an image block
     blocks = {"blocks": [attachment_block]}
@@ -361,7 +442,7 @@ async def upload_chat_file(
         blocks["blocks"].insert(0, {
             "type": "visual_result",
             "data": {
-                "images": [{"url": f"/storage/chat/{stored_name}", "status": "completed"}],
+                "images": [{"url": f"/api/v1/conversations/files/{stored_name}", "status": "completed"}],
             },
         })
 
@@ -372,9 +453,21 @@ async def upload_chat_file(
         content=display_text,
         content_type="rich",
         rich_content=blocks,
-        metadata={"attachments": [attachment_block["data"]]},
+        metadata={"attachments": [attachment_data]},
         auto_commit=True,
     )
+
+    # Kick off indexing asynchronously so the tray flips to "parsed" once done.
+    # Failures are non-fatal — the document keeps parse_status="uploaded" and
+    # the user can re-parse from the tray (PRD §11.5).
+    if document_id_str:
+        try:
+            from app.services.document_service import document_service
+
+            await document_service.index_document(uuid.UUID(document_id_str), db)
+            await db.commit()
+        except Exception:  # noqa: BLE001 — async parse is best-effort
+            logger.warning("Async parse failed for attachment %s", document_id_str, exc_info=True)
 
     return Response(
         data=_message_to_out(msg),
@@ -544,14 +637,33 @@ async def execute_visual_concept_action(
     return Response(data=ctx.version_tree.to_dict(), message="OK")
 
 
-# ─── Static file serving (dev only) ──────────────────────────────
+# ─── Auth-gated file serving (replaces the open StaticFiles mount) ──
 
 
-from fastapi.staticfiles import StaticFiles
+import re
+
+from fastapi.responses import FileResponse
+
+from app.core.security import get_current_user
 
 
-def mount_chat_storage(app):
-    """Mount chat file storage as static files (development only)."""
+@router.get("/files/{stored_name}")
+async def serve_chat_file(
+    stored_name: str,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Serve a chat attachment file.
+
+    Auth-gated and path-traversal-safe, replacing the previous open
+    ``StaticFiles`` mount at ``/storage/chat`` which exposed every uploaded
+    attachment to unauthenticated callers.
+    """
+    # Prevent path traversal: only allow alphanumeric + dash + dot.
+    if not re.match(r"^[a-zA-Z0-9\-\.]+$", stored_name):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     storage_dir = os.path.abspath(os.path.join(settings.storage_path, "chat"))
-    os.makedirs(storage_dir, exist_ok=True)
-    app.mount("/storage/chat", StaticFiles(directory=storage_dir), name="chat-storage")
+    file_path = os.path.join(storage_dir, stored_name)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)

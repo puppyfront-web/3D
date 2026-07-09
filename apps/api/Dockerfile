@@ -13,11 +13,16 @@ RUN { [ -f /etc/apt/sources.list.d/debian.sources ] \
         && sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' \
             /etc/apt/sources.list || true; }
 
-# System dependencies for PyMuPDF, parsers, and healthcheck
+# System dependencies for PyMuPDF, parsers, magic bytes, OCR libs, and healthcheck
+#   - libmagic1: required by python-magic for MIME sniffing
+#   - libgl1, libglib2.0-0: required at runtime by PaddleOCR/OpenCV
 RUN apt-get update -o Acquire::Retries=3 && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     postgresql-client \
+    libmagic1 \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Use Aliyun PyPI mirror for faster, reliable installs from CN networks
@@ -27,6 +32,12 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
 # Install Python dependencies
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
+
+# OCR is an optional extra (paddleocr+paddlepaddle are heavy). Install behind
+# `|| true` so a mirror/registry hiccup doesn't break the main image build —
+# OCRService degrades to no-op when the libs are absent.
+RUN pip install --no-cache-dir paddleocr paddlepaddle || \
+    echo "WARN: OCR deps install failed; OCR will degrade gracefully"
 
 # Copy application code
 COPY . .

@@ -45,6 +45,7 @@ class ProposalTemplate(Base):
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     sections: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=dict)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    industry: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -19,11 +19,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
+  DialogClose,
 } from "@/components/ui/dialog";
 import {
   Search,
   Upload,
-  Download,
   Trash2,
   Package,
   Image as ImageIcon,
@@ -50,7 +51,7 @@ const typeIcons: Record<AssetType, React.ReactNode> = {
   video: <Video className="h-4 w-4 text-purple-500" />,
   document: <FileText className="h-4 w-4 text-blue-500" />,
   template: <FileText className="h-4 w-4 text-amber-500" />,
-  model: <Package className="h-4 w-4 text-[#00D4FF]" />,
+  model: <Package className="h-4 w-4 text-surface-tint" />,
 };
 
 const typeLabels: Record<AssetType, string> = {
@@ -93,6 +94,9 @@ export default function AssetsPage() {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
   const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selected, setSelected] = useState<Asset | null>(null);
   const [indexingIds, setIndexingIds] = useState<Set<string>>(new Set());
   const [batchIndexing, setBatchIndexing] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -128,10 +132,23 @@ export default function AssetsPage() {
   };
 
   // --- Delete ---
-  const handleDelete = async (id: string) => {
-    const result = await deleteAsset(id);
-    if (result.success) {
-      setAssets((prev) => prev.filter((a) => a.id !== id));
+  const openDelete = (asset: Asset) => {
+    setSelected(asset);
+    setDeleteOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!selected) return;
+    setDeleting(true);
+    try {
+      const result = await deleteAsset(selected.id);
+      if (result.success) {
+        setAssets((prev) => prev.filter((a) => a.id !== selected.id));
+      }
+      setDeleteOpen(false);
+      setSelected(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -196,7 +213,7 @@ export default function AssetsPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#1A1A2E]">
+          <h1 className="text-xl font-semibold text-on-surface">
             知识库资料管理
           </h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -207,7 +224,7 @@ export default function AssetsPage() {
           {unindexedCount > 0 && (
             <Button
               variant="outline"
-              className="gap-2 border-[#1E3A5F] text-[#1E3A5F]"
+              className="gap-2 border-primary text-primary"
               onClick={handleBatchIndex}
               disabled={batchIndexing}
             >
@@ -226,7 +243,7 @@ export default function AssetsPage() {
             onOpenChange={setUploadDialogOpen}
           >
             <DialogTrigger asChild>
-              <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
+              <Button className="bg-primary hover:bg-primary gap-2">
                 <Upload className="h-4 w-4" /> 上传资料
               </Button>
             </DialogTrigger>
@@ -235,11 +252,11 @@ export default function AssetsPage() {
                 <DialogTitle>上传资料到知识库</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-4">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#1E3A5F] transition-colors">
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary transition-colors">
                   {uploading ? (
                     <>
-                      <Loader2 className="h-8 w-8 mx-auto text-[#1E3A5F] mb-2 animate-spin" />
-                      <p className="text-sm text-[#1E3A5F]">
+                      <Loader2 className="h-8 w-8 mx-auto text-primary mb-2 animate-spin" />
+                      <p className="text-sm text-primary">
                         上传并入库中...
                       </p>
                     </>
@@ -250,7 +267,7 @@ export default function AssetsPage() {
                         点击选择文件上传
                       </p>
                       <p className="text-xs text-gray-400 mt-1">
-                        支持 PDF / PPT / PPTX / DOC / DOCX / TXT / MD
+                        支持 PDF / PPTX / DOCX / XLSX / TXT / MD
                       </p>
                       <p className="text-xs text-gray-400">
                         上传后自动解析入库到知识库
@@ -261,12 +278,12 @@ export default function AssetsPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.md"
+                  accept=".pdf,.pptx,.docx,.xlsx,.txt,.md"
                   className="hidden"
                   onChange={handleFileSelect}
                 />
                 <Button
-                  className="w-full bg-[#1E3A5F] hover:bg-[#2D5A8E]"
+                  className="w-full bg-primary hover:bg-primary"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
                 >
@@ -298,7 +315,7 @@ export default function AssetsPage() {
                 size="sm"
                 onClick={() => setFilterType(t)}
                 className={
-                  filterType === t ? "bg-[#1E3A5F] hover:bg-[#2D5A8E]" : ""
+                  filterType === t ? "bg-primary hover:bg-primary" : ""
                 }
               >
                 {t === "all"
@@ -315,7 +332,7 @@ export default function AssetsPage() {
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 text-[#1E3A5F] animate-spin" />
+              <Loader2 className="h-6 w-6 text-primary animate-spin" />
               <span className="ml-2 text-sm text-gray-500">加载中...</span>
             </div>
           ) : filtered.length === 0 ? (
@@ -347,7 +364,7 @@ export default function AssetsPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           {typeIcons[asset.type]}
-                          <span className="text-sm font-medium text-[#1A1A2E]">
+                          <span className="text-sm font-medium text-on-surface">
                             {asset.name}
                           </span>
                         </div>
@@ -404,7 +421,7 @@ export default function AssetsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 w-7 p-0 text-[#1E3A5F]"
+                              className="h-7 w-7 p-0 text-primary"
                               title="入知识库"
                               onClick={() => handleIndex(asset.id)}
                             >
@@ -425,17 +442,9 @@ export default function AssetsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 w-7 p-0"
-                            title="下载"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-[#EF4444]"
+                            className="h-7 w-7 p-0 text-error"
                             title="删除"
-                            onClick={() => handleDelete(asset.id)}
+                            onClick={() => openDelete(asset)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -449,6 +458,24 @@ export default function AssetsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            确定要删除资料「{selected?.name}」吗？此操作不可撤销。
+          </p>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -65,9 +65,22 @@ class Settings(BaseSettings):
     # Storage
     storage_path: str = "./storage"
 
+    # Upload limits — reject oversized files before they hit disk.
+    max_upload_size: int = 50 * 1024 * 1024  # 50 MB
+
+    # OCR — used by OCRService to extract text from scanned PDFs.
+    # When disabled (or paddleocr not installed) parsing degrades gracefully:
+    # scanned PDFs fall back to PyMuPDF's native (often empty) text extraction.
+    ocr_enabled: bool = True
+    ocr_min_confidence: float = 0.5
+
     # Security
     api_key: str = "dev-api-key-change-in-production"
+    # NOTE: the .env file uses `APP_SECRET_KEY` while this reads `SECRET_KEY`.
+    # The APP_SECRET_KEY/secret_key naming mismatch is a deployment concern; the
+    # default below works for local dev. Production should set SECRET_KEY explicitly.
     secret_key: str = "dev-secret-key-change-in-production"
+    access_token_expire_minutes: int = 1440  # 24 hours
 
     # CORS
     cors_origins: str = (

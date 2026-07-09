@@ -25,21 +25,14 @@ from app.models.retrieval import RetrievalLog
 from app.models.user import Role, User
 from app.rag.retriever import HybridRetriever
 
-# Module-level flag so we only seed once per process
-_SEEDED: bool = False
-
-
 async def _ensure_seed_data(db: AsyncSession):
-    """Insert industry test data (idempotent — skips if already seeded)."""
-    global _SEEDED
-    if _SEEDED:
-        return
+    """Insert industry test data for this test.
 
-    existing = await db.execute(select(Role).where(Role.name == "rag_tester"))
-    if existing.scalar_one_or_none() is not None:
-        _SEEDED = True
-        return
-
+    Every test gets a freshly-wiped DB (conftest ``_isolate_db_state``), so we
+    always seed unconditionally — the old module-level ``_SEEDED`` flag plus
+    idempotency check assumed cross-test persistence, which broke under true
+    isolation (the second test skipped seeding and queried an empty table).
+    """
     role = Role(
         id=uuid.uuid4(),
         name="rag_tester",
@@ -177,7 +170,6 @@ async def _ensure_seed_data(db: AsyncSession):
         ))
 
     await db.commit()
-    _SEEDED = True
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +274,11 @@ async def test_low_quality_case_not_ranked_first(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_retrieval_log_written(db_session: AsyncSession):
-    """Verify that retrieval_logs table is populated after search."""
+    """Verify that retrieval_logs table is populated after search.
+
+    PRD §9.4 requires the full traceability payload: structured query,
+    retrieved items, and the trigger source — not just count + scores.
+    """
     await _ensure_seed_data(db_session)
 
     retriever = HybridRetriever()
@@ -290,6 +286,7 @@ async def test_retrieval_log_written(db_session: AsyncSession):
         query="裸眼3D方案",
         top_k=3,
         db=db_session,
+        triggered_by="knowledge_search",
     )
 
     stmt = select(RetrievalLog).where(RetrievalLog.query.contains("裸眼3D"))
@@ -301,6 +298,34 @@ async def test_retrieval_log_written(db_session: AsyncSession):
     assert log.retrieval_type == "hybrid"
     assert log.results_count >= 0
     assert log.latency_ms is not None and log.latency_ms >= 0
+    # PRD §9.4 traceability fields populated.
+    assert log.triggered_by == "knowledge_search"
+    assert isinstance(log.structured_query_json, dict)
+    assert log.structured_query_json.get("retrieval_type") == "hybrid"
+    assert log.structured_query_json.get("top_k") == 3
+    assert isinstance(log.retrieved_items_json, list)
+
+
+@pytest.mark.asyncio
+async def test_case_search_writes_retrieval_log(db_session: AsyncSession):
+    """case_search tool must also write a traceable retrieval_log (PRD §9.4)."""
+    from app.tools.base import ToolContext
+    from app.tools.builtins.case_search import CaseSearchTool
+
+    await _ensure_seed_data(db_session)
+
+    ctx = ToolContext(db=db_session, embedding_service=None, llm_service=None)
+    res = await CaseSearchTool().execute({"industry": "汽车", "limit": 5}, ctx)
+    assert res.success
+
+    stmt = select(RetrievalLog).where(RetrievalLog.triggered_by == "case_search")
+    logs = (await db_session.execute(stmt)).scalars().all()
+    assert len(logs) == 1
+    log = logs[0]
+    assert log.retrieval_type == "case_structured"
+    assert isinstance(log.structured_query_json, dict)
+    assert log.structured_query_json.get("industry") == "汽车"
+    assert isinstance(log.retrieved_items_json, list)
 
 
 @pytest.mark.asyncio
@@ -320,3 +345,37 @@ async def test_keyword_only_hits_chunks(db_session: AsyncSession):
         assert any("像素间距" in r.content for r in chunk_results), (
             "Keyword search should find chunk mentioning '像素间距'"
         )
+
+
+@pytest.mark.asyncio
+async def test_talking_points_and_pricing_search_log(db_session: AsyncSession):
+    """话术/报价检索工具必须写可追溯的 retrieval_log (PRD §9.4 / §12.6 / §12.7)."""
+    from app.models.talking_point import TalkingPoint
+    from app.models.pricing_experience import PricingExperience
+    from app.tools.base import ToolContext
+    from app.tools.builtins.talking_points_search import TalkingPointsSearchTool
+    from app.tools.builtins.pricing_search import PricingSearchTool
+
+    db_session.add(TalkingPoint(
+        id=uuid.uuid4(), scenario="首次接洽", title="开场话术",
+        content="您好，我们是花生ONE…", industry="制造业", is_active=True,
+    ))
+    db_session.add(PricingExperience(
+        id=uuid.uuid4(), title="制造业展厅报价参考", industry="制造业",
+        project_type="企业3D数字化展示", budget_range="50-150万",
+        duration="4-8周", is_active=True,
+    ))
+    await db_session.commit()
+
+    ctx = ToolContext(db=db_session, embedding_service=None, llm_service=None)
+
+    tp = await TalkingPointsSearchTool().execute({"industry": "制造业"}, ctx)
+    assert tp.success and tp.data["total"] == 1
+
+    pr = await PricingSearchTool().execute({"industry": "制造业"}, ctx)
+    assert pr.success and pr.data["total"] == 1
+
+    logs = (await db_session.execute(select(RetrievalLog))).scalars().all()
+    triggers = {l.triggered_by for l in logs}
+    assert "talking_points_search" in triggers
+    assert "pricing_search" in triggers

@@ -11,6 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
+  DialogClose,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -46,6 +48,9 @@ export default function QualityRulesPage() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selected, setSelected] = useState<QualityRule | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Form state
@@ -53,6 +58,8 @@ export default function QualityRulesPage() {
   const [formCategory, setFormCategory] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formPassingScore, setFormPassingScore] = useState("");
+  const [formRuleText, setFormRuleText] = useState("");
+  const [formWeight, setFormWeight] = useState("");
 
   const fetchRules = useCallback(async () => {
     setLoading(true);
@@ -75,6 +82,8 @@ export default function QualityRulesPage() {
     setFormCategory("");
     setFormDescription("");
     setFormPassingScore("");
+    setFormRuleText("");
+    setFormWeight("");
   };
 
   const handleImport = async (file: File, mode: ImportMode) => {
@@ -121,10 +130,59 @@ export default function QualityRulesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const res = await deleteQualityRule(id);
-    if (res.success) {
-      fetchRules();
+  const openEdit = (rule: QualityRule) => {
+    setSelected(rule);
+    setFormName(rule.name);
+    setFormCategory(rule.category || "");
+    setFormDescription(rule.description || "");
+    setFormRuleText("");
+    setFormWeight("");
+    setEditOpen(true);
+  };
+
+  const openDelete = (rule: QualityRule) => {
+    setSelected(rule);
+    setDeleteOpen(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!selected || !formName.trim()) return;
+    setSubmitting(true);
+    try {
+      const weightNum = parseFloat(formWeight);
+      // Backend QualityRuleUpdate uses camelCase ruleText + weight (float); the frontend
+      // QualityRule type has no rule/weight/criteria-on-update concept.
+      const res = await updateQualityRule(selected.id, {
+        name: formName,
+        category: formCategory,
+        description: formDescription,
+        ruleText: formRuleText,
+        weight: isNaN(weightNum) ? undefined : weightNum,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      if (res.success) {
+        setEditOpen(false);
+        setSelected(null);
+        resetForm();
+        fetchRules();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selected) return;
+    setSubmitting(true);
+    try {
+      const res = await deleteQualityRule(selected.id);
+      if (res.success) {
+        setDeleteOpen(false);
+        setSelected(null);
+        fetchRules();
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -138,7 +196,7 @@ export default function QualityRulesPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#1A1A2E]">质量标准管理</h1>
+          <h1 className="text-xl font-semibold text-on-surface">质量标准管理</h1>
           <p className="text-sm text-gray-500 mt-1">管理方案质量评估标准和评分规则</p>
         </div>
         <div className="flex items-center gap-2">
@@ -154,7 +212,7 @@ export default function QualityRulesPage() {
           </Button>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
-              <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
+              <Button className="bg-primary hover:bg-primary gap-2">
                 <Plus className="h-4 w-4" /> 新建标准
               </Button>
             </DialogTrigger>
@@ -181,7 +239,7 @@ export default function QualityRulesPage() {
                 <Label>通过分数线</Label>
                 <Input type="number" placeholder="80" value={formPassingScore} onChange={(e) => setFormPassingScore(e.target.value)} />
               </div>
-              <Button className="w-full bg-[#1E3A5F] hover:bg-[#2D5A8E]" onClick={handleCreate} disabled={submitting}>
+              <Button className="w-full bg-primary hover:bg-primary" onClick={handleCreate} disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 创建标准
               </Button>
@@ -193,7 +251,7 @@ export default function QualityRulesPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-[#1E3A5F]" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
           <span className="ml-2 text-sm text-gray-500">加载中...</span>
         </div>
       ) : (
@@ -213,7 +271,7 @@ export default function QualityRulesPage() {
                       ) : (
                         <ChevronRight className="h-4 w-4 text-gray-400" />
                       )}
-                      <ShieldCheck className="h-5 w-5 text-[#1E3A5F]" />
+                      <ShieldCheck className="h-5 w-5 text-primary" />
                       <div>
                         <CardTitle className="text-sm font-medium">{rule.name}</CardTitle>
                         <p className="text-xs text-gray-500 mt-0.5">{rule.description}</p>
@@ -224,19 +282,19 @@ export default function QualityRulesPage() {
                       <Badge variant="outline" className="text-xs">
                         通过线 {rule.passingScore}分
                       </Badge>
-                      <Badge className={`text-xs ${rule.isActive ? "bg-green-50 text-[#10B981]" : "bg-gray-100 text-gray-500"}`}>
+                      <Badge className={`text-xs ${rule.isActive ? "bg-green-50 text-[#00875a]" : "bg-gray-100 text-gray-500"}`}>
                         {rule.isActive ? "启用" : "停用"}
                       </Badge>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleToggle(rule); }}>
-                        {rule.isActive ? <ToggleRight className="h-3.5 w-3.5 text-[#10B981]" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
+                        {rule.isActive ? <ToggleRight className="h-3.5 w-3.5 text-[#00875a]" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]" onClick={(e) => { e.stopPropagation(); handleDelete(rule.id); }}>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-error" onClick={(e) => { e.stopPropagation(); openDelete(rule); }}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <Button variant="ghost" size="sm" className="h-7 gap-1" onClick={(e) => { e.stopPropagation(); handleExportOne(rule); }}>
                         <Download className="h-3 w-3" /> 导出
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-7 gap-1">
+                      <Button variant="ghost" size="sm" className="h-7 gap-1" onClick={(e) => { e.stopPropagation(); openEdit(rule); }}>
                         <Edit3 className="h-3 w-3" /> 编辑
                       </Button>
                     </div>
@@ -249,29 +307,28 @@ export default function QualityRulesPage() {
                       <div className="grid grid-cols-12 gap-3 text-xs font-medium text-gray-500 mb-2 px-3">
                         <div className="col-span-5">评分标准</div>
                         <div className="col-span-2">权重</div>
-                        <div className="col-span-4">评分指南</div>
-                        <div className="col-span-1 text-right">操作</div>
+                        <div className="col-span-5">评分指南</div>
                       </div>
-                      {rule.criteria.map((criteria) => (
-                        <div
-                          key={criteria.id}
-                          className="grid grid-cols-12 gap-3 items-center px-3 py-2 bg-gray-50 rounded-lg mb-1.5"
-                        >
-                          <div className="col-span-5 text-sm text-[#1A1A2E]">{criteria.description}</div>
-                          <div className="col-span-2">
-                            <div className="flex items-center gap-2">
-                              <Progress value={(criteria.weight / totalWeight) * 100} className="h-1.5 flex-1" />
-                              <span className="text-xs text-gray-600 font-medium">{criteria.weight}%</span>
+                      {rule.criteria.length === 0 ? (
+                        <div className="px-3 py-3 text-xs text-gray-400">暂无评分标准</div>
+                      ) : (
+                        rule.criteria.map((criteria) => (
+                          <div
+                            key={criteria.id}
+                            className="grid grid-cols-12 gap-3 items-center px-3 py-2 bg-gray-50 rounded-lg mb-1.5"
+                          >
+                            <div className="col-span-5 text-sm text-on-surface">{criteria.description}</div>
+                            <div className="col-span-2">
+                              <div className="flex items-center gap-2">
+                                <Progress value={(criteria.weight / totalWeight) * 100} className="h-1.5 flex-1" />
+                                <span className="text-xs text-gray-600 font-medium">{criteria.weight}%</span>
+                              </div>
                             </div>
+                            <div className="col-span-5 text-xs text-gray-500">{criteria.scoringGuide}</div>
                           </div>
-                          <div className="col-span-4 text-xs text-gray-500">{criteria.scoringGuide}</div>
-                          <div className="col-span-1 text-right">
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                              <Edit3 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                        ))
+                      )}
+                      <p className="text-xs text-gray-400 mt-2 px-3">评分标准暂不支持子项编辑</p>
                     </div>
                   </CardContent>
                 )}
@@ -280,6 +337,64 @@ export default function QualityRulesPage() {
           })}
         </div>
       )}
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) { resetForm(); setSelected(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑质量标准</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>标准名称</Label>
+                <Input value={formName} onChange={(e) => setFormName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>分类</Label>
+                <Input value={formCategory} onChange={(e) => setFormCategory(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>描述</Label>
+              <Textarea rows={3} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>规则表达式</Label>
+              <Textarea rows={3} className="font-mono text-sm" value={formRuleText} onChange={(e) => setFormRuleText(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>权重 (0-1)</Label>
+              <Input type="number" step="0.1" min="0" max="1" placeholder="0.0 - 1.0" value={formWeight} onChange={(e) => setFormWeight(e.target.value)} />
+            </div>
+            <p className="text-xs text-gray-400">评分标准暂不支持子项编辑</p>
+          </div>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button className="bg-primary hover:bg-primary" onClick={handleUpdate} disabled={submitting || !formName.trim()}>
+              {submitting && <Loader2 className="h-4 w-4 animate-spin mr-1" />} 保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            确定要删除质量标准「{selected?.name}」吗？此操作不可撤销。
+          </p>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button variant="destructive" onClick={handleDelete} disabled={submitting}>
+              {submitting && <Loader2 className="h-4 w-4 animate-spin mr-1" />} 删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

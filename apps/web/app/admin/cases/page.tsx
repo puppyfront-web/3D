@@ -19,10 +19,13 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
+  DialogClose,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -32,14 +35,15 @@ import {
 } from "@/components/ui/select";
 import { Plus, Search, Eye, Edit3, Trash2, Download, Loader2, ImageIcon } from "lucide-react";
 import { getCases, createCase, updateCase, deleteCase, importCases, exportCases, exportCase } from "@/lib/api";
+import { INDUSTRIES } from "@/lib/constants";
 import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
 import type { CaseItem, ImportMode } from "@/types";
 
 const statusColor = {
-  published: "text-[#10B981] bg-green-50",
+  published: "text-[#00875a] bg-green-50",
   draft: "text-gray-500 bg-gray-100",
-  archived: "text-[#EF4444] bg-red-50",
+  archived: "text-error bg-red-50",
 };
 
 const statusLabel = {
@@ -54,8 +58,10 @@ export default function CasesPage() {
   const [search, setSearch] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingCase, setEditingCase] = useState<CaseItem | null>(null);
+  const [deletingCase, setDeletingCase] = useState<CaseItem | null>(null);
 
   // Form state
   const [formTitle, setFormTitle] = useState("");
@@ -64,6 +70,11 @@ export default function CasesPage() {
   const [formStatus, setFormStatus] = useState<CaseItem["status"]>("draft");
   const [formOutcome, setFormOutcome] = useState("");
   const [formHighlights, setFormHighlights] = useState("");
+  // New edit-only fields
+  const [formProjectType, setFormProjectType] = useState("");
+  const [formStyleTag, setFormStyleTag] = useState("");
+  const [formTags, setFormTags] = useState("");
+  const [formIsDesensitized, setFormIsDesensitized] = useState(false);
 
   const resetForm = () => {
     setFormTitle("");
@@ -72,6 +83,10 @@ export default function CasesPage() {
     setFormStatus("draft");
     setFormOutcome("");
     setFormHighlights("");
+    setFormProjectType("");
+    setFormStyleTag("");
+    setFormTags("");
+    setFormIsDesensitized(false);
   };
 
   const loadCases = useCallback(async () => {
@@ -140,6 +155,10 @@ export default function CasesPage() {
     setFormStatus(item.status);
     setFormOutcome(item.outcome);
     setFormHighlights(item.highlights.join("\n"));
+    setFormProjectType(item.projectType ?? "");
+    setFormStyleTag(item.styleTag ?? "");
+    setFormTags((item.tags ?? []).join(", "));
+    setFormIsDesensitized(item.isDesensitized ?? false);
     setEditDialogOpen(true);
   };
 
@@ -156,6 +175,13 @@ export default function CasesPage() {
         .split("\n")
         .map((h) => h.trim())
         .filter(Boolean),
+      projectType: formProjectType,
+      styleTag: formStyleTag,
+      tags: formTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+      isDesensitized: formIsDesensitized,
     };
     const result = await updateCase(editingCase.id, data);
     if (result.success) {
@@ -167,12 +193,22 @@ export default function CasesPage() {
     setSubmitting(false);
   };
 
-  // --- Delete ---
-  const handleDelete = async (id: string) => {
-    const result = await deleteCase(id);
+  // --- Delete (with confirmation) ---
+  const openDelete = (item: CaseItem) => {
+    setDeletingCase(item);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingCase) return;
+    setSubmitting(true);
+    const result = await deleteCase(deletingCase.id);
     if (result.success) {
-      setCases((prev) => prev.filter((c) => c.id !== id));
+      setCases((prev) => prev.filter((c) => c.id !== deletingCase.id));
+      setDeleteDialogOpen(false);
+      setDeletingCase(null);
     }
+    setSubmitting(false);
   };
 
   const filtered = cases.filter(
@@ -185,7 +221,7 @@ export default function CasesPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#1A1A2E]">案例库管理</h1>
+          <h1 className="text-xl font-semibold text-on-surface">案例库管理</h1>
           <p className="text-sm text-gray-500 mt-1">
             管理成功案例，用于方案参考和素材复用
           </p>
@@ -203,7 +239,7 @@ export default function CasesPage() {
           </Button>
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
+              <Button className="bg-primary hover:bg-primary gap-2">
                 <Plus className="h-4 w-4" /> 新建案例
               </Button>
             </DialogTrigger>
@@ -241,10 +277,9 @@ export default function CasesPage() {
                       <SelectValue placeholder="选择行业" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="智慧城市">智慧城市</SelectItem>
-                      <SelectItem value="工业制造">工业制造</SelectItem>
-                      <SelectItem value="金融科技">金融科技</SelectItem>
-                      <SelectItem value="能源电力">能源电力</SelectItem>
+                      {INDUSTRIES.map((ind) => (
+                        <SelectItem key={ind} value={ind}>{ind}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -284,7 +319,7 @@ export default function CasesPage() {
                 />
               </div>
               <Button
-                className="w-full bg-[#1E3A5F] hover:bg-[#2D5A8E]"
+                className="w-full bg-primary hover:bg-primary"
                 onClick={handleCreate}
                 disabled={submitting}
               >
@@ -315,7 +350,7 @@ export default function CasesPage() {
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 text-[#1E3A5F] animate-spin" />
+              <Loader2 className="h-6 w-6 text-primary animate-spin" />
               <span className="ml-2 text-sm text-gray-500">加载中...</span>
             </div>
           ) : filtered.length === 0 ? (
@@ -340,7 +375,7 @@ export default function CasesPage() {
               <TableBody>
                 {filtered.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className="text-sm font-medium text-[#1A1A2E]">
+                    <TableCell className="text-sm font-medium text-on-surface">
                       {item.title}
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">
@@ -408,6 +443,8 @@ export default function CasesPage() {
                           variant="ghost"
                           size="sm"
                           className="h-7 w-7 p-0"
+                          onClick={() => openEdit(item)}
+                          title="查看/编辑"
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
@@ -416,14 +453,15 @@ export default function CasesPage() {
                           size="sm"
                           className="h-7 w-7 p-0"
                           onClick={() => openEdit(item)}
+                          title="编辑"
                         >
                           <Edit3 className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 w-7 p-0 text-[#EF4444]"
-                          onClick={() => handleDelete(item.id)}
+                          className="h-7 w-7 p-0 text-error"
+                          onClick={() => openDelete(item)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -470,10 +508,9 @@ export default function CasesPage() {
                     <SelectValue placeholder="选择行业" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="智慧城市">智慧城市</SelectItem>
-                    <SelectItem value="工业制造">工业制造</SelectItem>
-                    <SelectItem value="金融科技">金融科技</SelectItem>
-                    <SelectItem value="能源电力">能源电力</SelectItem>
+                    {INDUSTRIES.map((ind) => (
+                      <SelectItem key={ind} value={ind}>{ind}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -504,6 +541,32 @@ export default function CasesPage() {
                 onChange={(e) => setFormOutcome(e.target.value)}
               />
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>项目类型</Label>
+                <Input
+                  placeholder="如：智慧城市可视化"
+                  value={formProjectType}
+                  onChange={(e) => setFormProjectType(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>风格标签</Label>
+                <Input
+                  placeholder="如：科技感/深色系"
+                  value={formStyleTag}
+                  onChange={(e) => setFormStyleTag(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>标签</Label>
+              <Input
+                placeholder="多个标签用英文逗号分隔..."
+                value={formTags}
+                onChange={(e) => setFormTags(e.target.value)}
+              />
+            </div>
             <div className="space-y-2">
               <Label>项目亮点</Label>
               <Textarea
@@ -512,6 +575,16 @@ export default function CasesPage() {
                 value={formHighlights}
                 onChange={(e) => setFormHighlights(e.target.value)}
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="case-desensitized"
+                checked={formIsDesensitized}
+                onCheckedChange={(v) => setFormIsDesensitized(v === true)}
+              />
+              <Label htmlFor="case-desensitized" className="cursor-pointer">
+                脱敏处理（开启后客户名称将作为脱敏标记，原始名称由后端保留）
+              </Label>
             </div>
 
             {/* Reference Images (read-only preview, editable via API/JSON import) */}
@@ -552,17 +625,43 @@ export default function CasesPage() {
               </div>
             )}
 
-            <Button
-              className="w-full bg-[#1E3A5F] hover:bg-[#2D5A8E]"
-              onClick={handleEdit}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : null}
-              保存修改
-            </Button>
+            <DialogFooter className="gap-2">
+              <DialogClose asChild>
+                <Button variant="outline">取消</Button>
+              </DialogClose>
+              <Button
+                className="bg-primary hover:bg-primary"
+                onClick={handleEdit}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                保存修改
+              </Button>
+            </DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            确定要删除案例「{deletingCase?.title}」吗？此操作不可撤销。
+          </p>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild>
+              <Button variant="outline">取消</Button>
+            </DialogClose>
+            <Button variant="destructive" onClick={handleDelete} disabled={submitting}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              删除
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

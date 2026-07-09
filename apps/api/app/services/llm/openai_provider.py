@@ -8,6 +8,12 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 from openai import AsyncOpenAI
 
+from app.core.token_utils import (
+    estimate_messages_tokens,
+    estimate_tokens,
+    truncate_to_budget,
+)
+
 logger = logging.getLogger(__name__)
 
 # Default timeout for LLM calls (seconds).
@@ -16,6 +22,13 @@ logger = logging.getLogger(__name__)
 # completions can exceed the previous 120s read timeout and surface as a
 # stream error after 3 retries.
 _LLM_TIMEOUT = 300
+
+# Soft context-window guardrail (in estimated tokens). Most gpt-4o-class
+# models support ~128k tokens; we reserve headroom for the completion
+# (max_tokens) and for estimation error, so 120k is a conservative ceiling.
+# Long contexts (10-chapter proposals + six-views analysis + search results)
+# can silently exceed this without a guardrail. Configurable via settings later.
+_MAX_CONTEXT_TOKENS = 120000
 
 
 class OpenAILLMService:
@@ -47,6 +60,74 @@ class OpenAILLMService:
                 return choices[0].get("message", {}).get("content", "")
         return ""
 
+    @staticmethod
+    def _enforce_budget(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Guard the message list against exceeding the context window.
+
+        Estimates the token count and, if it exceeds ``_MAX_CONTEXT_TOKENS``,
+        logs a warning and shrinks the largest single message (keeping role
+        intact) until it fits. The system prompt (first message) is always
+        preserved verbatim so instructions survive truncation.
+
+        Returns a (possibly new) message list; the input is never mutated.
+        Normal-length inputs pass through unchanged — this is purely a
+        guardrail for pathologically long contexts.
+        """
+        total = estimate_messages_tokens(messages)
+        if total <= _MAX_CONTEXT_TOKENS:
+            return messages
+
+        logger.warning(
+            "Estimated context size %d tokens exceeds budget %d — truncating",
+            total,
+            _MAX_CONTEXT_TOKENS,
+        )
+        guarded = [dict(m) for m in messages]  # shallow copy each message
+
+        # Preserve the system prompt (typically index 0); target the rest.
+        system_indices = [
+            i for i, m in enumerate(guarded) if m.get("role") == "system"
+        ]
+
+        # Iteratively shrink the largest non-system message until within budget.
+        # This is bounded by the number of messages × a few passes — safe even
+        # for very large histories.
+        safety_passes = 0
+        while estimate_messages_tokens(guarded) > _MAX_CONTEXT_TOKENS:
+            safety_passes += 1
+            if safety_passes > len(guarded) * 4 + 8:
+                # Pathological case — bail out with an aggressive cut rather
+                # than looping forever. Keep only system + last message.
+                break
+
+            # Find the largest non-system message to trim.
+            target_idx = -1
+            target_len = -1
+            for i, m in enumerate(guarded):
+                if i in system_indices:
+                    continue
+                content = m.get("content", "")
+                clen = len(content) if isinstance(content, str) else 0
+                if clen > target_len:
+                    target_len = clen
+                    target_idx = i
+
+            if target_idx < 0 or target_len <= 0:
+                break  # nothing left to trim
+
+            content = guarded[target_idx].get("content", "")
+            # Cut the largest message to ~60% of its current size, keeping its
+            # tail (most recent / most relevant text).
+            new_max_tokens = max(
+                int(estimate_tokens(content) * 0.6),
+                _MAX_CONTEXT_TOKENS // 20,
+            )
+            guarded[target_idx]["content"] = truncate_to_budget(
+                content, new_max_tokens, from_end=True
+            )
+
+        return guarded
+
     async def generate(
         self,
         prompt: str,
@@ -59,7 +140,7 @@ class OpenAILLMService:
         Includes retry logic for providers that occasionally return
         empty content or SSE chunk data instead of a complete response.
         """
-        messages = self._build_messages(prompt, system_prompt)
+        messages = self._enforce_budget(self._build_messages(prompt, system_prompt))
         for attempt in range(1, 4):
             response = await self._client.chat.completions.create(
                 model=self._model,
@@ -223,7 +304,9 @@ class OpenAILLMService:
         max_tokens: int = 4000,
     ) -> str:
         """Generate with full multi-turn message history."""
-        api_messages = self._build_history_messages(messages, system_prompt)
+        api_messages = self._enforce_budget(
+            self._build_history_messages(messages, system_prompt)
+        )
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=api_messages,

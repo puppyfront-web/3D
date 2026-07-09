@@ -1,13 +1,13 @@
 """Add reference_images to cases.
 
 Revision ID: 009
-Revises: 008
+Revises: 008_sop_stages
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "009"
-down_revision = "008"
+down_revision = "008_sop_stages"
 branch_labels = None
 depends_on = None
 

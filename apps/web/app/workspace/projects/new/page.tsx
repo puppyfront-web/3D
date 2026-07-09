@@ -90,7 +90,7 @@ export default function NewProjectPage() {
     setIsSubmitting(true);
     const result = await createProject(data);
     if (result.success && result.data) {
-      router.push(`/workspace/projects/${result.data.id}`);
+      router.push(`/workspace/canvas/${result.data.id}`);
     }
     setIsSubmitting(false);
   };
@@ -106,7 +106,7 @@ export default function NewProjectPage() {
       >
         {currentStep === 0 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">基本信息</h2>
+            <h2 className="text-lg font-semibold text-on-surface">基本信息</h2>
             <p className="text-sm text-gray-500">填写项目名称、客户信息和基本描述</p>
 
             <div className="grid grid-cols-2 gap-4">
@@ -226,7 +226,7 @@ export default function NewProjectPage() {
 
         {currentStep === 1 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">企业调研</h2>
+            <h2 className="text-lg font-semibold text-on-surface">企业调研</h2>
             <p className="text-sm text-gray-500">提供目标企业的背景资料，帮助AI生成更精准的分析</p>
 
             <div className="grid grid-cols-2 gap-4">
@@ -308,7 +308,7 @@ export default function NewProjectPage() {
 
         {currentStep === 2 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">场地与屏幕信息</h2>
+            <h2 className="text-lg font-semibold text-on-surface">场地与屏幕信息</h2>
             <p className="text-sm text-gray-500">
               屏幕参数是 3D 幕墙方案的关键输入，将直接影响策划案与视觉生成的准确性
             </p>
@@ -424,7 +424,7 @@ export default function NewProjectPage() {
 
         {currentStep === 3 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">方案风格</h2>
+            <h2 className="text-lg font-semibold text-on-surface">方案风格</h2>
             <p className="text-sm text-gray-500">定义方案的撰写风格、语言和核心卖点</p>
 
             <div className="grid grid-cols-3 gap-4">
@@ -538,7 +538,7 @@ export default function NewProjectPage() {
 
         {currentStep === 4 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">视觉要求</h2>
+            <h2 className="text-lg font-semibold text-on-surface">视觉要求</h2>
             <p className="text-sm text-gray-500">定义视觉素材的设计规范和生成要求</p>
 
             <div className="grid grid-cols-2 gap-4">
@@ -652,7 +652,7 @@ export default function NewProjectPage() {
 
         {currentStep === 5 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">审核与导出</h2>
+            <h2 className="text-lg font-semibold text-on-surface">审核与导出</h2>
             <p className="text-sm text-gray-500">设置质量审核标准和输出格式</p>
 
             <div className="grid grid-cols-2 gap-4">
@@ -753,9 +753,9 @@ export default function NewProjectPage() {
             </div>
 
             {/* Summary */}
-            <Card className="bg-[#1E3A5F]/5 border-[#1E3A5F]/10 mt-6">
+            <Card className="bg-primary-fixed border-primary-fixed mt-6">
               <CardContent className="p-4">
-                <h3 className="text-sm font-medium text-[#1E3A5F] mb-3">项目创建摘要</h3>
+                <h3 className="text-sm font-medium text-primary mb-3">项目创建摘要</h3>
                 <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                   <div>项目名称：{data.step1.projectName || "未填写"}</div>
                   <div>客户名称：{data.step1.clientName || "未填写"}</div>

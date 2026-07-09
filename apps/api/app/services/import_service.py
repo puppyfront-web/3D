@@ -12,7 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.case import Case
+from app.models.industry_material import IndustryMaterial
+from app.models.pricing_experience import PricingExperience
 from app.models.rule import QualityRule, TechnicalRule
+from app.models.talking_point import TalkingPoint
 from app.models.template import PromptTemplate, ProposalTemplate
 from app.models.visual import VisualStyle
 from app.models.workflow import SOPWorkflow
@@ -42,6 +45,9 @@ class ImportService:
         "visual_style": {".json"},
         "technical_rule": {".json", ".txt"},
         "quality_rule": {".json", ".txt"},
+        "industry_material": {".json", ".txt", ".md"},
+        "talking_point": {".json", ".txt", ".md"},
+        "pricing_experience": {".json", ".csv"},
     }
 
     # entity_type -> (ORM model, natural key columns). The natural key drives
@@ -55,6 +61,9 @@ class ImportService:
         "quality_rule": (QualityRule, ("name",)),
         "visual_style": (VisualStyle, ("name",)),
         "case": (Case, ("title", "client_name")),
+        "industry_material": (IndustryMaterial, ("title",)),
+        "talking_point": (TalkingPoint, ("title",)),
+        "pricing_experience": (PricingExperience, ("title",)),
     }
 
     @classmethod
@@ -107,8 +116,35 @@ class ImportService:
                 if existing is not None and mode == "rename":
                     payload = {**item, natural_key[0]: f"{item[natural_key[0]]} (副本)"}
 
-                db.add(model(**{k: v for k, v in payload.items() if k in colnames}))
+                obj = model(**{k: v for k, v in payload.items() if k in colnames})
+                db.add(obj)
                 result.imported += 1
+
+                # Best-effort auto-tagging for newly-inserted items only
+                # (failure never breaks the import — AGENT_SPEC §23.4.5).
+                try:
+                    from app.services.auto_tagger import suggest_tags
+
+                    content = " ".join(str(v) for v in item.values() if v)[:500]
+                    suggestion = await suggest_tags(
+                        db, entity_type, content, item.get("name", item.get("title", ""))
+                    )
+                    if suggestion.get("tags") or suggestion.get("category"):
+                        if (
+                            "tags" in colnames
+                            and not item.get("tags")
+                            and suggestion.get("tags")
+                        ):
+                            setattr(obj, "tags", ", ".join(suggestion["tags"][:3]))
+                        if (
+                            "category" in colnames
+                            and not item.get("category")
+                            and suggestion.get("category")
+                        ):
+                            setattr(obj, "category", suggestion["category"])
+                        await db.flush()
+                except Exception:
+                    pass  # Auto-tagging is best-effort
             except Exception as e:  # noqa: BLE001 — count per-row failures, don't abort batch
                 result.failed += 1
                 result.errors.append(f"应用失败: {e}")
@@ -223,6 +259,17 @@ class ImportService:
             return cls._parse_text_template(text)
         elif entity_type in ("technical_rule", "quality_rule"):
             return cls._parse_text_rules(text)
+        elif entity_type in ("industry_material", "talking_point"):
+            # Same shape as rules: sections separated by blank lines, first line = title.
+            items = cls._parse_text_rules(text)
+            if entity_type == "talking_point":
+                for it in items:
+                    it.setdefault("scenario", it.get("category", "通用"))
+                    it["content"] = it.pop("rule_text", None) or it.get("name", "")
+            else:
+                for it in items:
+                    it["content"] = it.pop("rule_text", None) or it.get("name", "")
+            return items
         raise ValueError(f"不支持文本格式导入 '{entity_type}'")
 
     @staticmethod
@@ -282,6 +329,9 @@ class ImportService:
             "visual_style": ImportService._validate_visual_style,
             "technical_rule": ImportService._validate_technical_rule,
             "quality_rule": ImportService._validate_quality_rule,
+            "industry_material": ImportService._validate_industry_material,
+            "talking_point": ImportService._validate_talking_point,
+            "pricing_experience": ImportService._validate_pricing_experience,
         }
         validator = validators.get(entity_type)
         if validator:
@@ -362,4 +412,24 @@ class ImportService:
                 item["weight"] = float(item["weight"])
             except ValueError:
                 item["weight"] = 1.0
+        return item
+
+    @staticmethod
+    def _validate_industry_material(item: dict) -> dict:
+        if not item.get("title"):
+            raise ValueError("资料标题 (title) 不能为空")
+        return item
+
+    @staticmethod
+    def _validate_talking_point(item: dict) -> dict:
+        if not item.get("title"):
+            raise ValueError("话术标题 (title) 不能为空")
+        if not item.get("scenario"):
+            item["scenario"] = "通用"
+        return item
+
+    @staticmethod
+    def _validate_pricing_experience(item: dict) -> dict:
+        if not item.get("title"):
+            raise ValueError("报价经验标题 (title) 不能为空")
         return item

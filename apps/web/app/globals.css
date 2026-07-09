@@ -4,96 +4,236 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ──────────────────────────────────────────────────────────────────────────
+ * Enterprise Blueprint — Material 3 design tokens
+ * Source: design/stitch/design_system.md (Stitch project 2205002937190653634)
+ * Brand: high-tech enterprise B2B workbench. Primary #0052D9, Inter, 8px radius.
+ * ────────────────────────────────────────────────────────────────────────── */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --font-heading: var(--font-inter);
+  --font-headline: var(--font-inter);
 
-  /* Custom theme colors */
-  --color-deep-blue: #1E3A5F;
-  --color-deep-blue-hover: #2D5A8E;
-  --color-electric-cyan: #00D4FF;
-  --color-page-bg: #F5F7FA;
-  --color-sidebar-bg: #1A1A2E;
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
-  --color-error: #EF4444;
-  --color-info: #3B82F6;
+  /* shadcn semantic aliases */
+  --color-sidebar-ring: var(--outline-variant);
+  --color-sidebar-border: var(--outline-variant);
+  --color-sidebar-accent-foreground: var(--on-surface);
+  --color-sidebar-accent: var(--surface-container-low);
+  --color-sidebar-primary-foreground: var(--on-primary);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-foreground: var(--on-surface);
+  --color-sidebar: var(--surface-container-lowest);
+  --color-chart-5: #ef4444;
+  --color-chart-4: #f59e0b;
+  --color-chart-3: #10b981;
+  --color-chart-2: var(--surface-tint);
+  --color-chart-1: var(--primary);
+  --color-ring: var(--primary);
+  --color-input: var(--outline-variant);
+  --color-border: var(--outline-variant);
+  --color-destructive: var(--error);
+  --color-accent-foreground: var(--on-surface);
+  --color-accent: var(--primary-fixed);
+  --color-muted-foreground: var(--on-surface-variant);
+  --color-muted: var(--surface-container);
+  --color-secondary-foreground: var(--on-secondary);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--on-primary);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--on-surface);
+  --color-popover: var(--surface-container-lowest);
+  --color-card-foreground: var(--on-surface);
+  --color-card: var(--surface-container-lowest);
+
+  /* Radius scale — 8px base (ROUND_EIGHT) */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.5rem;
+  --radius-4xl: 2rem;
+
+  /* Named spacing tokens — design_system.md spacing block.
+     Required by Tailwind v4 to generate px-margin-desktop / gap-gutter /
+     space-y-stack-* utilities. Without these, the named classes silently
+     produce no CSS. */
+  --spacing-margin-mobile: 1rem;
+  --spacing-margin-desktop: 2rem;
+  --spacing-gutter: 1.5rem;
+  --spacing-stack-sm: 0.5rem;
+  --spacing-stack-md: 1rem;
+  --spacing-stack-lg: 2rem;
+
+  /* Container max-width — powers max-w-container-max */
+  --container-container-max: 1440px;
+
+  /* Named Material 3 surface tones (exposed as Tailwind colors, e.g. bg-surface-container-lowest) */
+  --color-surface: var(--surface);
+  --color-surface-bright: var(--surface-bright);
+  --color-surface-dim: var(--surface-dim);
+  --color-surface-variant: var(--surface-variant);
+  --color-surface-container-lowest: var(--surface-container-lowest);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-on-background: var(--on-background);
+  --color-on-primary: var(--on-primary);
+  --color-on-primary-container: var(--on-primary-container);
+  --color-on-secondary: var(--on-secondary);
+  --color-on-secondary-container: var(--on-secondary-container);
+  --color-on-tertiary: var(--on-tertiary);
+  --color-on-tertiary-container: var(--on-tertiary-container);
+  --color-on-error: var(--on-error);
+  --color-on-error-container: var(--on-error-container);
+
+  --color-primary-container: var(--primary-container);
+  --color-primary-fixed: var(--primary-fixed);
+  --color-primary-fixed-dim: var(--primary-fixed-dim);
+  --color-on-primary-fixed: var(--on-primary-fixed);
+  --color-on-primary-fixed-variant: var(--on-primary-fixed-variant);
+  --color-secondary-container: var(--secondary-container);
+  --color-secondary-fixed: var(--secondary-fixed);
+  --color-secondary-fixed-dim: var(--secondary-fixed-dim);
+  --color-on-secondary-fixed: var(--on-secondary-fixed);
+  --color-on-secondary-fixed-variant: var(--on-secondary-fixed-variant);
+  --color-tertiary: var(--tertiary);
+  --color-tertiary-container: var(--tertiary-container);
+  --color-tertiary-fixed: var(--tertiary-fixed);
+  --color-tertiary-fixed-dim: var(--tertiary-fixed-dim);
+  --color-on-tertiary-fixed: var(--on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--on-tertiary-fixed-variant);
+  --color-error-container: var(--error-container);
+  --color-outline: var(--outline);
+  --color-outline-variant: var(--outline-variant);
+  --color-inverse-surface: var(--inverse-surface);
+  --color-inverse-on-surface: var(--inverse-on-surface);
+  --color-inverse-primary: var(--inverse-primary);
+  --color-surface-tint: var(--surface-tint);
+
+  /* Status tokens (functional accents) */
+  --color-success: #006c46;
+  --color-success-container: #84f6bc;
+  --color-warning: #733500;
+  --color-warning-container: #ffdbc8;
+  --color-info: var(--primary);
+
+  /* Board palette — three canvas boards (single source of truth) */
+  --color-board-company: #1a73e8;
+  --color-board-product: #00875a;
+  --color-board-future: #e8740b;
+
+  --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 :root {
-  --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  --background: #F5F7FA;
-  --foreground: #1A1A2E;
-  --card: #FFFFFF;
-  --card-foreground: #1A1A2E;
-  --popover: #FFFFFF;
-  --popover-foreground: #1A1A2E;
-  --primary: #1E3A5F;
-  --primary-foreground: #FFFFFF;
-  --secondary: #E8ECF1;
-  --secondary-foreground: #1E3A5F;
-  --muted: #F1F5F9;
-  --muted-foreground: #64748B;
-  --accent: #00D4FF;
-  --accent-foreground: #1A1A2E;
-  --destructive: #EF4444;
-  --border: #E2E8F0;
-  --input: #E2E8F0;
-  --ring: #1E3A5F;
-  --chart-1: #1E3A5F;
-  --chart-2: #00D4FF;
-  --chart-3: #10B981;
-  --chart-4: #F59E0B;
-  --chart-5: #EF4444;
+  /* Font — Inter loaded via next/font in layout.tsx; var provided as --font-inter.
+     Fallback stack mirrors Stitch spec. */
+  --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+
+  /* Surfaces */
+  --surface: #f8f9fb;
+  --surface-bright: #f8f9fb;
+  --surface-dim: #d9dadc;
+  --surface-variant: #e1e2e4;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f3f4f6;
+  --surface-container: #edeef0;
+  --surface-container-high: #e7e8ea;
+  --surface-container-highest: #e1e2e4;
+
+  --on-surface: #191c1e;
+  --on-surface-variant: #434654;
+  --on-background: #191c1e;
+
+  --outline: #737686;
+  --outline-variant: #c3c6d7;
+  --surface-tint: #0353da;
+
+  /* Primary — Enterprise Blue */
+  --primary: #003da6;
+  --on-primary: #ffffff;
+  --primary-container: #0052d9;
+  --on-primary-container: #cbd6ff;
+  --inverse-primary: #b4c5ff;
+  --primary-fixed: #dbe1ff;
+  --primary-fixed-dim: #b4c5ff;
+  --on-primary-fixed: #00174b;
+  --on-primary-fixed-variant: #003ea8;
+
+  /* Secondary — functional green */
+  --secondary: #006c46;
+  --on-secondary: #ffffff;
+  --secondary-container: #84f6bc;
+  --on-secondary-container: #00714a;
+  --secondary-fixed: #87f8be;
+  --secondary-fixed-dim: #6adca4;
+  --on-secondary-fixed: #002112;
+  --on-secondary-fixed-variant: #005234;
+
+  /* Tertiary — warm orange */
+  --tertiary: #733500;
+  --on-tertiary: #ffffff;
+  --tertiary-container: #974700;
+  --on-tertiary-container: #ffcdb0;
+  --tertiary-fixed: #ffdbc8;
+  --tertiary-fixed-dim: #ffb689;
+  --on-tertiary-fixed: #311300;
+  --on-tertiary-fixed-variant: #743500;
+
+  /* Error */
+  --error: #ba1a1a;
+  --on-error: #ffffff;
+  --error-container: #ffdad6;
+  --on-error-container: #93000a;
+
+  /* Inverse */
+  --inverse-surface: #2e3132;
+  --inverse-on-surface: #f0f1f3;
+
+  /* shadcn legacy semantic names mapped to the Material 3 tokens above */
+  --background: var(--surface);
+  --foreground: var(--on-surface);
+  --card: var(--surface-container-lowest);
+  --card-foreground: var(--on-surface);
+  --popover: var(--surface-container-lowest);
+  --popover-foreground: var(--on-surface);
+  --secondary: var(--secondary);
+  --secondary-foreground: var(--on-secondary);
+  --muted: var(--surface-container);
+  --muted-foreground: var(--on-surface-variant);
+  --accent: var(--primary-fixed);
+  --accent-foreground: var(--on-primary-fixed);
+  --destructive: var(--error);
+  --border: var(--outline-variant);
+  --input: var(--outline-variant);
+  --ring: var(--primary);
   --radius: 0.5rem;
-  --sidebar: #1A1A2E;
-  --sidebar-foreground: #E2E8F0;
-  --sidebar-primary: #00D4FF;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #2D3A4E;
-  --sidebar-accent-foreground: #E2E8F0;
-  --sidebar-border: #2D3A4E;
-  --sidebar-ring: #00D4FF;
+
+  /* Sidebar (admin shell) — light theme by default */
+  --sidebar: var(--surface-container-lowest);
+  --sidebar-foreground: var(--on-surface);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--on-primary);
+  --sidebar-accent: var(--surface-container-low);
+  --sidebar-accent-foreground: var(--on-surface);
+  --sidebar-border: var(--outline-variant);
+  --sidebar-ring: var(--primary);
+
+  --chart-1: #003da6;
+  --chart-2: #0353da;
+  --chart-3: #10b981;
+  --chart-4: #f59e0b;
+  --chart-5: #ef4444;
 }
 
 @layer base {
@@ -101,9 +241,66 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-on-surface font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
   html {
     @apply font-sans;
   }
+}
+
+/* ─── Utility classes used across the workspace ─────────────────────────── */
+
+/* Infinite-canvas dotted background (aligns with Stitch canvas-grid) */
+.canvas-grid {
+  background-image: radial-gradient(#d1d5db 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Subtle marketing hero radial */
+.hero-radial {
+  background-image: radial-gradient(
+      ellipse at top,
+      var(--primary-fixed) 0%,
+      transparent 60%
+    );
+}
+
+/* Typewriter cursor for streaming AI responses (Stitch
+   code_workspace_typewriter.html). Thin 2px vertical bar with step-end blink
+   — sharper than animate-pulse and matches the design spec. */
+@keyframes typewriter-blink {
+  from,
+  to {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.typewriter-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background-color: currentColor;
+  margin-left: 2px;
+  vertical-align: middle;
+  animation: typewriter-blink 1s step-end infinite;
+}
+
+/* Refined scrollbars for dense panels */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline-variant) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--outline-variant);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
 }

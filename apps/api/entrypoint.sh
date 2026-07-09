@@ -17,8 +17,23 @@ echo "[entrypoint] Database is ready."
 
 # ─── Run Alembic migrations ──────────────────────────────────────────
 echo "[entrypoint] Running database migrations..."
+# Pre-migration safety check (prevents irreversible data loss from migration 012)
+bash /app/scripts/check_migration_safety.sh || {
+    echo "FATAL: Migration pre-check failed. Fix duplicates or set SKIP_MIGRATION_CHECK=1"
+    exit 1
+}
 alembic upgrade head
 echo "[entrypoint] Migrations complete."
+
+# ─── Seed required runtime data (idempotent) ─────────────────────────
+echo "[entrypoint] Seeding runtime data if needed..."
+python - <<'PY'
+import asyncio
+from app.db.init_db import seed_if_needed
+
+asyncio.run(seed_if_needed())
+PY
+echo "[entrypoint] Seed complete."
 
 # ─── Start API server ────────────────────────────────────────────────
 WORKERS="${API_WORKERS:-4}"

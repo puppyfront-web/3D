@@ -1,4 +1,4 @@
-"""RAG router — hybrid search endpoint.
+"""RAG router — hybrid search endpoint + retrieval-log traceability.
 
 Delegates all retrieval logic to HybridRetriever so that scoring weights
 and retrieval strategy are defined in exactly one place.
@@ -6,15 +6,18 @@ and retrieval strategy are defined in exactly one place.
 
 import time
 import uuid
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.models.retrieval import RetrievalLog
 from app.rag.retriever import HybridRetriever
-from app.schemas.common import Response
+from app.schemas.common import APIBaseModel, Response
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -97,3 +100,50 @@ async def hybrid_search(
             retrieval_type=retrieval_type,
         )
     )
+
+
+# ─── Retrieval logs (PRD §9.4 traceability) ──────────────────────────────────
+
+
+class RetrievalLogOut(APIBaseModel):
+    """One retrieval-log row, surfaced for the admin 检索日志 view.
+
+    Inherits APIBaseModel so output serializes to camelCase (matching the
+    frontend RetrievalLogItem type) instead of raw snake_case.
+    """
+
+    id: uuid.UUID
+    query: str
+    retrieval_type: str
+    results_count: int
+    top_scores: Optional[list] = None
+    latency_ms: Optional[int] = None
+    triggered_by: Optional[str] = None
+    structured_query_json: Optional[dict] = None
+    retrieved_items_json: Optional[list] = None
+    selected_context_json: Optional[dict] = None
+    final_output_id: Optional[str] = None
+    created_at: datetime
+
+
+@router.get("/logs", response_model=Response[List[RetrievalLogOut]])
+async def list_retrieval_logs(
+    triggered_by: Optional[str] = Query(None, description="Filter by trigger source"),
+    retrieval_type: Optional[str] = Query(None, description="Filter by retrieval type"),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """List recent retrieval logs (PRD §9.4 / §12).
+
+    Newest first. Optional filters by trigger source (knowledge_search /
+    case_search / hybrid_retriever) and retrieval type, so the admin view can
+    inspect what each agent actually retrieved.
+    """
+    stmt = select(RetrievalLog).order_by(RetrievalLog.created_at.desc()).limit(limit)
+    if triggered_by:
+        stmt = stmt.where(RetrievalLog.triggered_by == triggered_by)
+    if retrieval_type:
+        stmt = stmt.where(RetrievalLog.retrieval_type == retrieval_type)
+
+    rows = (await db.execute(stmt)).scalars().all()
+    return Response(data=[RetrievalLogOut.model_validate(r, from_attributes=True) for r in rows])

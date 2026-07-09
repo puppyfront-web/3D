@@ -19,6 +19,8 @@ class DocumentCreate(DocumentBase):
 class DocumentUpdate(APIBaseModel):
     title: Optional[str] = Field(None, max_length=500)
     status: Optional[str] = Field(None, max_length=50)
+    category: Optional[str] = Field(None, max_length=50)
+    parse_status: Optional[str] = Field(None, max_length=50)
 
 
 class DocumentOut(APIBaseModel):
@@ -31,6 +33,8 @@ class DocumentOut(APIBaseModel):
     file_path: str
     title: Optional[str] = None
     status: str
+    category: Optional[str] = None
+    parse_status: Optional[str] = None
     chunk_count: int
     created_at: datetime
     updated_at: datetime

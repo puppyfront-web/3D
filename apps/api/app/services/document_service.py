@@ -9,12 +9,18 @@ from fastapi import UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.document import Document, DocumentChunk
 from app.rag.indexer import DocumentIndexer
+from app.services.file_type_validator import validate_real_type
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".txt", ".md"}
+# Knowledge-base documents (RAG-indexed).
+# NOTE: legacy .doc/.ppt (binary Office formats) are intentionally NOT supported —
+# we have no parser for them and they would index as gibberish. Users must
+# convert to .docx/.pptx. XLSX/CSV are added for tabular reference material.
+ALLOWED_EXTENSIONS = {".pdf", ".pptx", ".docx", ".txt", ".md", ".xlsx", ".xls", ".csv"}
 
 
 class DocumentService:
@@ -38,13 +44,20 @@ class DocumentService:
         4. If auto_index=True, run DocumentIndexer
         5. Return the Document with updated status
         """
-        # Validate
+        # Validate extension
         original_filename = file.filename or "unnamed"
         _, ext = os.path.splitext(original_filename)
         ext = ext.lower()
         if ext not in ALLOWED_EXTENSIONS:
             raise ValueError(
-                f"File type '{ext}' not allowed. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+                f"不支持的文件类型 '{ext}'，允许：{', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            )
+
+        # Read content and enforce size limit before touching disk.
+        content = await file.read()
+        if len(content) > settings.max_upload_size:
+            raise ValueError(
+                f"文件过大：{len(content)} 字节，上限 {settings.max_upload_size} 字节"
             )
 
         # Save to disk
@@ -53,9 +66,19 @@ class DocumentService:
         os.makedirs(storage_dir, exist_ok=True)
         file_path = os.path.join(storage_dir, stored_name)
 
-        content = await file.read()
         with open(file_path, "wb") as f:
             f.write(content)
+
+        # Defense-in-depth: sniff real MIME via libmagic and reject mismatches.
+        # Cleanup the saved file on failure so we never leave orphaned bytes.
+        if not validate_real_type(file_path, ext):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            raise ValueError(
+                f"文件内容与扩展名 '{ext}' 不一致，疑似伪造文件类型"
+            )
 
         # Create DB record
         document = Document(
@@ -97,11 +120,18 @@ class DocumentService:
         """Index (or re-index) a single document.
 
         For re-indexing: deletes existing DocumentChunk rows first.
-        Returns chunk count created.
+        Returns chunk count created. Mirrors the parse lifecycle into
+        ``parse_status`` so the workspace attachment tray can show a 6-state
+        badge (uploaded / parsing / parsed / parse_failed / classified /
+        pending_confirm) independently of the coarse indexer ``status``.
         """
         document = await db.get(Document, document_id)
         if not document:
             raise ValueError(f"Document not found: {document_id}")
+
+        # Mark parsing in progress (visible to a polling tray).
+        document.parse_status = "parsing"
+        await db.flush()
 
         # Delete existing chunks for clean re-index
         await db.execute(
@@ -109,7 +139,21 @@ class DocumentService:
         )
         await db.flush()
 
-        return await self._run_indexer(document_id, db)
+        try:
+            chunk_count = await self._run_indexer(document_id, db)
+            # The indexer sets document.status; mirror it into parse_status.
+            doc = await db.get(Document, document_id)
+            if doc is not None:
+                doc.parse_status = "parsed" if doc.status == "indexed" else "parse_failed"
+                await db.flush()
+            return chunk_count
+        except Exception:
+            doc = await db.get(Document, document_id)
+            if doc is not None:
+                doc.parse_status = "parse_failed"
+                doc.status = "error"
+                await db.flush()
+            raise
 
     async def index_batch(
         self,

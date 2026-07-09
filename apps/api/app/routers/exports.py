@@ -263,3 +263,87 @@ async def export_to_pptx(
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         filename=f"proposal_{task.type}.pptx",
     )
+
+
+# ─── Canvas-version export (PRD §20, reads ProjectVersion → CanvasNode) ────
+
+
+async def _load_version_canvas(version_id: uuid.UUID, db: AsyncSession):
+    """Load a ProjectVersion and its Canvas with groups/nodes/sources eagerly
+    loaded, ready for markdown flattening. Returns (version, canvas)."""
+    from app.models.canvas import ProjectVersion, Canvas, CanvasNode, NodeSource
+    from sqlalchemy.orm import selectinload
+
+    version = await db.get(ProjectVersion, version_id)
+    if version is None:
+        raise NotFoundException("ProjectVersion", str(version_id))
+
+    result = await db.execute(
+        select(Canvas)
+        .where(Canvas.project_version_id == version_id)
+        .options(
+            selectinload(Canvas.groups),
+            selectinload(Canvas.nodes).selectinload(CanvasNode.sources),
+        )
+    )
+    canvas = result.scalar_one_or_none()
+    if canvas is None:
+        raise NotFoundException("Canvas for version", str(version_id))
+    return version, canvas
+
+
+@router.post("/word/version/{version_id}")
+async def export_version_to_word(
+    version_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a canvas version's nodes as a Word document (PRD §20).
+
+    Source of truth is the ProjectVersion → Canvas → CanvasNode tree, not the
+    legacy GenerationOutput. Soft gate: draft/pending nodes are flagged inline
+    rather than blocked.
+    """
+    from app.exporters.canvas_to_markdown import canvas_to_markdown
+    from app.exporters.word_exporter import WordExporter
+
+    version, canvas = await _load_version_canvas(version_id, db)
+    md = canvas_to_markdown(version, canvas)
+
+    exporter = WordExporter()
+    version_name = version.version_name or f"V{version.version_no}"
+    filepath = await exporter.export(
+        content=md,
+        filename=f"canvas_{version_id}.docx",
+        title=f"企业3D数字化整体解决方案（{version_name}）",
+    )
+    return FileResponse(
+        path=filepath,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"proposal_{version_name}.docx",
+    )
+
+
+@router.post("/pdf/version/{version_id}")
+async def export_version_to_pdf(
+    version_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a canvas version's nodes as a PDF document (PRD §20)."""
+    from app.exporters.canvas_to_markdown import canvas_to_markdown
+    from app.exporters.pdf_exporter import PDFExporter
+
+    version, canvas = await _load_version_canvas(version_id, db)
+    md = canvas_to_markdown(version, canvas)
+
+    exporter = PDFExporter()
+    version_name = version.version_name or f"V{version.version_no}"
+    filepath = await exporter.export(
+        content=md,
+        filename=f"canvas_{version_id}.pdf",
+        title=f"企业3D数字化整体解决方案（{version_name}）",
+    )
+    return FileResponse(
+        path=filepath,
+        media_type="application/pdf",
+        filename=f"proposal_{version_name}.pdf",
+    )

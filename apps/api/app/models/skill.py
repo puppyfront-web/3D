@@ -106,6 +106,14 @@ class SkillExecution(Base):
     used_external_sources: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     external_search_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    # Infinite-canvas workspace: when a skill is run by the canvas agent
+    # orchestrator to fill nodes, record which PRD agent role it played and
+    # which canvas_node ids it produced/wrote. Reuses SkillExecution as the
+    # AgentRun table (technical design §6) rather than introducing a parallel
+    # table — the provenance columns above already mirror AgentRun needs.
+    agent_role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    node_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -11,27 +11,14 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional
 
 from app.core.prompts import GLOBAL_CAPABILITY_CONSTRAINT
+from app.agents.base import BaseAgent, BaseContext, sse_chunk
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# SSE chunk helper
-# ---------------------------------------------------------------------------
-
-
-def _sse_chunk(
-    chunk_type: str,
-    text: Optional[str] = None,
-    data: Optional[Dict] = None,
-) -> str:
-    """Build an SSE-formatted string for streaming to the frontend."""
-    payload: Dict[str, Any] = {"type": chunk_type}
-    if text is not None:
-        payload["text"] = text
-    if data is not None:
-        payload["data"] = data
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+# Backward-compat alias — delegates to the shared base helper
+# (Defect #5: eliminates the copy-pasted _sse_chunk).
+_sse_chunk = sse_chunk
 
 
 @dataclass
@@ -392,8 +379,10 @@ class VersionTree:
 
 
 @dataclass
-class VisualConceptContext:
+class VisualConceptContext(BaseContext):
     """Agent 持有的对话上下文，序列化存储在 Message.metadata_json 中。"""
+
+    agent_type: str = "visual_concept"
 
     state: Literal[
         "COLLECTING", "PLANNING", "PROMPTING",
@@ -415,6 +404,11 @@ class VisualConceptContext:
 
     def should_ask_more(self) -> bool:
         return self.ask_round < self.max_ask_rounds
+
+    @classmethod
+    def _legacy_keys(cls) -> List[str]:
+        """Legacy bare-dict discriminator: ``state`` (pre-envelope)."""
+        return ["state"]
 
     def create_initial_node(self) -> VersionNode:
         """创建第一个版本节点（触发 PLANNING 时调用）。"""
@@ -552,15 +546,24 @@ FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
 # ---------------------------------------------------------------------------
 
 
-class VisualConceptAgent:
+class VisualConceptAgent(BaseAgent):
     """Agent that drives the full COLLECTING → … → COMPLETED state machine.
 
     The agent is *stateless* by itself — all per-conversation state lives in a
     ``VisualConceptContext`` instance that the caller persists (e.g. inside
     ``Message.metadata_json``).
+
+    Inherits ``_sse_chunk`` / ``_ensure_services`` from BaseAgent
+    (Defect #5: eliminates copy-paste). ``needs_image_service`` is overridden
+    so the base ``_ensure_services`` initializes the image service.
     """
 
     name: str = "visual_concept"
+    agent_type: str = "visual_concept"
+
+    @property
+    def needs_image_service(self) -> bool:
+        return True
 
     def __init__(
         self,
@@ -568,21 +571,10 @@ class VisualConceptAgent:
         image_service: Optional[Any] = None,
         embedding_service: Optional[Any] = None,
     ):
+        super().__init__()
         self._llm = llm_service
         self._image = image_service
         self._embedding = embedding_service
-
-    async def _ensure_services(self, db=None):
-        """Lazily initialize services (needed because __init__ cannot be async)."""
-        if self._llm is None:
-            from app.services.llm_service import get_llm_service
-            self._llm = await get_llm_service(db)
-        if self._image is None:
-            from app.services.image_service import get_image_service
-            self._image = await get_image_service(db)
-        if self._embedding is None:
-            from app.services.embedding_service import get_embedding_service
-            self._embedding = await get_embedding_service(db)
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -834,7 +826,7 @@ class VisualConceptAgent:
             "skill_progress",
             data={"skill_id": "image_generation", "status": "running", "message": "正在生成概念图…"},
         )
-        image_url = await self._generate_image(node.positive_prompt, node.negative_prompt)
+        image_url = await self._generate_image(node.positive_prompt, node.negative_prompt, db)
         node.image_url = image_url
         node.image_metadata = {
             "width": 1024,
@@ -959,9 +951,52 @@ class VisualConceptAgent:
         return result
 
     async def _generate_image(
-        self, positive_prompt: str, negative_prompt: str
+        self, positive_prompt: str, negative_prompt: str, db: Any = None
     ) -> str:
-        """Call image generation service and return the image URL."""
+        """Generate an image via the image_generation skill (Defect #7).
+
+        Routes through SkillRunner so the call gets a SkillExecution log row,
+        ReAct retry on failure, and unified error handling — previously the
+        agent called ``self._image.generate_image_url`` directly, bypassing
+        the entire skill layer (no logging, no retry, no observability).
+        Falls back to direct image_service call if the skill isn't available
+        (keeps the agent functional in minimal configs).
+        """
+        if db is not None:
+            try:
+                from app.skills.registry import SkillRegistry
+                from app.skills.runner import SkillRunner
+                from app.skills.base import SkillContext
+
+                registry = SkillRegistry.get_instance()
+                if not registry.list_skills():
+                    registry.auto_register()
+                runner = SkillRunner(registry)
+
+                skill_ctx = SkillContext(
+                    db=db,
+                    llm_service=self._llm,
+                    embedding_service=self._embedding,
+                    image_service=self._image,
+                )
+                result = await runner.run(
+                    "image_generation",
+                    {
+                        "prompt": positive_prompt,
+                        "negative_prompt": negative_prompt,
+                        "width": 1024,
+                        "height": 576,
+                    },
+                    skill_ctx,
+                )
+                if result.get("success") and result.get("output", {}).get("image_url"):
+                    return result["output"]["image_url"]
+                # Skill failed — fall through to direct call as fallback.
+                logger.warning("image_generation skill failed, falling back to direct call: %s", result.get("error"))
+            except Exception:
+                logger.exception("SkillRunner path failed for image_generation, using direct call")
+
+        # Fallback: direct image_service call (the pre-C2 behavior).
         image_url = await self._image.generate_image_url(
             prompt=positive_prompt,
             width=1024,

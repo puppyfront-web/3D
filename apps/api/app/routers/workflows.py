@@ -15,6 +15,7 @@ from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.workflow import SOPWorkflowCreate, SOPWorkflowOut, SOPWorkflowUpdate
 from app.services.config_export_service import ConfigExportService
 from app.services.import_service import ImportService
+from app.services.revision_service import build_snapshot, create_snapshot
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -115,6 +116,10 @@ async def update_workflow(
     wf = await db.get(SOPWorkflow, workflow_id)
     if not wf:
         raise NotFoundException("SOPWorkflow", str(workflow_id))
+    # Snapshot the current (pre-edit) state for version history
+    await create_snapshot(
+        db, "sop_workflow", wf.id, build_snapshot(wf), change_summary="编辑前快照"
+    )
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(wf, field, value)
     await db.flush()

@@ -44,14 +44,14 @@ SYSTEM_PROMPT = """你是一个企业分析专家，擅长从多维度深度理�
 ## 模块四：常规分析
 企业优势、劣势、核心产品、目标客户、推荐视觉方向等
 
-严格规则：
-1. 必须基于提供的资料分析。客观信息（全称、主营、产品、行业、成立时间、官网等）即使资料不全，也要基于企业名称和行业合理推断后填入，标注"[未核实]"——不要留空、不要追问用户。
-2. 如果提供了【联网检索到的公开信息】，优先参考其中的客观事实（业务、产品、行业动态），保持来源可追溯
-3. missing_info 只允许包含主观或项目相关信息（传播目标、视觉偏好、预算、屏幕场地等），禁止放入客观可查的信息
-4. 六看各维度即使信息不足，也基于行业常识给出合理分析，不足处标注"[未核实]"
-5. 技术架构基于行业类型选择框架并填充，标注"[未核实]"表示推断
-6. 主观信息（品牌调性、视觉偏好、传播目标）未给出时，给出合理默认建议并标注"[建议]"，不要追问用户
-7. 所有结论可追溯到输入资料或明确标注为推断""" + GLOBAL_CAPABILITY_CONSTRAINT
+严格规则（核心原则：有依据才填，无依据留空，禁止推断与建议）：
+1. 所有字段**仅在【联网检索到的公开信息】或用户输入中有明确依据时才填入**。没有依据的字段一律留空（空字符串 / 空数组 / 空对象），**不要推断、不要基于行业常识猜测、不要标注 [未核实]、不要追问用户**。空字段在最终展示时会自动隐藏。
+2. 如果提供了【联网检索到的公开信息】，**必须优先引用其中的客观事实**（业务、产品、行业动态、政策、竞争对手等），保持来源可追溯——这是字段的**首选数据源**。
+3. 客观信息（企业全称、主营业务、核心产品、所属行业、成立时间、注册地、官网、竞争对手、行业趋势、相关政策等）**只有联网检索到或用户明确提供时才填**；检索不到就留空。
+4. 主观信息（品牌调性、视觉偏好、传播目标、预算、屏幕场地等）**只有用户明确提供时才填**；未提供就留空，**不要给默认建议、不要标注 [建议]**。
+5. missing_info 只允许包含**确实未获取到且对项目必要**的信息（客观未查到 + 主观未提供），用于提示用户哪些信息缺失。禁止放入任何已填字段、禁止放入引导性建议文案。
+6. 技术架构按行业类型选择框架；只有当行业信息有依据时才填充层级，否则 layers 留空数组。
+7. 所有填入的内容必须可追溯到【联网检索到的公开信息】或用户输入——不允许出现无法追溯的推断内容。""" + GLOBAL_CAPABILITY_CONSTRAINT
 
 OUTPUT_SCHEMA = """{
   "six_views": {
@@ -145,36 +145,22 @@ class CompanyAnalysisSkill(BaseSkill):
           external_search_summary: dict | None
         Failures degrade gracefully (empty context, status recorded) so the
         analysis pipeline keeps running — see AGENT_SPEC §2.3.
+
+        Delegates the actual search to :func:`acquire_web_context` so there is a
+        single web-search code path across the app (Defect #11).
         """
+        from app.services.search_helper import acquire_web_context
+
         empty = {"external_context": "", "used_external_sources": [], "external_search_summary": None}
-        if not context.db:
-            return {**empty, "external_search_summary": {"status": "failed", "reason": "no_db_session"}}
 
         # Build a focused query for objective info only (no subjective/quote terms).
         query = f"{company_name} {industry}".strip() or company_name
         if not query:
             return empty
 
-        try:
-            from app.tools.registry import ToolRegistry
-            from app.tools.base import ToolContext
-
-            ws_tool = ToolRegistry.get_instance().get("web_search")
-            if ws_tool is None:
-                return {**empty, "external_search_summary": {"status": "failed", "reason": "tool_not_registered"}}
-
-            ws_result = await ws_tool.execute(
-                {"query": query, "max_results": 5},
-                ToolContext(db=context.db),
-            )
-        except Exception as e:
-            logger.warning("web_search failed during company_analysis: %s", e)
-            return {**empty, "external_search_summary": {"status": "failed", "reason": str(e)}}
-
-        data = ws_result.data if ws_result.success else {}
-        hits = data.get("results", [])
-        summary = data.get("summary") or {}
-        status = data.get("status", "failed")
+        hits, external_search_summary = await acquire_web_context(
+            context.db, query, max_results=5
+        )
 
         # Normalise provenance fields for traceability
         used_external_sources = [
@@ -189,17 +175,9 @@ class CompanyAnalysisSkill(BaseSkill):
             }
             for h in hits
         ]
-        external_search_summary = {
-            "status": status,
-            "provider": data.get("provider", ""),
-            "degraded_reason": data.get("degraded_reason"),
-            "key_points": summary.get("key_points", []),
-            "conflicts": summary.get("conflicts", []),
-            "missing_info": summary.get("missing_info", []),
-            "recommended_usage": summary.get("recommended_usage", ""),
-        }
 
         # Build a context block from usable results. Degraded/failed → empty.
+        status = external_search_summary.get("status", "failed")
         if status != "ok" or not hits:
             return {
                 "external_context": "",
@@ -254,14 +232,13 @@ class CompanyAnalysisSkill(BaseSkill):
 
 {OUTPUT_SCHEMA}
 
-关键要求：
-1. six_views 六看分析必须覆盖 6 个方向，每个方向至少给出 2-3 个要点
-2. technology_arch 技术架构至少给出 3 层，每层配一个拟人化比喻
-3. project_background 项目背景给出宏观→中观→微观 3 个层级
-4. 优先引用【联网检索到的公开信息】中的客观事实，并保持来源可追溯
-5. **客观信息（企业全称、主营业务、核心产品、所属行业、成立时间、注册地、官网等）必须基于企业名称和行业合理推断后填入，不要留空，不要追问用户。** 对推断的客观信息标注"[未核实]"。
-6. missing_info 只允许包含**主观或项目相关信息**（如：本次项目传播目标、视觉偏好、预算、屏幕场地参数）。禁止把客观可查的信息（公司全称、官网、主营业务等）放进 missing_info。
-7. 主观信息（品牌调性、视觉偏好、传播目标）如未在输入中给出，给一个合理默认建议并标注"[建议]"，不要追问。"""
+关键要求（核心原则：有依据才填，无依据留空）：
+1. **每个字段仅在【联网检索到的公开信息】或企业信息输入中有明确依据时才填入**。没有依据就留空（空字符串/空数组/空对象），不要推断、不要猜测、不要标注 [未核实]、不要追问用户。空字段会自动隐藏，不会展示给用户。
+2. 如果提供了【联网检索到的公开信息】，**必须优先引用其中的客观事实**——这是首选数据源。客观信息（企业全称、主营、产品、行业、成立时间、官网、竞争对手、行业趋势、政策等）只有检索到或用户明确提供时才填。
+3. 主观信息（品牌调性、视觉偏好、传播目标、预算、屏幕场地等）只有用户明确提供时才填；未提供就留空，不要给默认建议、不要标注 [建议]。
+4. missing_info 用于列出**确实未获取到且对项目必要**的信息（客观未查到 + 主观未提供），帮助用户了解哪些信息缺失。禁止放入引导性建议文案、禁止放入已填字段。
+5. six_views 各维度、technology_arch 各层、project_background 各级，**均只在有依据时才填充**；有依据的方向给出 2-3 个要点，无依据的留空对象/空数组。
+6. 不要在内容里加 [未核实]、[建议]、[推断] 等标注——有依据就直接写事实，无依据就留空。"""
 
         analysis = await context.llm_service.generate_json(
             prompt=prompt,
@@ -269,14 +246,10 @@ class CompanyAnalysisSkill(BaseSkill):
         )
 
         missing_info = analysis.get("missing_info", [])
-        # Surface unverified objective fields when web_search degraded/failed
-        ws_status = (ws.get("external_search_summary") or {}).get("status")
-        if ws_status in ("failed", "degraded"):
-            # Note the unverified status, but do NOT ask the user to supply
-            # objective info — they expect the assistant to know/lookup it.
-            missing_info = missing_info + [
-                f"ℹ️ 客观信息未能联网核实（{ws_status}），已基于行业常识推断并标注[未核实]"
-            ]
+        # web_search degraded/failed: surface status in external_search_summary
+        # (the card will show "未联网核实"), but do NOT inject guidance text into
+        # missing_info — per AGENTS.md §3, suggestions only appear when info is
+        # genuinely unavailable, which is conveyed by the card state itself.
 
         return SkillResult(
             success=True,
@@ -287,6 +260,7 @@ class CompanyAnalysisSkill(BaseSkill):
                 "project_background": analysis.get("project_background"),
                 "missing_info": missing_info,
                 "external_search": ws.get("external_search_summary"),
+                "used_external_sources": ws.get("used_external_sources", []),
             },
             used_external_sources=ws.get("used_external_sources", []),
             external_search_summary=ws.get("external_search_summary"),
@@ -399,13 +373,8 @@ class CompanyAnalysisSkill(BaseSkill):
         )
 
         missing_info = analysis.get("missing_info", [])
-        ws_status = (ws.get("external_search_summary") or {}).get("status")
-        if ws_status in ("failed", "degraded"):
-            # Note the unverified status, but do NOT ask the user to supply
-            # objective info — they expect the assistant to know/lookup it.
-            missing_info = missing_info + [
-                f"ℹ️ 客观信息未能联网核实（{ws_status}），已基于行业常识推断并标注[未核实]"
-            ]
+        # web_search degraded/failed: surface status in external_search_summary
+        # (the card will show "未联网核实"), but do NOT inject guidance text.
 
         # Save company profile with enriched structured data
         from app.models.company_profile import CompanyProfile
@@ -414,7 +383,6 @@ class CompanyAnalysisSkill(BaseSkill):
         )
         profile = existing.scalar_one_or_none()
 
-        missing_info = analysis.get("missing_info", [])
         profile_data = {
             "strengths": json.dumps(analysis.get("strengths", []), ensure_ascii=False),
             "weaknesses": json.dumps(analysis.get("weaknesses", []), ensure_ascii=False),
@@ -455,7 +423,9 @@ class CompanyAnalysisSkill(BaseSkill):
                 "six_views": analysis.get("six_views"),
                 "technology_arch": analysis.get("technology_arch"),
                 "project_background": analysis.get("project_background"),
+                "missing_info": missing_info,
                 "external_search": ws.get("external_search_summary"),
+                "used_external_sources": ws.get("used_external_sources", []),
             },
             used_documents=used_documents,
             used_chunks=used_chunks,
@@ -477,11 +447,11 @@ class CompanyAnalysisSkill(BaseSkill):
 
 {OUTPUT_SCHEMA}
 
-关键要求：
-1. six_views 六看分析必须覆盖 6 个方向，每个方向至少给出 2-3 个要点
-2. technology_arch 技术架构至少给出 3 层，每层配一个拟人化比喻
-3. project_background 项目背景给出宏观→中观→微观 3 个层级
-4. 客观信息（全称、主营、产品、行业、成立时间、官网等）基于企业名+行业合理推断后填入，标注"[未核实]"，不要留空或追问用户
-5. missing_info 只允许主观/项目相关信息（传播目标、视觉偏好、预算、场地参数），禁止客观可查信息
-6. 主观信息未给出时给合理默认建议并标注"[建议]"，不要追问
+关键要求（核心原则：有依据才填，无依据留空）：
+1. **每个字段仅在【联网检索到的公开信息】或企业输入中有明确依据时才填入**。没有依据就留空（空字符串/空数组/空对象），不要推断、不要猜测、不要标注 [未核实]、不要追问用户。空字段会自动隐藏。
+2. 【联网检索到的公开信息】是**首选数据源**，客观信息（全称、主营、产品、行业、成立时间、官网、竞争对手、行业趋势、政策等）只有检索到或用户明确提供时才填。
+3. 主观信息（品牌调性、视觉偏好、传播目标、预算、屏幕场地等）只有用户明确提供时才填；未提供就留空，不要给默认建议、不要标注 [建议]。
+4. missing_info 列出**确实未获取到且对项目必要**的信息（客观未查到 + 主观未提供）。禁止放入引导性建议文案、禁止放入已填字段。
+5. six_views 各维度、technology_arch 各层、project_background 各级，**均只在有依据时才填充**；有依据的方向给出 2-3 个要点，无依据的留空对象/空数组。
+6. 不要在内容里加 [未核实]、[建议]、[推断] 等标注——有依据就直接写事实，无依据就留空。
 7. 格式为 JSON"""

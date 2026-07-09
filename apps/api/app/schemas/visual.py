@@ -65,6 +65,11 @@ class VisualStyleBase(APIBaseModel):
     brand_guidelines: Optional[str] = None
     material_spec: Optional[MaterialSpec] = None
     lighting_spec: Optional[LightingSpec] = None
+    category: Optional[str] = Field(None, max_length=100)
+    is_active: bool = True
+    sub_type: Optional[str] = Field(
+        None, max_length=50, description="UI 视觉资料子库: ui_spec / large_screen / 3d_ref / motion_ref"
+    )
 
 
 class VisualStyleCreate(VisualStyleBase):
@@ -84,6 +89,9 @@ class VisualStyleUpdate(APIBaseModel):
     brand_guidelines: Optional[str] = None
     material_spec: Optional[MaterialSpec] = None
     lighting_spec: Optional[LightingSpec] = None
+    category: Optional[str] = Field(None, max_length=100)
+    is_active: Optional[bool] = None
+    sub_type: Optional[str] = Field(None, max_length=50)
 
 
 class VisualStyleOut(VisualStyleBase):

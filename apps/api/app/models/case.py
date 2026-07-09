@@ -32,6 +32,10 @@ class Case(Base):
     quality_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    project_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    style_tag: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_desensitized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    original_client_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     reference_images: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, comment="参考图片列表")
 
     created_at: Mapped[datetime] = mapped_column(

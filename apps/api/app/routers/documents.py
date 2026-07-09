@@ -114,6 +114,8 @@ async def list_documents(
     page_size: int = Query(20, ge=1, le=100),
     project_id: Optional[uuid.UUID] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
+    category: Optional[str] = Query(None, description="附件分类过滤"),
+    parse_status: Optional[str] = Query(None, description="解析状态过滤"),
     db: AsyncSession = Depends(get_db),
 ):
     """List documents with pagination and filters."""
@@ -126,6 +128,12 @@ async def list_documents(
     if status_filter:
         query = query.where(Document.status == status_filter)
         count_query = count_query.where(Document.status == status_filter)
+    if category:
+        query = query.where(Document.category == category)
+        count_query = count_query.where(Document.category == category)
+    if parse_status:
+        query = query.where(Document.parse_status == parse_status)
+        count_query = count_query.where(Document.parse_status == parse_status)
 
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()
@@ -208,3 +216,28 @@ async def delete_document(document_id: uuid.UUID, db: AsyncSession = Depends(get
 
     await db.delete(document)
     return Response(message="Document deleted")
+
+
+@router.post("/{document_id}/auto-tag", response_model=Response[dict])
+async def auto_tag_document(document_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Auto-suggest category for a document using LLM."""
+    from app.services.auto_tagger import suggest_tags
+
+    doc = await db.get(Document, document_id)
+    if not doc:
+        raise NotFoundException("Document", str(document_id))
+    # Use the first chunk as content sample
+    from app.models.document import DocumentChunk
+
+    chunks = (
+        await db.execute(
+            select(DocumentChunk.content)
+            .where(DocumentChunk.document_id == document_id)
+            .limit(3)
+        )
+    ).scalars().all()
+    content = "\n".join(chunks) or doc.title or doc.original_filename
+    result = await suggest_tags(
+        db, "document", content, doc.title or doc.original_filename
+    )
+    return Response(data=result)

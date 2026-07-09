@@ -20,7 +20,32 @@ from app.schemas.project import (
 )
 from app.services.project_service import project_service
 
+# Project-conversation linking (canvas workspace chat). Imported lazily-bound here
+# because the endpoint lives under /projects/{id}/conversation, but the logic
+# belongs to the conversation domain.
+from app.services.conversation_service import ConversationService
+from app.models.conversation import Message
+from app.schemas.conversation import ConversationDetail, MessageOut
+
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+_conv_service = ConversationService()
+
+
+def _message_to_out(m: Message) -> MessageOut:
+    """Convert a Message ORM object to MessageOut schema (mirrors conversations router)."""
+    return MessageOut(
+        id=str(m.id),
+        conversation_id=str(m.conversation_id),
+        thread_id=str(m.thread_id) if m.thread_id else None,
+        role=m.role,
+        content=m.content,
+        content_type=m.content_type,
+        rich_content=m.rich_content,
+        skill_execution_id=str(m.skill_execution_id) if m.skill_execution_id else None,
+        metadata=m.metadata_json,
+        created_at=m.created_at,
+    )
 
 VALID_STATUSES = {"draft", "in_progress", "review", "completed", "archived"}
 
@@ -150,3 +175,80 @@ async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_d
     await db.delete(project)
     await db.flush()
     return Response(message="Project deleted")
+
+
+@router.get(
+    "/{project_id}/conversation",
+    response_model=Response[ConversationDetail],
+)
+async def get_project_conversation(
+    project_id: uuid.UUID,
+    node_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get-or-create the conversation bound to a project.
+
+    Used by the canvas workspace to load its left-rail chat panel with a real,
+    project-scoped conversation (history included). The underlying
+    Conversation.project_id FK already exists; this endpoint just exposes the
+    get-or-create path that the service already supports.
+    """
+    # Verify the project exists (404 if not).
+    project = await db.get(Project, project_id)
+    if not project:
+        raise NotFoundException("Project", str(project_id))
+
+    conv = await _conv_service.get_or_create_conversation(
+        db, project_id=str(project_id)
+    )
+    thread = await _conv_service.get_or_create_thread(
+        db,
+        conv.id,
+        scope_type="node" if node_id else "project",
+        scope_ref_id=node_id,
+    )
+    messages = await _conv_service.get_thread_history(db, thread.id)
+
+    # Backward compatibility: before thread-scoped persistence landed, node
+    # turns lived in the project thread and were separated only by metadata.
+    # Keep those histories visible during the migration window.
+    project_thread = await _conv_service.get_or_create_thread(
+        db,
+        conv.id,
+        scope_type="project",
+    )
+    project_messages = await _conv_service.get_thread_history(db, project_thread.id)
+    legacy_messages = _conv_service.filter_messages_for_scope(
+        project_messages,
+        node_id=node_id,
+    )
+
+    if node_id:
+        combined: list[Message] = []
+        seen_ids: set[str] = set()
+        for message in [*legacy_messages, *messages]:
+            message_id = str(message.id)
+            if message_id in seen_ids:
+                continue
+            seen_ids.add(message_id)
+            combined.append(message)
+        combined.sort(key=lambda msg: msg.created_at)
+        scoped_messages = combined
+    else:
+        scoped_messages = legacy_messages
+
+    msg_outs = [_message_to_out(m) for m in scoped_messages]
+
+    detail = ConversationDetail(
+        id=str(conv.id),
+        thread_id=str(thread.id),
+        project_id=str(conv.project_id) if conv.project_id else None,
+        title=conv.title,
+        status=conv.status,
+        last_message=msg_outs[-1] if msg_outs else None,
+        message_count=len(msg_outs),
+        created_at=conv.created_at,
+        updated_at=conv.updated_at,
+        messages=msg_outs,
+    )
+    return Response(data=detail, message="Project conversation")

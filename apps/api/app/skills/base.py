@@ -68,6 +68,33 @@ class SkillResult:
         }
 
 
+# Mapping from `SkillManifest.required_services` strings to concrete Tool IDs.
+# Services mapped to None are NOT tools — they are injected at runtime via
+# SkillContext (LLM / embedding / image / export services) rather than looked
+# up in the ToolRegistry, so they are intentionally left unvalidated.
+REQUIRED_SERVICE_TO_TOOL: Dict[str, Optional[str]] = {
+    "knowledge.retrieve": "knowledge_search",
+    "case_search": "case_search",
+    "sop.load": "sop_load",
+    "template.load": "template_load",
+    "prompt_template.load": "prompt_template_load",
+    "visual_style.match": "visual_style_match",
+    "tech_rule.query": "tech_rule_query",
+    "quality_rule.query": "quality_rule_query",
+    "company_profile.load": "company_profile_load",
+    "web.search": "web_search",
+    "image.generate": "image_generate",
+    # LLM/embedding/image services are NOT tools — they're injected via SkillContext
+    "llm.generate": None,
+    "llm.generate_json": None,
+    "llm.generate_stream": None,
+    "embedding.embed": None,
+    "export.docx": None,
+    "export.pdf": None,
+    "export.pptx": None,
+}
+
+
 class BaseSkill(ABC):
     """Abstract base class for all skills."""
 
@@ -78,9 +105,49 @@ class BaseSkill(ABC):
         """Execute the skill with validated input. Return structured output."""
 
     def validate_input(self, input_data: Dict[str, Any]) -> bool:
-        """Validate input against manifest.input_schema required fields."""
-        required = self.manifest.input_schema.get("required", [])
-        return all(key in input_data for key in required)
+        """Validate input against manifest.input_schema.
+
+        Checks both key presence AND type (Defect #12: previously only checked
+        key existence, letting wrong-typed values through to the LLM call).
+        """
+        schema = self.manifest.input_schema
+        required = schema.get("required", [])
+        properties = schema.get("properties", {})
+
+        # 1. Required keys present
+        for key in required:
+            if key not in input_data:
+                return False
+
+        # 2. Type check for keys that have a declared type in properties
+        _json_type_map = {
+            str: "string",
+            int: "integer",
+            float: "number",
+            bool: "boolean",
+            list: "array",
+            dict: "object",
+        }
+        for key, value in input_data.items():
+            prop = properties.get(key)
+            if not prop or "type" not in prop:
+                continue
+            expected_type = prop["type"]
+            # Determine the Python type(s) that match the JSON schema type
+            py_types = []
+            for py, json_type in _json_type_map.items():
+                if json_type == expected_type:
+                    py_types.append(py)
+            # "number" matches both int and float in JSON schema
+            if expected_type == "number" and int not in py_types:
+                py_types.append(int)
+            if py_types and not isinstance(value, tuple(py_types)):
+                logger.warning(
+                    "Skill %s: field '%s' expected type '%s' but got %s",
+                    self.manifest.skill_id, key, expected_type, type(value).__name__,
+                )
+                return False
+        return True
 
     def get_manifest(self) -> SkillManifest:
         """Return the skill's manifest."""

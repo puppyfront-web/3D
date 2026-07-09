@@ -14,8 +14,21 @@ from app.models.generation import GenerationOutput, GenerationTask
 from app.models.retrieval import RetrievalLog
 from app.models.feedback import Feedback
 from app.models.skill import Skill, SkillExecution
-from app.models.conversation import Conversation, Message
+from app.models.conversation import Conversation, ConversationThread, Message
+from app.models.conversation_lock import ConversationLock
 from app.models.app_setting import AppSetting
+from app.models.industry_material import IndustryMaterial
+from app.models.talking_point import TalkingPoint
+from app.models.pricing_experience import PricingExperience
+from app.models.knowledge_asset_revision import KnowledgeAssetRevision
+from app.models.canvas import (
+    Canvas,
+    CanvasEdge,
+    CanvasGroup,
+    CanvasNode,
+    NodeSource,
+    ProjectVersion,
+)
 
 __all__ = [
     "User",
@@ -39,6 +52,21 @@ __all__ = [
     "Skill",
     "SkillExecution",
     "Conversation",
+    "ConversationThread",
     "Message",
+    "ConversationLock",
     "AppSetting",
+    # Internal knowledge bases (PRD §12)
+    "IndustryMaterial",
+    "TalkingPoint",
+    "PricingExperience",
+    # Version history for knowledge base assets (PRD §23.4.9)
+    "KnowledgeAssetRevision",
+    # Infinite-canvas workspace (snapshot version model)
+    "ProjectVersion",
+    "Canvas",
+    "CanvasGroup",
+    "CanvasNode",
+    "CanvasEdge",
+    "NodeSource",
 ]

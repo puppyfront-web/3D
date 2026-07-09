@@ -1,5 +1,6 @@
 """Document indexing pipeline — parse, chunk, embed, and store."""
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -11,7 +12,9 @@ from app.core.ttl_cache import TTLCachedService
 from app.models.document import Document, DocumentChunk
 from app.rag.chunker import TextChunker
 from app.services.document_parser import DocumentParser
-from app.services.embedding_service import EmbeddingService, get_embedding_service
+from app.services.embedding_service import EMBEDDING_DIMENSION, EmbeddingService, get_embedding_service
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentIndexer:
@@ -68,6 +71,28 @@ class DocumentIndexer:
         svc = await self._get_embedding_service(db)
         embeddings = await svc.embed_texts(texts)
 
+        # ── Dimension guard ────────────────────────────────────────────────
+        # document_chunks.embedding is a fixed Vector(1536) column (ORM model +
+        # migration). A vector whose length != 1536 would violate the column's
+        # pgvector constraint and fail to store (or silently store nothing),
+        # breaking vector search. If the provider returns a mismatched dim,
+        # drop the vectors entirely and store chunks with embedding=None so they
+        # remain searchable via keyword fallback rather than producing broken
+        # rows. (get_embedding_service also guards this, but a direct/embedded
+        # service can still reach here, so we double-check before persisting.)
+        dim_ok = True
+        if embeddings:
+            emb_dim = len(embeddings[0]) if embeddings[0] else 0
+            if emb_dim != EMBEDDING_DIMENSION:
+                logger.error(
+                    "Embedding dimension %s != column Vector(%s) for document "
+                    "%s; skipping embedding assignment (storing None). Vector "
+                    "search will be unavailable for these chunks — use keyword "
+                    "search, or align the embedding model dimension.",
+                    emb_dim, EMBEDDING_DIMENSION, document_id,
+                )
+                dim_ok = False
+
         # Persist chunks
         for i, raw in enumerate(raw_chunks):
             chunk = DocumentChunk(
@@ -77,7 +102,11 @@ class DocumentIndexer:
                 chunk_index=raw["chunk_index"],
                 page_number=raw.get("page_number"),
                 token_count=raw["token_count"],
-                embedding=embeddings[i] if i < len(embeddings) else None,
+                embedding=(
+                    embeddings[i]
+                    if dim_ok and i < len(embeddings)
+                    else None
+                ),
             )
             db.add(chunk)
 

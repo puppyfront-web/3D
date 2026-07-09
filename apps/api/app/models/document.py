@@ -45,6 +45,14 @@ class Document(Base):
     status: Mapped[str] = mapped_column(
         String(50), default="pending", nullable=False
     )
+    # Finer-grained parse lifecycle for the workspace attachment panel.
+    # Values: uploaded / parsing / parsed / parse_failed / classified / pending_confirm
+    parse_status: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, default="uploaded",
+    )
+    # Attachment category for the workspace attachment tray
+    # (企业介绍/产品资料/技术资料/荣誉资质/案例资料/发展历程/社会责任/参考案例/其他资料).
+    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(

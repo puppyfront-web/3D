@@ -15,6 +15,7 @@ from app.schemas.case import CaseCreate, CaseOut, CaseQualityScore, CaseUpdate
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.services.config_export_service import ConfigExportService
 from app.services.import_service import ImportService
+from app.services.revision_service import build_snapshot, create_snapshot, list_revisions
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -136,6 +137,11 @@ async def update_case(
     if not case:
         raise NotFoundException("Case", str(case_id))
 
+    # Before updating, snapshot the current (pre-edit) state for version history
+    await create_snapshot(
+        db, "case", case.id, build_snapshot(case), change_summary="编辑前快照"
+    )
+
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(case, field, value)
@@ -169,3 +175,32 @@ async def delete_case(case_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await db.delete(case)
     await db.flush()
     return Response(message="Case deleted")
+
+
+@router.post("/{case_id}/auto-tag", response_model=Response[dict])
+async def auto_tag_case(case_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Auto-suggest tags for a case using LLM."""
+    from app.services.auto_tagger import suggest_tags
+
+    case = await db.get(Case, case_id)
+    if not case:
+        raise NotFoundException("Case", str(case_id))
+    content = f"{case.title}\n{case.challenge or ''}\n{case.solution or ''}"
+    result = await suggest_tags(db, "case", content, case.title)
+    return Response(data=result)
+
+
+@router.get("/{case_id}/revisions", response_model=Response[list])
+async def list_case_revisions(case_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """List version-history revisions for a case (PRD §23.4.9)."""
+    revisions = await list_revisions(db, "case", case_id)
+    return Response(data=[
+        {
+            "id": str(r.id),
+            "version_no": r.version_no,
+            "change_summary": r.change_summary,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "snapshot": r.snapshot,
+        }
+        for r in revisions
+    ])

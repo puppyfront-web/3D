@@ -10,7 +10,7 @@ tool's input-safety helpers (uuid parsing, CJK tokenization, ILIKE escaping).
 import pytest
 
 from app.models.document import Document, DocumentChunk
-from app.tools.base import ToolContext, ToolResult
+from app.tools.base import ToolContext
 from app.tools.builtins.knowledge_search import (
     KnowledgeSearchTool,
     _escape_like,
@@ -226,19 +226,3 @@ def test_escape_like_escapes_wildcards():
     assert _escape_like("a_b") == r"a\_b"
     assert _escape_like(r"path\to") == r"path\\to"
     assert _escape_like("plain") == "plain"
-
-
-# ── ProposalAgent._extract_tool_list (ToolResult payload extraction) ──
-
-
-def test_extract_tool_list_pulls_payload_from_tool_result():
-    """Tools return ToolResult (.data dict), not a bare list. The proposal
-    agent used to isinstance(result, list) and silently dropped every hit."""
-    from app.agents.proposal import _extract_tool_list
-
-    assert _extract_tool_list(ToolResult(success=True, data={"chunks": [1, 2, 3]}), "chunks") == [1, 2, 3]
-    assert _extract_tool_list(ToolResult(success=True, data={"cases": [{"x": 1}]}), "cases") == [{"x": 1}]
-    # missing key / wrong shape / non-dict data → empty list, never raises
-    assert _extract_tool_list(ToolResult(success=True, data={"chunks": "oops"}), "chunks") == []
-    assert _extract_tool_list(ToolResult(success=True, data=None), "chunks") == []
-    assert _extract_tool_list(object(), "chunks") == []

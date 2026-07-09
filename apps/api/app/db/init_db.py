@@ -1,11 +1,8 @@
-"""Database initialization with seed data."""
+"""Database bootstrap and seed helpers."""
 
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.core.config import settings
 from app.db.session import async_session_factory, engine
 from app.models import (
     Role,
@@ -14,6 +11,7 @@ from app.models import (
     User,
 )
 from app.db.base import Base
+from app.core.security import hash_password
 
 
 async def create_tables() -> None:
@@ -83,6 +81,7 @@ async def seed_database() -> None:
             name="System Admin",
             role_id=admin_role.id,
             is_active=True,
+            hashed_password=hash_password("admin123"),
             created_at=now,
             updated_at=now,
         )
@@ -92,6 +91,7 @@ async def seed_database() -> None:
             name="Demo User",
             role_id=user_role.id,
             is_active=True,
+            hashed_password=hash_password("demo123"),
             created_at=now,
             updated_at=now,
         )
@@ -710,7 +710,6 @@ async def seed_database() -> None:
         await session.commit()
 
 
-async def init_db() -> None:
-    """Create tables and seed the database."""
-    await create_tables()
+async def seed_if_needed() -> None:
+    """Seed required runtime data without mutating schema."""
     await seed_database()

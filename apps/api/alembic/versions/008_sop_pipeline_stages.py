@@ -1,13 +1,13 @@
 """Add pipeline_stages to sop_workflows.
 
-Revision ID: 008
-Revises: 007
+Revision ID: 008_sop_stages
+Revises: 008_retrieval_log_prd_fields
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "008"
-down_revision = "007"
+revision = "008_sop_stages"
+down_revision = "008_retrieval_log"
 branch_labels = None
 depends_on = None
 

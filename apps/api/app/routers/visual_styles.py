@@ -15,6 +15,7 @@ from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.visual import VisualStyleCreate, VisualStyleOut, VisualStyleUpdate
 from app.services.config_export_service import ConfigExportService
 from app.services.import_service import ImportService
+from app.services.revision_service import build_snapshot, create_snapshot
 
 router = APIRouter(prefix="/visual-styles", tags=["visual-styles"])
 
@@ -115,6 +116,10 @@ async def update_visual_style(
     style = await db.get(VisualStyle, style_id)
     if not style:
         raise NotFoundException("VisualStyle", str(style_id))
+    # Snapshot the current (pre-edit) state for version history
+    await create_snapshot(
+        db, "visual_style", style.id, build_snapshot(style), change_summary="编辑前快照"
+    )
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(style, field, value)
     await db.flush()

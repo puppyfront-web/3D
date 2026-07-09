@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>花生ONE | 企业3D数字化工作台</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-bright": "#f8f9fb",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#191c1e",
+                        "tertiary-fixed": "#ffdbc8",
+                        "surface": "#f8f9fb",
+                        "secondary-fixed": "#87f8be",
+                        "inverse-on-surface": "#f0f1f3",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#dbe1ff",
+                        "outline": "#737686",
+                        "surface-dim": "#d9dadc",
+                        "on-surface-variant": "#434654",
+                        "surface-variant": "#e1e2e4",
+                        "on-tertiary-container": "#ffcdb0",
+                        "on-secondary-fixed": "#002112",
+                        "error-container": "#ffdad6",
+                        "tertiary": "#733500",
+                        "inverse-primary": "#b4c5ff",
+                        "on-tertiary-fixed": "#311300",
+                        "error": "#ba1a1a",
+                        "surface-container-low": "#f3f4f6",
+                        "on-tertiary-fixed-variant": "#743500",
+                        "inverse-surface": "#2e3132",
+                        "surface-tint": "#0353da",
+                        "on-error": "#ffffff",
+                        "on-primary-container": "#cbd6ff",
+                        "on-surface": "#191c1e",
+                        "on-primary-fixed": "#00174b",
+                        "surface-container-high": "#e7e8ea",
+                        "secondary-fixed-dim": "#6adca4",
+                        "on-secondary-container": "#00714a",
+                        "primary-container": "#0052d9",
+                        "outline-variant": "#c3c6d7",
+                        "surface-container": "#edeef0",
+                        "tertiary-container": "#974700",
+                        "secondary": "#006c46",
+                        "background": "#f8f9fb",
+                        "on-primary": "#ffffff",
+                        "secondary-container": "#84f6bc",
+                        "on-secondary-fixed-variant": "#005234",
+                        "surface-container-highest": "#e1e2e4",
+                        "surface-container-lowest": "#ffffff",
+                        "primary": "#003da6",
+                        "on-tertiary": "#ffffff",
+                        "tertiary-fixed-dim": "#ffb689"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-md": "1rem",
+                        "stack-lg": "2rem",
+                        "margin-mobile": "1rem",
+                        "margin-desktop": "2rem",
+                        "gutter": "1.5rem",
+                        "stack-sm": "0.5rem",
+                        "container-max": "1440px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "label-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", {"lineHeight": "1.3", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "headline-md": ["18px", {"lineHeight": "1.4", "fontWeight": "600"}],
+                        "headline-xl": ["32px", {"lineHeight": "1.25", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-md": ["12px", {"lineHeight": "1.4", "fontWeight": "500"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .canvas-grid {
+            background-image: radial-gradient(#d1d5db 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        .flow-node {
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .flow-node:hover {
+            transform: translateY(-2px);
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c3c6d7;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-md overflow-hidden">
+<!-- TopNavBar -->
+<header class="bg-surface-container-lowest dark:bg-surface-container-low border-b border-outline-variant dark:border-outline shadow-sm sticky top-0 z-50">
+<div class="flex justify-between items-center h-16 w-full px-margin-desktop max-w-container-max mx-auto">
+<div class="flex items-center gap-stack-lg">
+<span class="font-headline-lg text-headline-lg font-bold text-primary dark:text-primary-fixed">花生ONE</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="font-label-md text-label-md text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors" href="#">首页</a>
+<a class="font-label-md text-label-md text-primary dark:text-primary-fixed border-b-2 border-primary dark:border-primary-fixed pb-2" href="#">方案中心</a>
+<a class="font-label-md text-label-md text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors" href="#">知识库</a>
+<a class="font-label-md text-label-md text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors" href="#">案例库</a>
+<a class="font-label-md text-label-md text-on-surface-variant dark:text-surface-variant hover:text-primary transition-colors" href="#">模板中心</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex gap-2">
+<button class="p-2 rounded-full hover:bg-surface-container-low transition-colors duration-200">
+<span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+</button>
+<button class="p-2 rounded-full hover:bg-surface-container-low transition-colors duration-200">
+<span class="material-symbols-outlined text-on-surface-variant">help</span>
+</button>
+<button class="p-2 rounded-full hover:bg-surface-container-low transition-colors duration-200">
+<span class="material-symbols-outlined text-on-surface-variant">settings</span>
+</button>
+</div>
+<div class="h-8 w-[1px] bg-outline-variant mx-2"></div>
+<button class="bg-primary-container text-on-primary-container px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">add</span>
+                    生成新版本
+                </button>
+<div class="flex items-center gap-2 ml-2">
+<img class="w-8 h-8 rounded-full border border-outline-variant object-cover" data-alt="A professional headshot of a middle-aged male executive in a sleek dark suit, looking confident. The lighting is soft and corporate, with a neutral blurred office background. High-quality professional photography style, matching a modern light-mode enterprise dashboard aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA7eLkbyueiaTs_1h4lPfBa31AGnF2yf7uBlToqigqz2-_XVdrgrGSgwdXevQP2zUScv6bIcjgDf4hlbADr8DzAsR114y_8T5KbYuZI84lYG3CT1v6Tt8lZiMdqbgeQp36EIEzeflwomT932S-usWfEIOdbsqh8suiaTd7I4jpw4hWC0RMyXnoaNtOPfEus64Vp3mThyyvaiOGlZq2QYSo3PgU1bMJvti_uWABG83Qh864KpzGHlUzx"/>
+<span class="text-on-surface font-label-md text-label-md">张三</span>
+</div>
+</div>
+</div>
+</header>
+<main class="flex h-[calc(100vh-64px)]">
+<!-- Left Sidebar: Chat & Assets -->
+<aside class="w-80 flex flex-col border-r border-outline-variant bg-surface-container-low">
+<!-- Chat Section -->
+<div class="flex-1 flex flex-col min-h-0">
+<div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-lowest">
+<h2 class="font-headline-md text-headline-md">对话助教</h2>
+<button class="text-primary text-xs flex items-center gap-1 hover:underline">
+<span class="material-symbols-outlined text-sm">delete_sweep</span>
+                        清空对话
+                    </button>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-4">
+<!-- AI Msg -->
+<div class="flex gap-3">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded-xl rounded-tl-none border border-outline-variant text-body-md shadow-sm">
+                            已基于您提供的资料和网络信息，生成方案大纲。您可以继续补充需求或素材，我会持续优化方案结构与内容。
+                            <span class="block text-[10px] text-outline mt-2">10:30</span>
+</div>
+</div>
+<!-- User Msg -->
+<div class="flex gap-3 flex-row-reverse">
+<div class="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">person</span>
+</div>
+<div class="bg-primary text-on-primary p-3 rounded-xl rounded-tr-none text-body-md shadow-sm">
+                            请补充企业的荣誉资质和典型案例。
+                            <span class="block text-[10px] opacity-70 mt-2 text-right">10:32</span>
+</div>
+</div>
+<!-- AI Msg -->
+<div class="flex gap-3">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded-xl rounded-tl-none border border-outline-variant text-body-md shadow-sm">
+                            好的，已在【企业介绍】和【产品/技术/应用场景】中补充相关内容，并生成新版本 (V3)。
+                            <span class="block text-[10px] text-outline mt-2">10:33</span>
+</div>
+</div>
+</div>
+<div class="p-4 bg-surface-container-lowest border-t border-outline-variant">
+<div class="relative">
+<textarea class="w-full h-24 p-3 pr-10 border border-outline-variant rounded-xl resize-none focus:ring-2 focus:ring-primary focus:border-transparent text-body-md" placeholder="输入您的需求或补充..."></textarea>
+<button class="absolute bottom-3 right-3 p-2 bg-primary text-on-primary rounded-lg shadow-md hover:opacity-90">
+<span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Assets Section -->
+<div class="h-1/3 border-t border-outline-variant flex flex-col bg-surface-container">
+<div class="p-3 flex justify-between items-center">
+<h3 class="font-label-md text-label-md font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">attachment</span>
+                        附件 (企业资料)
+                    </h3>
+<button class="text-primary text-xs bg-surface-container-lowest border border-outline-variant px-2 py-1 rounded-md hover:bg-white flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">upload</span>上传资料
+                    </button>
+</div>
+<div class="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
+<div class="p-2 bg-surface-container-lowest border border-outline-variant rounded-lg flex items-center justify-between hover:border-primary transition-all cursor-pointer">
+<div class="flex items-center gap-2 overflow-hidden">
+<span class="material-symbols-outlined text-blue-500">folder_open</span>
+<div class="truncate">
+<p class="text-xs font-medium truncate">企业介绍 (公司简介、规模等)</p>
+<p class="text-[10px] text-outline">5MB · 2024-05-10</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline text-sm">more_vert</span>
+</div>
+<div class="p-2 bg-surface-container-lowest border border-outline-variant rounded-lg flex items-center justify-between hover:border-primary transition-all cursor-pointer">
+<div class="flex items-center gap-2 overflow-hidden">
+<span class="material-symbols-outlined text-red-500">picture_as_pdf</span>
+<div class="truncate">
+<p class="text-xs font-medium truncate">产品资料 (产品/技术文档)</p>
+<p class="text-[10px] text-outline">8MB · 2024-05-09</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline text-sm">more_vert</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Infinite Canvas -->
+<section class="flex-1 flex flex-col relative bg-surface-bright overflow-hidden">
+<!-- Canvas Header -->
+<div class="absolute top-4 left-4 right-4 flex justify-between items-center z-10 pointer-events-none">
+<div class="flex gap-2 pointer-events-auto">
+<button class="bg-surface-container-lowest border border-outline-variant shadow-sm px-4 py-2 rounded-lg flex items-center gap-2 text-body-md hover:bg-white">
+<span class="material-symbols-outlined text-sm">arrow_back</span>
+                        项目：某智能制造集团数字化转型项目 (方案 V3)
+                    </button>
+</div>
+<div class="flex items-center gap-2 pointer-events-auto">
+<div class="bg-surface-container-lowest border border-outline-variant shadow-sm rounded-lg flex items-center p-1">
+<button class="p-2 hover:bg-surface-container-low rounded-md"><span class="material-symbols-outlined text-sm">search</span></button>
+<button class="p-2 hover:bg-surface-container-low rounded-md"><span class="material-symbols-outlined text-sm">zoom_out</span></button>
+<span class="px-2 text-xs font-medium">100%</span>
+<button class="p-2 hover:bg-surface-container-low rounded-md"><span class="material-symbols-outlined text-sm">zoom_in</span></button>
+<button class="p-2 hover:bg-surface-container-low rounded-md ml-1"><span class="material-symbols-outlined text-sm">fit_screen</span></button>
+</div>
+</div>
+</div>
+<!-- Canvas Background & Content -->
+<div class="flex-1 canvas-grid relative overflow-auto p-32">
+<div class="min-w-[1200px] space-y-16">
+<!-- Section 1: Enterprise -->
+<div class="relative group">
+<div class="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-lg mb-6 border border-blue-200">
+<span class="material-symbols-outlined text-lg">corporate_fare</span>
+<span class="font-bold">1. 企业介绍</span>
+</div>
+<div class="flex gap-8 items-start pl-12 relative">
+<!-- Horizontal Lines placeholder -->
+<div class="absolute left-6 top-1/2 -translate-y-1/2 w-[1px] h-32 bg-blue-200"></div>
+<div class="flow-node bg-surface-container-lowest border border-blue-100 shadow-sm p-5 rounded-xl w-60 border-l-4 border-l-blue-500">
+<p class="text-xs text-blue-600 font-bold mb-1 uppercase">Intro</p>
+<p class="text-body-md font-semibold">企业简介</p>
+<div class="mt-3 h-1 w-full bg-blue-50 rounded"></div>
+</div>
+<div class="flow-node bg-surface-container-lowest border border-blue-100 shadow-sm p-5 rounded-xl w-60 border-l-4 border-l-blue-500">
+<p class="text-xs text-blue-600 font-bold mb-1 uppercase">Scale</p>
+<p class="text-body-md font-semibold">企业规模</p>
+<div class="mt-3 h-1 w-full bg-blue-50 rounded"></div>
+</div>
+<div class="flow-node bg-surface-container-lowest border border-blue-100 shadow-sm p-5 rounded-xl w-60 border-l-4 border-l-blue-500">
+<p class="text-xs text-blue-600 font-bold mb-1 uppercase">History</p>
+<p class="text-body-md font-semibold">发展历程</p>
+<div class="mt-3 h-1 w-full bg-blue-50 rounded"></div>
+</div>
+</div>
+<div class="flex gap-8 items-start pl-32 mt-6">
+<div class="flow-node bg-surface-container-lowest border border-blue-100 shadow-sm p-5 rounded-xl w-52 border-t-2 border-t-blue-300">
+<p class="text-body-md font-semibold text-center">荣誉资质</p>
+</div>
+<div class="flow-node bg-surface-container-lowest border border-blue-100 shadow-sm p-5 rounded-xl w-52 border-t-2 border-t-blue-300">
+<p class="text-body-md font-semibold text-center">企业精神</p>
+</div>
+</div>
+</div>
+<!-- Section 2: Products -->
+<div class="relative group">
+<div class="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-lg mb-6 border border-emerald-200">
+<span class="material-symbols-outlined text-lg">inventory_2</span>
+<span class="font-bold">2. 产品/技术/应用场景</span>
+</div>
+<div class="grid grid-cols-3 gap-8 pl-12">
+<div class="flow-node bg-surface-container-lowest border border-emerald-100 shadow-sm p-5 rounded-xl border-l-4 border-l-emerald-500">
+<p class="text-body-md font-semibold">产品体系</p>
+<p class="text-xs text-outline mt-2">覆盖3D数字化全生命周期</p>
+</div>
+<div class="flow-node bg-surface-container-lowest border border-emerald-100 shadow-sm p-5 rounded-xl border-l-4 border-l-emerald-500">
+<p class="text-body-md font-semibold">技术能力</p>
+<p class="text-xs text-outline mt-2">核心渲染引擎与数据上云</p>
+</div>
+<div class="flow-node bg-surface-container-lowest border border-emerald-100 shadow-sm p-5 rounded-xl border-l-4 border-l-emerald-500">
+<p class="text-body-md font-semibold">应用场景</p>
+<p class="text-xs text-outline mt-2">智慧园、智能工厂、运维</p>
+</div>
+</div>
+<div class="flex gap-8 items-start pl-32 mt-6">
+<div class="flow-node bg-surface-container-lowest border border-emerald-100 shadow-sm p-5 rounded-xl w-60 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-emerald-500">verified</span>
+<span class="text-body-md font-semibold">典型案例</span>
+</div>
+<div class="flow-node bg-surface-container-lowest border border-emerald-100 shadow-sm p-5 rounded-xl w-60 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-emerald-500">lightbulb</span>
+<span class="text-body-md font-semibold">解决方案</span>
+</div>
+</div>
+</div>
+<!-- Section 3: Future -->
+<div class="relative group">
+<div class="inline-flex items-center gap-2 bg-orange-50 text-orange-700 px-4 py-2 rounded-lg mb-6 border border-orange-200">
+<span class="material-symbols-outlined text-lg">public</span>
+<span class="font-bold">3. 未来/社会责任</span>
+</div>
+<div class="flex gap-6 pl-12">
+<div class="flow-node bg-surface-container-lowest border border-orange-100 shadow-sm p-4 rounded-lg flex-1 text-center border-b-2 border-b-orange-400">
+<p class="text-body-md font-semibold">未来布局</p>
+</div>
+<div class="flow-node bg-surface-container-lowest border border-orange-100 shadow-sm p-4 rounded-lg flex-1 text-center border-b-2 border-b-orange-400">
+<p class="text-body-md font-semibold">社会责任</p>
+</div>
+<div class="flow-node bg-surface-container-lowest border border-orange-100 shadow-sm p-4 rounded-lg flex-1 text-center border-b-2 border-b-orange-400">
+<p class="text-body-md font-semibold">公益价值</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Canvas Footer Action -->
+<div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-4 z-10">
+<button class="bg-surface-container-lowest border border-outline-variant shadow-lg px-6 py-2 rounded-full font-bold text-primary hover:bg-primary-container hover:text-on-primary-container transition-all flex items-center gap-2">
+<span class="material-symbols-outlined">save</span> 保存当前状态
+                </button>
+<button class="bg-primary text-on-primary shadow-lg px-6 py-2 rounded-full font-bold hover:scale-105 transition-all flex items-center gap-2">
+<span class="material-symbols-outlined">auto_awesome</span> 生成新版本
+                </button>
+</div>
+</section>
+<!-- Right Sidebar: Version Management -->
+<aside class="w-80 flex flex-col border-l border-outline-variant bg-surface-container-lowest overflow-y-auto">
+<div class="p-4 border-b border-outline-variant flex items-center justify-between sticky top-0 bg-surface-container-lowest z-10">
+<h2 class="font-headline-md text-headline-md">版本管理</h2>
+<button class="p-1 hover:bg-surface-container-low rounded-md"><span class="material-symbols-outlined text-sm">close</span></button>
+</div>
+<div class="p-4 space-y-6">
+<!-- Active Version -->
+<div class="relative pl-6">
+<div class="absolute left-0 top-0 bottom-0 w-[2px] bg-outline-variant"></div>
+<div class="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-primary ring-4 ring-primary-fixed"></div>
+<div class="bg-primary-fixed text-primary p-4 rounded-xl border border-primary-fixed shadow-sm">
+<div class="flex justify-between items-start mb-2">
+<span class="font-bold text-headline-md">V3</span>
+<span class="bg-primary text-on-primary text-[10px] px-1.5 py-0.5 rounded uppercase font-bold">当前</span>
+</div>
+<p class="text-xs font-semibold mb-1">更新产品技术</p>
+<p class="text-[10px] opacity-70">2024-05-10 10:33</p>
+</div>
+</div>
+<!-- History -->
+<div class="relative pl-6">
+<div class="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-outline-variant"></div>
+<div class="p-4 rounded-xl border border-outline-variant hover:bg-surface-container-low cursor-pointer transition-all">
+<span class="font-bold text-body-md block mb-1">V2</span>
+<p class="text-xs text-on-surface-variant mb-1">补充企业资料</p>
+<p class="text-[10px] text-outline">2024-05-09 16:20</p>
+</div>
+</div>
+<div class="relative pl-6 pb-2">
+<div class="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-outline-variant"></div>
+<div class="p-4 rounded-xl border border-outline-variant hover:bg-surface-container-low cursor-pointer transition-all">
+<span class="font-bold text-body-md block mb-1">V1</span>
+<p class="text-xs text-on-surface-variant mb-1">初版</p>
+<p class="text-[10px] text-outline">2024-05-09 10:00</p>
+</div>
+</div>
+<button class="w-full text-primary text-xs font-bold py-2 hover:underline">查看全部版本 &gt;</button>
+<hr class="border-outline-variant"/>
+<!-- Version Details -->
+<div>
+<h3 class="font-label-md text-label-md font-bold mb-4 uppercase tracking-wider text-outline">版本详情 (V3)</h3>
+<div class="space-y-4">
+<div>
+<p class="text-[10px] text-outline uppercase font-bold mb-1">版本名称</p>
+<p class="text-body-md">更新产品技术</p>
+</div>
+<div>
+<p class="text-[10px] text-outline uppercase font-bold mb-1">更新说明</p>
+<p class="text-xs leading-relaxed">
+                                补充产品体系、技术能力与典型案例内容。优化应用场景与解决方案逻辑结构。
+                            </p>
+</div>
+<div class="flex gap-2">
+<div class="flex-1">
+<p class="text-[10px] text-outline uppercase font-bold mb-1">更新人</p>
+<p class="text-body-md">张三</p>
+</div>
+<div class="flex-1">
+<p class="text-[10px] text-outline uppercase font-bold mb-1">数据来源</p>
+<p class="text-body-md">企业资料 + 网络搜索</p>
+</div>
+</div>
+<div>
+<p class="text-[10px] text-outline uppercase font-bold mb-1">关联附件</p>
+<div class="flex flex-wrap gap-2 mt-2">
+<span class="px-2 py-1 bg-surface-container rounded-md text-[10px] flex items-center gap-1 border border-outline-variant">
+<span class="material-symbols-outlined text-xs">picture_as_pdf</span> 产品手册.pdf
+                                </span>
+<span class="px-2 py-1 bg-surface-container rounded-md text-[10px] flex items-center gap-1 border border-outline-variant">
+<span class="material-symbols-outlined text-xs">description</span> 典型案例.pptx
+                                </span>
+</div>
+</div>
+</div>
+<div class="mt-8 space-y-3">
+<button class="w-full py-2 border border-primary text-primary rounded-lg font-bold text-xs hover:bg-primary hover:text-on-primary transition-all">恢复此版本</button>
+<div class="flex gap-2">
+<button class="flex-1 py-2 bg-surface-container border border-outline-variant rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-sm">download</span> 导出
+                            </button>
+<button class="flex-1 py-2 bg-surface-container border border-outline-variant rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-sm">share</span> 分享
+                            </button>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</main>
+<!-- Floating Tooltips/Status -->
+<div class="fixed bottom-6 right-84 z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+<div class="bg-inverse-surface text-inverse-on-surface text-xs py-2 px-4 rounded-lg shadow-xl">
+            拖动节点以调整布局，右键点击可深入编辑内容。
+        </div>
+</div>
+</body></html>

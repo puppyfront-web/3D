@@ -168,6 +168,32 @@ export interface CompanyAnalysis {
   sixViews?: SixViews;
   technologyArch?: TechnologyArchitecture;
   projectBackground?: ProjectBackground;
+  // Actual fetched web_search content — primary, per AGENTS.md §3
+  externalSearch?: ExternalSearchSummary;
+  usedExternalSources?: ExternalSource[];
+  missingInfo?: string[];
+}
+
+// ── External Search (web_search actual fetched content) ──
+
+export interface ExternalSearchSummary {
+  status: "ok" | "degraded" | "failed";
+  provider?: string;
+  degradedReason?: string;
+  keyPoints?: string[];
+  conflicts?: string[];
+  missingInfo?: string[];
+  recommendedUsage?: string;
+}
+
+export interface ExternalSource {
+  title: string;
+  url: string;
+  domain: string;
+  snippet: string;
+  publishedAt?: string;
+  sourceType: string;
+  confidence: number;
 }
 
 export interface CompetitiveItem {
@@ -280,6 +306,12 @@ export interface CaseItem {
   createdAt: string;
   status: "published" | "draft" | "archived";
   referenceImages?: ReferenceImage[];
+  // Newer backend fields (optional — CaseUpdate schema, camelCase via APIBaseModel)
+  projectType?: string;
+  styleTag?: string;
+  tags?: string[];
+  isDesensitized?: boolean;
+  originalClientName?: string;
 }
 
 // --- Admin: SOP Workflow ---
@@ -294,6 +326,10 @@ export interface SOPWorkflow {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  // Newer backend fields (optional — SOPWorkflowUpdate schema)
+  version?: number;
+  boundAgent?: string;
+  versionNote?: string;
 }
 
 export interface SOPStep {
@@ -355,12 +391,25 @@ export interface PromptVariable {
 export interface VisualStyle {
   id: string;
   name: string;
-  description: string;
-  previewUrl: string;
-  parameters: Record<string, string>;
-  category: string;
+  description?: string;
+  previewUrl?: string;
+  // Flat colour fields — align with the backend VisualStyleOut schema
+  // (primaryColor / secondaryColor / accentColor / background / fonts).
+  primaryColor: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  backgroundColor?: string;
+  fontPrimary?: string;
+  fontSecondary?: string;
+  layout?: string;
+  brandGuidelines?: string;
+  parameters?: Record<string, string>; // legacy fallback for older clients
+  category?: string;
   isActive: boolean;
+  /** UI 视觉资料子库: "" | ui_spec | large_screen | 3d_ref | motion_ref */
+  subType?: string;
   createdAt: string;
+  updatedAt?: string;
   materialSpec?: MaterialSpec;
   lightingSpec?: LightingSpec;
 }
@@ -489,6 +538,48 @@ export interface PaginatedResponse<T> extends ApiResponse<T[]> {
   pageSize: number;
 }
 
+// --- Admin: New knowledge bases (PRD §12) ---
+
+/** 行业资料库 (Industry materials). */
+export interface IndustryMaterial {
+  id: string;
+  title: string;
+  industry?: string;
+  category?: string;
+  content?: string;
+  sourceUrl?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/** 话术库 (Talking points / sales scripts). */
+export interface TalkingPoint {
+  id: string;
+  scenario: string;
+  title: string;
+  content?: string;
+  industry?: string;
+  tags?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/** 报价经验库 (Pricing experience — reference ranges, human-confirm only). */
+export interface PricingExperience {
+  id: string;
+  title: string;
+  industry?: string;
+  projectType?: string;
+  budgetRange?: string;
+  duration?: string;
+  notes?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 // --- Navigation ---
 
 export interface NavItem {
@@ -555,12 +646,14 @@ export interface Conversation {
 }
 
 export interface ConversationDetail extends Conversation {
+  threadId?: string;
   messages: ChatMessage[];
 }
 
 export interface ChatMessage {
   id: string;
   conversationId: string;
+  threadId?: string;
   role: "user" | "assistant" | "system";
   content: string;
   contentType: "text" | "rich";

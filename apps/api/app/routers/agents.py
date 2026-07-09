@@ -2,7 +2,6 @@
 proposal generation, and visual prompt generation."""
 
 import uuid
-from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
@@ -12,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.models.project import Company, Project
-from app.models.generation import GenerationOutput, GenerationTask
+from app.models.generation import GenerationTask
 from app.schemas.common import Response
 from app.schemas.generation import (
     ChecklistGroup,
@@ -211,84 +210,6 @@ async def direct_image_generation(
             "height": height,
         },
         message="Image generated",
-    )
-
-
-@router.post("/pipeline/{project_id}", response_model=Response)
-async def run_full_pipeline(
-    project_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    """Run the full project pipeline: analysis -> proposal -> visual.
-
-    Each step stores results and updates project status.
-    Steps can be resumed if a previous step already completed.
-    """
-    project = await db.get(Project, project_id)
-    if not project:
-        raise NotFoundException("Project", str(project_id))
-
-    context = await _make_context(db, project_id=str(project_id))
-    runner = SkillRunner(registry=_registry)
-    results = {}
-
-    # Step 1: Company Analysis (if not already done)
-    if project.status in ("draft", "pending"):
-        company_id = str(project.company_id)
-        analysis = await runner.run(
-            skill_id="company_analysis",
-            input_data={"company_id": company_id},
-            context=context,
-        )
-        results["company_analysis"] = analysis
-        if not analysis.get("success"):
-            return Response(data=results, message="Pipeline stopped at company analysis")
-        project.status = "company_analysis"
-        await db.flush()
-
-    # Step 2: Proposal Generation (if analysis is done)
-    if project.status in ("company_analysis", "in_progress"):
-        proposal = await runner.run(
-            skill_id="proposal_generation",
-            input_data={"project_id": str(project_id)},
-            context=context,
-        )
-        results["proposal_generation"] = proposal
-        if not proposal.get("success"):
-            return Response(data=results, message="Pipeline stopped at proposal generation")
-        project.status = "proposal_draft"
-        await db.flush()
-
-    # Step 3: Visual Generation (if proposal is done)
-    if project.status in ("proposal_draft",):
-        visual = await runner.run(
-            skill_id="visual_prompt",
-            input_data={
-                "project_id": str(project_id),
-                "style_preferences": "科技感、专业、高冲击力",
-            },
-            context=context,
-        )
-        results["visual_prompt"] = visual
-
-        if visual.get("success") and visual.get("output", {}).get("positive_prompt"):
-            image = await runner.run(
-                skill_id="image_generation",
-                input_data={
-                    "prompt": visual["output"]["positive_prompt"],
-                    "negative_prompt": visual["output"].get("negative_prompt", ""),
-                    "project_id": str(project_id),
-                },
-                context=context,
-            )
-            results["image_generation"] = image
-
-        project.status = "visual_design"
-        await db.flush()
-
-    return Response(
-        data=results,
-        message=f"Pipeline completed. Project status: {project.status}",
     )
 
 

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>花生ONE | 企业3D数字化整体解决方案售前助手</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-bright": "#f8f9fb",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#191c1e",
+                        "tertiary-fixed": "#ffdbc8",
+                        "surface": "#f8f9fb",
+                        "secondary-fixed": "#87f8be",
+                        "inverse-on-surface": "#f0f1f3",
+                        "primary-fixed-dim": "#b4c5ff",
+                        "on-primary-fixed-variant": "#003ea8",
+                        "on-error-container": "#93000a",
+                        "primary-fixed": "#dbe1ff",
+                        "outline": "#737686",
+                        "surface-dim": "#d9dadc",
+                        "on-surface-variant": "#434654",
+                        "surface-variant": "#e1e2e4",
+                        "on-tertiary-container": "#ffcdb0",
+                        "on-secondary-fixed": "#002112",
+                        "error-container": "#ffdad6",
+                        "tertiary": "#733500",
+                        "inverse-primary": "#b4c5ff",
+                        "on-tertiary-fixed": "#311300",
+                        "error": "#ba1a1a",
+                        "surface-container-low": "#f3f4f6",
+                        "on-tertiary-fixed-variant": "#743500",
+                        "inverse-surface": "#2e3132",
+                        "surface-tint": "#0353da",
+                        "on-error": "#ffffff",
+                        "on-primary-container": "#cbd6ff",
+                        "on-surface": "#191c1e",
+                        "on-primary-fixed": "#00174b",
+                        "surface-container-high": "#e7e8ea",
+                        "secondary-fixed-dim": "#6adca4",
+                        "on-secondary-container": "#00714a",
+                        "primary-container": "#0052d9",
+                        "outline-variant": "#c3c6d7",
+                        "surface-container": "#edeef0",
+                        "tertiary-container": "#974700",
+                        "secondary": "#006c46",
+                        "background": "#f8f9fb",
+                        "on-primary": "#ffffff",
+                        "secondary-container": "#84f6bc",
+                        "on-secondary-fixed-variant": "#005234",
+                        "surface-container-highest": "#e1e2e4",
+                        "surface-container-lowest": "#ffffff",
+                        "primary": "#003da6",
+                        "on-tertiary": "#ffffff",
+                        "tertiary-fixed-dim": "#ffb689"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.8px",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-md": "1rem",
+                        "stack-lg": "2rem",
+                        "margin-mobile": "1rem",
+                        "margin-desktop": "2rem",
+                        "gutter": "1.5rem",
+                        "stack-sm": "0.5rem",
+                        "container-max": "1440px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-xl": ["Inter"],
+                        "label-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", {"lineHeight": "1.3", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "headline-lg-mobile": ["20px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                        "headline-md": ["18px", {"lineHeight": "1.4", "fontWeight": "600"}],
+                        "headline-xl": ["32px", {"lineHeight": "1.25", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-md": ["12px", {"lineHeight": "1.4", "fontWeight": "500"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .canvas-bg {
+            background-image: radial-gradient(#dcdfe6 0.5px, transparent 0.5px);
+            background-size: 20px 20px;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- TopNavBar -->
+<header class="bg-surface-container-lowest sticky top-0 z-50 border-b border-outline-variant shadow-sm w-full h-16">
+<div class="flex justify-between items-center h-full px-margin-desktop max-w-container-max mx-auto">
+<div class="flex items-center gap-8">
+<div class="font-headline-lg text-headline-lg font-bold text-primary flex items-center gap-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">cloud_sync</span>
+<span>花生ONE</span>
+</div>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-primary font-bold border-b-2 border-primary pb-1 font-label-md text-label-md" href="#">首页</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md" href="#">方案中心</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md" href="#">知识库</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md" href="#">案例库</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md" href="#">模板中心</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md" href="#">帮助中心</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex gap-2 mr-4">
+<button class="p-2 hover:bg-surface-container-low rounded-full transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+</button>
+<button class="p-2 hover:bg-surface-container-low rounded-full transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">help</span>
+</button>
+<button class="p-2 hover:bg-surface-container-low rounded-full transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">settings</span>
+</button>
+</div>
+<button class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 active:scale-95 transition-all">生成新版本</button>
+<div class="flex items-center gap-2 ml-2 pl-4 border-l border-outline-variant">
+<span class="font-label-md text-label-md">张三</span>
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="Professional studio portrait of a corporate executive male user avatar, clean aesthetic, high-key white background, modern business attire, minimal and professional vibe." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA5q6a113OeRPLiCBbvb_QIcil_o9LRr3pLkhHHxCnMIVTlP2-fSnrV2zmdW06eDgq8_2j8L_YsrRaGJbPR4AMVhXKHxSPdO4xBAPNWRiE-xZV57aVBhqiCT7Msx5ldNJTtA4I8upQYW2_-gOK5DqV1zyTGs0b6kOpe6XIx3JxTs741T-1W6WEhIiBluHnz39z1N8OmdI5VELffpVZDyVHfn6VQs5AKDCOmwXC02c7C2QxU2WIvBJx2"/>
+</div>
+</div>
+</div>
+</div>
+</header>
+<main class="w-full">
+<!-- Hero & Input Section -->
+<section class="relative pt-16 pb-24 overflow-hidden bg-surface-bright">
+
+<div class="relative z-10 max-w-container-max mx-auto px-margin-desktop text-center">
+<h1 class="font-headline-xl text-headline-xl text-on-background mb-4">企业3D数字化整体解决方案售前助手</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl mx-auto mb-12">基于 AI + SOP + 企业资料 + 网络搜索，智能生成结构化售前策划方案，助力销售团队快速获取客户信任。</p>
+<div class="max-w-4xl mx-auto bg-surface-container-lowest rounded-xl shadow-xl border border-outline-variant p-6">
+<div class="relative group">
+<textarea class="w-full h-40 bg-surface-container-low border border-outline-variant rounded-lg p-6 font-body-md text-body-md focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none resize-none" placeholder="请输入企业名称、官网链接、需求描述，或上传企业资料..."></textarea>
+<div class="absolute bottom-4 right-4 text-outline font-label-md text-label-md">0 / 1000</div>
+</div>
+<div class="flex flex-col md:flex-row items-center justify-center gap-4 mt-6">
+<button class="w-full md:w-auto bg-primary text-on-primary px-10 py-4 rounded-lg font-headline-md text-headline-md shadow-lg shadow-primary-container/20 hover:bg-primary/90 active:scale-95 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">auto_awesome</span>
+                            开始生成方案
+                        </button>
+<button class="w-full md:w-auto border-2 border-primary text-primary px-10 py-4 rounded-lg font-headline-md text-headline-md hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">upload_file</span>
+                            上传资料
+                        </button>
+</div>
+<p class="mt-4 font-label-md text-label-md text-outline flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-[16px]">info</span>
+                        支持资料优先、搜索补充、最小追问模式
+                    </p>
+</div>
+</div>
+</section>
+<!-- Value Proposition & Grid Section -->
+<section class="py-20 bg-surface border-y border-outline-variant">
+<div class="max-w-container-max mx-auto px-margin-desktop">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-start">
+<!-- Left Intro -->
+<div class="lg:col-span-4 space-y-stack-md pr-8">
+<div class="inline-flex items-center gap-2 text-primary font-bold px-3 py-1 bg-primary-fixed rounded-full">
+<span class="material-symbols-outlined text-[20px]">handyman</span>
+<span class="font-label-md text-label-md">产品简介</span>
+</div>
+<h2 class="font-headline-lg text-headline-lg text-on-background">花生ONE 售前助手，帮助售前团队快速获取企业信息、梳理需求，生成结构化方案。</h2>
+<p class="text-on-surface-variant font-body-md text-body-md">让每一次客户沟通更高效、更专业、更有说服力。通过AI自动识别客户痛点并匹配最佳3D数字化解决方案。</p>
+</div>
+<!-- Right Bento Grid -->
+<div class="lg:col-span-8">
+<h3 class="font-headline-md text-headline-md text-on-background mb-8 flex items-center gap-2">
+                            为您带来的价值
+                            <div class="flex-grow border-t border-outline-variant ml-4"></div>
+</h3>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant hover:border-primary transition-all group shadow-sm">
+<div class="w-12 h-12 bg-primary-fixed rounded-lg flex items-center justify-center mb-4 text-primary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">manage_search</span>
+</div>
+<h4 class="font-headline-md text-headline-md mb-2">高效调研</h4>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">多源信息全方位自动整理，大幅节省调研时间，提升效率超过70%。</p>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant hover:border-primary transition-all group shadow-sm">
+<div class="w-12 h-12 bg-secondary-container rounded-lg flex items-center justify-center mb-4 text-secondary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">schema</span>
+</div>
+<h4 class="font-headline-md text-headline-md mb-2">结构化输出</h4>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">基于成熟的标准SOP框架，确保方案逻辑严密，专业度对齐行业标杆。</p>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant hover:border-primary transition-all group shadow-sm">
+<div class="w-12 h-12 bg-tertiary-fixed rounded-lg flex items-center justify-center mb-4 text-tertiary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">published_with_changes</span>
+</div>
+<h4 class="font-headline-md text-headline-md mb-2">持续迭代</h4>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">每次更新自动生成新版本。支持版本追溯，记录全流程修改历史。</p>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant hover:border-primary transition-all group shadow-sm">
+<div class="w-12 h-12 bg-primary-fixed rounded-lg flex items-center justify-center mb-4 text-primary group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">groups</span>
+</div>
+<h4 class="font-headline-md text-headline-md mb-2">团队协同</h4>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">知识沉淀与复用。提升交付一致性，新成员可快速接手历史项目。</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Case Studies Section -->
+<section class="py-24 bg-surface-bright">
+<div class="max-w-container-max mx-auto px-margin-desktop">
+<div class="flex justify-between items-end mb-12">
+<div>
+<h2 class="font-headline-xl text-headline-xl text-on-background">精选案例</h2>
+<p class="text-on-surface-variant font-body-md text-body-md mt-2">查看花生ONE助力企业数字化转型的成功实践</p>
+</div>
+<a class="text-primary font-bold flex items-center gap-1 hover:underline" href="#">
+                        查看全部
+                        <span class="material-symbols-outlined">arrow_forward</span>
+</a>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<!-- Case 1 -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden group hover:shadow-xl transition-all">
+<div class="relative h-48 overflow-hidden">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="High-tech modern smart manufacturing facility with automated robotic arms, industrial 4.0 aesthetic, clean architectural design, blue and metallic tones, cinematic wide shot, sharp focus, professional lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD6UXby5hiWD7ykG2K1pvY2yxpB_e5hN6t445OX70Qp_irs62tnELQwoRf_1tav8bGQ0u68_sG2q0-GxcjBa951lHda27LZjpv4io6QsQ1U9WHHuXEq7COxzBSvnHYkE_mHpX4VlzQxTpzSMzw19Yza5NjUp1ZVmNTeXIvm6gKbVyJujtD1dteHo90PgMK84yw09WEcSt5iGmvwRdZngOnSCeqfAUEkqJ_cffAUgbTXqn-i5ZX0vnDJ"/>
+<div class="absolute top-4 left-4 bg-primary text-on-primary px-3 py-1 rounded-full text-label-md font-label-md">制造业</div>
+</div>
+<div class="p-6">
+<h3 class="font-headline-md text-headline-md mb-2">智能制造集团数字化转型项目</h3>
+<p class="text-on-surface-variant font-body-md text-body-md line-clamp-2 mb-4">构建 3D 数字化工厂，打通设计-生产-运维全链路，实现生产效率提升35%。</p>
+<div class="pt-4 border-t border-outline-variant flex justify-between items-center text-outline font-label-md text-label-md">
+<span>生成时间: 2024-05-10</span>
+<span class="material-symbols-outlined text-[18px]">more_horiz</span>
+</div>
+</div>
+</div>
+<!-- Case 2 -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden group hover:shadow-xl transition-all">
+<div class="relative h-48 overflow-hidden">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="Futuristic smart city park aerial view, 3D digital twin visualization style, night scene with neon energy flow lines, high-tech architectural structures, high-density detail, professional corporate 3D render." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBvytRDKLTJ5vyFnliDgO3pAPPIf79zrF5X21O5dxghHYvcdhgmW3xG8IQV8dfDw6MiDWuxMEE1oiwVN_41pfWBuTeq4r5Ll_oj-Q-AdGg2APKRtvPMfMpKJVLJmd98BBI01f3CH1f9lZGXz-0m-BoKMVYbFQ8yrqzMg6uFAcqZibhz8sSirQoZQqo-7P4dgH5H7ba3D23V6PLC6CXkwH1aPyrJDCF-wSmETbJE7-VggaIU124d3p7V"/>
+<div class="absolute top-4 left-4 bg-secondary text-on-secondary px-3 py-1 rounded-full text-label-md font-label-md">园区运营</div>
+</div>
+<div class="p-6">
+<h3 class="font-headline-md text-headline-md mb-2">智慧园区整体解决方案</h3>
+<p class="text-on-surface-variant font-body-md text-body-md line-clamp-2 mb-4">以 3D 可视化为核心，提升园区运营与管理效率。实时监控能耗与安全。</p>
+<div class="pt-4 border-t border-outline-variant flex justify-between items-center text-outline font-label-md text-label-md">
+<span>生成时间: 2024-04-28</span>
+<span class="material-symbols-outlined text-[18px]">more_horiz</span>
+</div>
+</div>
+</div>
+<!-- Case 3 -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden group hover:shadow-xl transition-all">
+<div class="relative h-48 overflow-hidden">
+<img class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" data-alt="Energy infrastructure power plant control room dashboard visualization, 3D industrial management interface, digital twin interface, glowing data points, dark sleek corporate aesthetic with bright blue highlights." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfEVdh8glu-TzobmvgKu_U3aL1prewsotq2kPeSaeIPHIq87w8BbDak9kFEIz35iyieEXYi43zgVhpNJ5m-UBob6B7BuZca1PnuSO9pfqq8_FgcGeg5SbqyehuKFSJXhKn0GivxKbXLmd8vIbS97YRJuK-QkPsth8t4REDCuDeDW1uN_fO8bPoPom_MhXiyyFzss6RGCTFFBarZFEIPfnQ6nXc98_1m5rfVfBcHYCtjlk0TM_siIiB"/>
+<div class="absolute top-4 left-4 bg-tertiary-container text-on-tertiary-container px-3 py-1 rounded-full text-label-md font-label-md">能源电力</div>
+</div>
+<div class="p-6">
+<h3 class="font-headline-md text-headline-md mb-2">能源企业可视化运维平台</h3>
+<p class="text-on-surface-variant font-body-md text-body-md line-clamp-2 mb-4">构建三维可视化运维平台，降低运维成本。精准定位设备故障，缩短修复时间。</p>
+<div class="pt-4 border-t border-outline-variant flex justify-between items-center text-outline font-label-md text-label-md">
+<span>生成时间: 2024-04-15</span>
+<span class="material-symbols-outlined text-[18px]">more_horiz</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Stats/Features Footer Strip -->
+<section class="py-12 bg-surface-container border-t border-outline-variant">
+<div class="max-w-container-max mx-auto px-margin-desktop grid grid-cols-1 md:grid-cols-2 gap-8 text-on-surface-variant">
+<div class="flex items-start gap-4">
+<div class="w-2 h-2 rounded-full bg-primary mt-2"></div>
+<p class="font-body-md text-body-md leading-relaxed">输入企业信息或上传资料，系统基于 AI + SOP + 企业资料 + 网络搜索进行调研与分析，自动生成结构化售前方案。</p>
+</div>
+<div class="flex items-start gap-4">
+<div class="w-2 h-2 rounded-full bg-primary mt-2"></div>
+<p class="font-body-md text-body-md leading-relaxed">支持资料优先、搜索补充、最小追问，减少反复沟通，提升售前效率。让专业方案随手可得。</p>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="bg-surface-container-lowest border-t border-outline-variant py-stack-lg">
+<div class="max-w-container-max mx-auto px-margin-desktop">
+<div class="flex flex-col md:flex-row justify-between items-center gap-8">
+<div class="flex flex-col items-center md:items-start gap-2">
+<div class="font-headline-md text-headline-md font-bold text-primary flex items-center gap-2">
+<span class="material-symbols-outlined">cloud_sync</span>
+<span>花生ONE</span>
+</div>
+<p class="text-on-surface-variant font-label-md text-label-md">© 2024 花生ONE 企业3D数字化整体解决方案. All rights reserved.</p>
+</div>
+<nav class="flex gap-8">
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md hover:underline" href="#">关于我们</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md hover:underline" href="#">服务条款</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md hover:underline" href="#">隐私政策</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-label-md text-label-md hover:underline" href="#">联系支持</a>
+</nav>
+</div>
+</div>
+</footer>
+<script>
+        // Micro-interactions for buttons
+        document.querySelectorAll('button').forEach(button => {
+            button.addEventListener('mousedown', () => {
+                button.style.transform = 'scale(0.97)';
+            });
+            button.addEventListener('mouseup', () => {
+                button.style.transform = 'scale(1)';
+            });
+            button.addEventListener('mouseleave', () => {
+                button.style.transform = 'scale(1)';
+            });
+        });
+
+        // Simple text counter for textarea
+        const textarea = document.querySelector('textarea');
+        const counter = document.querySelector('.absolute.bottom-4.right-4');
+        if(textarea && counter) {
+            textarea.addEventListener('input', (e) => {
+                const len = e.target.value.length;
+                counter.textContent = `${len} / 1000`;
+                if(len > 1000) {
+                    counter.classList.add('text-error');
+                } else {
+                    counter.classList.remove('text-error');
+                }
+            });
+        }
+    </script>
+</body></html>

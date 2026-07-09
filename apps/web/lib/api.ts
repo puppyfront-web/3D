@@ -22,8 +22,12 @@ import {
   DocumentBatchIndexResponse,
   ImportResult,
   ImportMode,
+  IndustryMaterial,
+  TalkingPoint,
+  PricingExperience,
 } from "@/types";
 import { toast } from "sonner";
+import { getToken } from "@/lib/auth";
 
 // ============================================================
 // API Configuration
@@ -31,13 +35,41 @@ import { toast } from "sonner";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// ============================================================
+// Auth API
+// ============================================================
+
+export async function login(email: string, password: string): Promise<{ token: string; user: { name?: string; email?: string; id?: string } }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "登录失败" }));
+    throw new Error(err.detail || "登录失败");
+  }
+  const json = await res.json();
+  return {
+    token: json.data?.accessToken ?? json.data?.access_token,
+    user: json.data?.user,
+  };
+}
+
 // Generic fetch wrapper for real API calls
 // Backend wraps responses in { success: bool, data: T, message: string }
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
+  // Inject the JWT (if present) as a Bearer token on every call.
+  const token = getToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   try {
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json", ...options?.headers },
+      headers,
       ...options,
     });
     if (!res.ok) {
@@ -241,8 +273,12 @@ export async function exportProposal(
   taskId: string,
   format: "word" | "pdf" | "pptx"
 ): Promise<Blob> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE_URL}/api/v1/exports/${format}/${taskId}`, {
     method: "POST",
+    headers,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Export failed" }));
@@ -257,7 +293,10 @@ export async function exportProposal(
  * fields stripped) that feeds straight back into the matching /import.
  */
 export async function exportConfig(endpoint: string): Promise<Blob> {
-  const res = await fetch(`${API_BASE_URL}${endpoint}`);
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE_URL}${endpoint}`, { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "导出失败" }));
     throw new Error(err.detail?.message || err.detail || "导出失败");
@@ -470,6 +509,18 @@ export async function getAssets(page = 1, pageSize = 50): Promise<ApiResponse<As
   return { data: [], success: false, message: result.message };
 }
 
+/**
+ * Fetch only the total document count (for dashboard stat cards). Avoids the
+ * previous bug where getAssets(1,1) returned at most 1 item and `.length`
+ * always read 0/1 regardless of the true total.
+ */
+export async function getAssetCount(): Promise<number> {
+  const result = await apiFetch<{ items: unknown[]; total: number }>(
+    `/api/v1/documents?page=1&page_size=1`
+  );
+  return result.success && result.data ? result.data.total : 0;
+}
+
 export async function uploadAsset(
   file: File,
   projectId?: string,
@@ -480,9 +531,12 @@ export async function uploadAsset(
   const params = new URLSearchParams();
   if (projectId) params.set("project_id", projectId);
   params.set("auto_index", String(autoIndex));
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(
     `${API_BASE_URL}/api/v1/documents/upload?${params.toString()}`,
-    { method: "POST", body: formData },
+    { method: "POST", headers, body: formData },
   );
   const json = await res.json();
   if (res.ok && json.data) {
@@ -498,6 +552,17 @@ export async function deleteAsset(id: string): Promise<ApiResponse<null>> {
 export async function indexDocument(documentId: string): Promise<ApiResponse<DocumentIndexResponse>> {
   return apiFetch<DocumentIndexResponse>(`/api/v1/documents/${documentId}/index`, {
     method: "POST",
+  });
+}
+
+/** Update a document's attachment category (PRD §11.2) / parse status. */
+export async function updateAssetCategory(
+  id: string,
+  category: string,
+): Promise<ApiResponse<unknown>> {
+  return apiFetch<unknown>(`/api/v1/documents/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ category }),
   });
 }
 
@@ -713,6 +778,38 @@ export async function getEvaluations(): Promise<ApiResponse<Evaluation[]>> {
 }
 
 // ============================================================
+// Retrieval logs API (PRD §9.4 traceability)
+// ============================================================
+
+export interface RetrievalLogItem {
+  id: string;
+  query: string;
+  retrieval_type: string;
+  results_count: number;
+  top_scores?: number[];
+  latency_ms?: number;
+  triggered_by?: string;
+  structured_query_json?: Record<string, unknown>;
+  retrieved_items_json?: Array<Record<string, unknown>>;
+  selected_context_json?: Record<string, unknown>;
+  final_output_id?: string;
+  created_at: string;
+}
+
+export async function getRetrievalLogs(params?: {
+  triggered_by?: string;
+  retrieval_type?: string;
+  limit?: number;
+}): Promise<ApiResponse<RetrievalLogItem[]>> {
+  const qs = new URLSearchParams();
+  if (params?.triggered_by) qs.set("triggered_by", params.triggered_by);
+  if (params?.retrieval_type) qs.set("retrieval_type", params.retrieval_type);
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const tail = qs.toString();
+  return apiFetch<RetrievalLogItem[]>(`/api/v1/rag/logs${tail ? `?${tail}` : ""}`);
+}
+
+// ============================================================
 // Feedback API
 // ============================================================
 
@@ -759,16 +856,6 @@ export async function executeSkill(
 }
 
 // ============================================================
-// Pipeline API
-// ============================================================
-
-export async function runPipeline(projectId: string): Promise<ApiResponse<Record<string, unknown>>> {
-  return apiFetch<Record<string, unknown>>(`/api/v1/agents/pipeline/${projectId}`, {
-    method: "POST",
-  });
-}
-
-// ============================================================
 // Generic Import Helper
 // ============================================================
 
@@ -782,7 +869,10 @@ async function importFromFile(
   const params = new URLSearchParams(extraParams);
   const url = `${API_BASE_URL}${endpoint}${params.toString() ? "?" + params.toString() : ""}`;
   try {
-    const res = await fetch(url, { method: "POST", body: formData });
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(url, { method: "POST", headers, body: formData });
     const json = await res.json();
     if (res.ok) {
       const data = json.data || json;
@@ -869,6 +959,105 @@ export const exportTechnicalRule = (id: string) =>
   exportConfig(`/api/v1/rules/technical/${id}/export`);
 export const exportQualityRules = () => exportConfig("/api/v1/rules/quality/export");
 export const exportQualityRule = (id: string) => exportConfig(`/api/v1/rules/quality/${id}/export`);
+
+// ============================================================
+// Admin: Industry materials (行业资料库 — PRD §12.5)
+// ============================================================
+
+export async function getIndustryMaterials(): Promise<ApiResponse<IndustryMaterial[]>> {
+  return unwrapPaginated<IndustryMaterial>("/api/v1/industry-materials");
+}
+
+export async function createIndustryMaterial(data: Partial<IndustryMaterial>): Promise<ApiResponse<IndustryMaterial>> {
+  return apiFetch<IndustryMaterial>("/api/v1/industry-materials", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateIndustryMaterial(id: string, data: Partial<IndustryMaterial>): Promise<ApiResponse<IndustryMaterial>> {
+  return apiFetch<IndustryMaterial>(`/api/v1/industry-materials/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteIndustryMaterial(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/industry-materials/${id}`, { method: "DELETE" });
+}
+
+export async function importIndustryMaterials(file: File, mode: ImportMode = "skip"): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/industry-materials/import", file, { mode });
+}
+
+export const exportIndustryMaterials = () => exportConfig("/api/v1/industry-materials/export");
+export const exportIndustryMaterial = (id: string) => exportConfig(`/api/v1/industry-materials/${id}/export`);
+
+// ============================================================
+// Admin: Talking points (话术库 — PRD §12.6)
+// ============================================================
+
+export async function getTalkingPoints(): Promise<ApiResponse<TalkingPoint[]>> {
+  return unwrapPaginated<TalkingPoint>("/api/v1/talking-points");
+}
+
+export async function createTalkingPoint(data: Partial<TalkingPoint>): Promise<ApiResponse<TalkingPoint>> {
+  return apiFetch<TalkingPoint>("/api/v1/talking-points", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTalkingPoint(id: string, data: Partial<TalkingPoint>): Promise<ApiResponse<TalkingPoint>> {
+  return apiFetch<TalkingPoint>(`/api/v1/talking-points/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTalkingPoint(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/talking-points/${id}`, { method: "DELETE" });
+}
+
+export async function importTalkingPoints(file: File, mode: ImportMode = "skip"): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/talking-points/import", file, { mode });
+}
+
+export const exportTalkingPoints = () => exportConfig("/api/v1/talking-points/export");
+export const exportTalkingPoint = (id: string) => exportConfig(`/api/v1/talking-points/${id}/export`);
+
+// ============================================================
+// Admin: Pricing experiences (报价经验库 — PRD §12.7)
+// ============================================================
+
+export async function getPricingExperiences(): Promise<ApiResponse<PricingExperience[]>> {
+  return unwrapPaginated<PricingExperience>("/api/v1/pricing-experiences");
+}
+
+export async function createPricingExperience(data: Partial<PricingExperience>): Promise<ApiResponse<PricingExperience>> {
+  return apiFetch<PricingExperience>("/api/v1/pricing-experiences", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updatePricingExperience(id: string, data: Partial<PricingExperience>): Promise<ApiResponse<PricingExperience>> {
+  return apiFetch<PricingExperience>(`/api/v1/pricing-experiences/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deletePricingExperience(id: string): Promise<ApiResponse<null>> {
+  return apiFetch<null>(`/api/v1/pricing-experiences/${id}`, { method: "DELETE" });
+}
+
+export async function importPricingExperiences(file: File, mode: ImportMode = "skip"): Promise<ApiResponse<ImportResult>> {
+  return importFromFile("/api/v1/pricing-experiences/import", file, { mode });
+}
+
+export const exportPricingExperiences = () => exportConfig("/api/v1/pricing-experiences/export");
+export const exportPricingExperience = (id: string) => exportConfig(`/api/v1/pricing-experiences/${id}/export`);
 
 // ============================================================
 // Settings
