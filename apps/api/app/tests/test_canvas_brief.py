@@ -25,7 +25,6 @@ from app.models.project import Company, Project
 from app.models.skill import Skill, SkillExecution  # noqa: F401 — keep import parity
 from app.models.user import Role, User
 from app.services import canvas_research_service as crs
-from app.services import canvas_research_service
 from app.services.canvas_service import canvas_service
 from app.services.conversation_service import ConversationService
 
