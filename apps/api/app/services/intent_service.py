@@ -188,7 +188,7 @@ class IntentDetector:
 - "run_skill": 用户明确要求执行某个专业能力
 - "sop_pipeline": 用户要求完整的端到端方案流程（包含企业解析+策划案+视觉生成等步骤）
 - "visual_concept": 用户要求生成概念图、效果图
-- "conversational": 闲聊、追问、解释、修改建议
+- "conversational": 问答、咨询、解释、闲聊、追问、各类自由提问
 - "clarify": 信息不足，需要追问
 - "action": 确认、编辑、审批、提交表单
 
