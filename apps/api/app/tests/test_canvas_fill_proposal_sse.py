@@ -190,3 +190,103 @@ async def test_auto_fill_emits_canvas_fill_proposal(
     block = next(e for e in events if e.get("type") == "canvas_fill_proposal")
     assert block["data"]["mode"] == "auto"
     assert block["data"]["boards"][0]["nodes"][0]["points"]
+
+
+# ─── Task 6: ask 模式引擎接入 _handle_conversational ───────────────────────────
+
+
+async def test_conversational_emits_ask_proposal_on_new_info(
+    canvas_project_with_version, db_session, monkeypatch
+):
+    """后续问答搜到模块相关新增要点 → 直答后 emit canvas_fill_proposal(mode=ask)。"""
+    project_id, version_id = canvas_project_with_version
+    ask_proposal = {
+        "mode": "ask",
+        "boards": [{
+            "board_key": "company_intro", "board_title": "企业介绍",
+            "nodes": [{
+                "node_key": "company_scale", "node_title": "企业规模",
+                "points": ["员工 500 人"], "citations": [], "pending_questions": [],
+            }],
+        }],
+        "summary": {"key_points": [], "missing_info": []},
+    }
+    # 假 LLM：走 fallback 流式路径（置 rich=None，触发 generate_with_history_stream）
+    fake_llm = AsyncMock()
+    fake_llm.generate_with_history_stream_rich = None
+    async def _stream(*a, **k):
+        yield "已为你查到相关信息。"
+    fake_llm.generate_with_history_stream = _stream
+    svc = ConversationService()
+    monkeypatch.setattr(svc, "save_message", AsyncMock())
+    with patch("app.services.conversation_service.get_llm_service",
+               AsyncMock(return_value=fake_llm)), \
+         patch("app.services.conversation_service.acquire_web_context",
+               AsyncMock(return_value=([{"title": "t", "url": "https://x", "snippet": "s",
+                  "domain": "x", "published_at": None, "source_type": "article",
+                  "confidence": 0.5}], {"status": "ok", "key_points": [], "missing_info": []}))), \
+         patch.object(crs, "research_and_propose", AsyncMock(return_value=ask_proposal)):
+        events = _parse_events(await _collect(svc._handle_conversational(
+            db_session, _uuid.uuid4(), "甲公司有多少员工", [], str(project_id)
+        )))
+    types = [e.get("type") for e in events]
+    assert "canvas_fill_proposal" in types
+    block = next(e for e in events if e.get("type") == "canvas_fill_proposal")
+    assert block["data"]["mode"] == "ask"
+
+
+async def test_conversational_no_proposal_when_all_dup(
+    canvas_project_with_version, db_session, monkeypatch
+):
+    """全重复要点 → filter_new_points 清空 boards → 不 emit。
+
+    注意：本用例的 acquire_web_context 必须返回非空 hits，否则 guard
+    `if project_id and web_hits and ...` 会因空列表短路，引擎根本不执行，
+    测试将变成「因 gate 短路而非去重」的同义反复。故这里复用与上一用例相同
+    的非空 hits，让 guard 通过、让（被 mock 的）research_and_propose 返回
+    与画布已有要点完全重复的提案，再由真实的 filter_new_points 清空 boards。
+    """
+    # canvas_service 已在文件顶部作为实例导入（from ...canvas_service import
+    # canvas_service），不要在此处 `from app.services import canvas_service` ——
+    # 那会拿到模块对象而非 CanvasService 实例，导致 AttributeError。
+    project_id, version_id = canvas_project_with_version
+    # 预置 company_profile 节点已有该要点，使 filter_new_points 判定为重复
+    ver = await canvas_service.get_current_version(db_session, project_id)
+    cv = await canvas_service.get_canvas(db_session, ver.id)
+    for g in cv.groups:
+        for n in g.nodes:
+            if (n.node_key or n.title) == "company_profile":
+                n.content = {"extracted": [], "planning": ["已存在的要点"],
+                             "ui_suggestion": [], "pending_questions": []}
+    await db_session.commit()
+
+    dup_proposal = {
+        "mode": "ask",
+        "boards": [{
+            "board_key": "company_intro", "board_title": "企业介绍",
+            "nodes": [{
+                "node_key": "company_profile", "node_title": "企业简介",
+                "points": ["已存在的要点"], "citations": [], "pending_questions": [],
+            }],
+        }],
+        "summary": {"key_points": [], "missing_info": []},
+    }
+    fake_llm = AsyncMock()
+    fake_llm.generate_with_history_stream_rich = None
+    async def _stream2(*a, **k):
+        yield "已知。"
+    fake_llm.generate_with_history_stream = _stream2
+    svc = ConversationService()
+    monkeypatch.setattr(svc, "save_message", AsyncMock())
+    with patch("app.services.conversation_service.get_llm_service",
+               AsyncMock(return_value=fake_llm)), \
+         patch("app.services.conversation_service.acquire_web_context",
+               AsyncMock(return_value=([{"title": "t", "url": "https://x", "snippet": "s",
+                  "domain": "x", "published_at": None, "source_type": "article",
+                  "confidence": 0.5}], {"status": "ok", "key_points": [], "missing_info": []}))), \
+         patch.object(crs, "research_and_propose", AsyncMock(return_value=dup_proposal)):
+        events = _parse_events(await _collect(svc._handle_conversational(
+            db_session, _uuid.uuid4(), "甲公司情况", [], str(project_id)
+        )))
+    types = [e.get("type") for e in events]
+    assert "canvas_fill_proposal" not in types

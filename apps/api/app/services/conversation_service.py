@@ -638,7 +638,7 @@ class ConversationService:
                         yield chunk
                 else:
                     async for chunk in self._handle_conversational(
-                        db, conv_uuid, user_message, history
+                        db, conv_uuid, user_message, history, project_id
                     ):
                         yield chunk
             elif intent.intent == "run_skill" and intent.skill_id:
@@ -655,7 +655,7 @@ class ConversationService:
                 # Non-first, non-social, non-skill message: lightweight reply
                 # that guides the user back to node-scoped editing on canvas.
                 async for chunk in self._handle_conversational(
-                    db, conv_uuid, user_message, history
+                    db, conv_uuid, user_message, history, project_id
                 ):
                     yield chunk
 
@@ -1268,6 +1268,7 @@ class ConversationService:
         conversation_id: uuid.UUID,
         user_message: str,
         history: List[Dict[str, str]],
+        project_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """Handle conversational intent with streaming LLM response.
 
@@ -1332,6 +1333,27 @@ class ConversationService:
             ):
                 full_text += chunk
                 yield f"data: {json.dumps({'type': 'text_delta', 'text': chunk}, ensure_ascii=False)}\n\n"
+
+        # ask 模式：把搜到的模块相关「新增」要点整理成提案，问用户是否归档（不写库）。
+        # 复用已取到的 web_hits（不二次搜索）；寒暄/无关/全重复 → 不 emit。
+        if project_id and web_hits and not self._is_social_greeting(msg) and len(msg) >= 4:
+            try:
+                # 规范成 UUID：process_message_stream 透传的是 str(conv.project_id)，
+                # Postgres pg-uuid 接受字符串，但 SQLite 测试环境的 UUID 绑定期望 UUID
+                # 对象（'str' object has no attribute 'hex'），故此处统一转换。
+                proj_uuid = uuid.UUID(project_id) if isinstance(project_id, str) else project_id
+                proposal = await canvas_research_service.research_and_propose(
+                    db, proj_uuid, context_hint=msg, mode="ask", web_hits=web_hits,
+                )
+                if proposal.get("boards"):
+                    _, nodes_by_key = await canvas_research_service._current_canvas_nodes_by_board(
+                        db, proj_uuid
+                    )
+                    proposal = canvas_research_service.filter_new_points(proposal, nodes_by_key)
+                    if proposal.get("boards"):
+                        yield f"data: {json.dumps({'type': 'canvas_fill_proposal', 'data': proposal}, ensure_ascii=False)}\n\n"
+            except Exception:
+                logger.exception("conversational: research_and_propose failed; skipping proposal")
 
         # Save complete assistant message
         await self.save_message(
