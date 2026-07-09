@@ -192,8 +192,9 @@ export interface CanvasFillAcceptInput {
 export async function acceptCanvasFill(
   projectId: string,
   body: CanvasFillAcceptInput,
-): Promise<ApiResponse<CanvasNode>> {
-  return canvasFetch<CanvasNode>(
+): Promise<ApiResponse<Canvas>> {
+  // 后端 /canvas/fill-accept 返回整份更新后的 CanvasOut(新版本的画布),非单个 node。
+  return canvasFetch<Canvas>(
     `/api/v1/projects/${projectId}/canvas/fill-accept`,
     { method: "POST", body: JSON.stringify(body) },
   );

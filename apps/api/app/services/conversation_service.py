@@ -1721,8 +1721,8 @@ class ConversationService:
             if proposal.get("boards"):
                 yield f"data: {json.dumps({'type': 'canvas_fill_proposal', 'data': proposal}, ensure_ascii=False)}\n\n"
         except Exception:
-            # 派生失败不阻断主流程(fill 已成功)
-            pass
+            # 派生失败不阻断主流程(fill 已成功);记录日志便于排查,与下方 Brief 块一致。
+            logger.exception("auto_fill: derive canvas_fill_proposal failed; continuing")
 
         # 设计 Brief:基于已填画布(企业画像)+ 项目上下文,调 proposal_generation 生成策划案。
         # 复用既有 proposal_section block(与 _handle_skill_execution:865 一致,data = skill output 整体),
