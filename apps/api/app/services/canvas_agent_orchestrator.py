@@ -113,6 +113,11 @@ class CanvasAgentOrchestrator:
         Stage order matters: consistency runs BEFORE tone/ui so the downstream
         agents reason over consistency-amended copy (issues flow back as
         pending_questions on the flagged nodes — PRD §13.2 step 8 → 9).
+
+        On a ``full`` run, each stage also consults the workflow manifest
+        (active SOPWorkflow bound to agent="canvas") — an admin can disable a
+        stage there without code changes (CLAUDE.md §3.2 / §12.6). Explicit
+        single-stage triggers always run regardless.
         """
         project = await db.get(Project, project_id)
         if project is None:
@@ -144,6 +149,22 @@ class CanvasAgentOrchestrator:
             db, company, nodes_by_group
         )
 
+        # ── Workflow manifest (CLAUDE.md §12.6 — stage toggle is configurable) ──
+        # On a `full` run, each stage checks the manifest before executing: an
+        # admin disables a stage by flipping `enabled=false` on the active
+        # SOPWorkflow bound to agent="canvas". No such SOP / empty stages ⇒
+        # everything enabled (backward compatible). Explicit single-stage
+        # triggers (stage=<id>) ALWAYS run — the user asked for that stage
+        # directly, the manifest must not silently veto it.
+        manifest = await self._load_workflow_manifest(db) if stage == "full" else None
+
+        def _stage_on(stage_id: str) -> bool:
+            return (manifest is None) or manifest.get(stage_id, True)
+
+        def _should_run(stage_id: str) -> bool:
+            """Full-flow gate: explicit trigger OR (full AND manifest-on)."""
+            return stage == stage_id or (stage == "full" and _stage_on(stage_id))
+
         # ── Assemble the structured Context Pack (PRD §9.3) ──
         # Captures EVERYTHING the agents reasoned over — enterprise profile,
         # project requirement, matched cases, referenced docs/chunks, SOP,
@@ -161,7 +182,7 @@ class CanvasAgentOrchestrator:
         # each board's relevant material by category instead of a flat blob.
         # Only fills category when the user hasn't set one (never overwrites a
         # manual classification). Soft-fails: a parse error never blocks.
-        if stage in ("full", "document_parse"):
+        if _should_run("document_parse"):
             try:
                 doc_analyses = await self._parse_project_documents(db, project_id, llm)
                 if doc_analyses:
@@ -191,7 +212,7 @@ class CanvasAgentOrchestrator:
         # and its output merges into context_pack.project_requirement +
         # pending_info (the traceability record + the export gate consume
         # those). Soft-fails: a parse error never blocks the fill.
-        if stage in ("full", "requirement") and company_context != self._NO_DATA_SENTINEL:
+        if _should_run("requirement") and company_context != self._NO_DATA_SENTINEL:
             try:
                 req = await self._collect_requirement(
                     llm, company_context, extra_context,
@@ -219,7 +240,7 @@ class CanvasAgentOrchestrator:
         # The three boards are independent, so their LLM passes run concurrently
         # via asyncio.gather (the expensive IO — 2 LLM calls per board).
         # DB writes (_apply_group_result) stay serial on this shared session.
-        if stage in ("full", "planner"):
+        if _should_run("planner"):
             import asyncio as _asyncio
 
             group_items = [
@@ -283,7 +304,7 @@ class CanvasAgentOrchestrator:
         # demoted to pending_review, so tone/UI see the flagged text and the
         # export gate can surface it. Soft-fails: a checker error never blocks.
         consistency_issues: List[Dict[str, Any]] = []
-        if stage in ("full", "consistency") and planning_payload:
+        if _should_run("consistency") and planning_payload:
             try:
                 consistency_issues = await self._run_consistency_check(
                     db, llm, company_context, nodes_by_group, planning_payload,
@@ -308,7 +329,7 @@ class CanvasAgentOrchestrator:
         # the canvas's layout_config so it flows to the frontend and is captured
         # by the version snapshot with no schema change.
         tone: Optional[Dict[str, Any]] = None
-        if stage in ("full", "tone") and planning_payload:
+        if _should_run("tone") and planning_payload:
             try:
                 tone = await self._generate_tone(llm, company_context, planning_payload)
             except Exception as e:
@@ -333,7 +354,7 @@ class CanvasAgentOrchestrator:
         # content; empty nodes stay untouched (no fabrication). In "ui_expert"
         # mode this degrades to use ``extracted`` content when planning is empty,
         # so a node can still get UI advice even if the planner pass hasn't run.
-        if stage in ("full", "ui_expert"):
+        if _should_run("ui_expert"):
             try:
                 await self._generate_ui_suggestions(
                     db, llm, nodes_by_group, tone,
@@ -393,8 +414,16 @@ class CanvasAgentOrchestrator:
                 ("tone:", "ui_suggestion:", "consistency:", "requirement:", "document_parse:")
             )
         ]
-        has_filled = len(filled) > 0 or stage in (
-            "tone", "ui_expert", "consistency", "requirement", "document_parse",
+        # has_filled gates `success`. A `full` run is considered productive as
+        # long as it didn't hard-fail — the manifest may have disabled planner
+        # (admin's choice), and the context pack / requirement / document_parse
+        # stages still ran. Explicit sub-stage triggers count their own output.
+        has_filled = (
+            len(filled) > 0
+            or stage == "full"
+            or stage in (
+                "tone", "ui_expert", "consistency", "requirement", "document_parse",
+            )
         )
 
         return {
@@ -455,6 +484,42 @@ class CanvasAgentOrchestrator:
         "企业介绍", "产品资料", "技术资料", "荣誉资质",
         "案例资料", "发展历程", "社会责任", "参考案例", "其他资料",
     ]
+
+    async def _load_workflow_manifest(self, db: AsyncSession) -> Dict[str, bool]:
+        """Load the canvas workflow manifest — the per-stage enable map.
+
+        Source: the active ``SOPWorkflow`` row bound to ``agent="canvas"``;
+        its ``pipeline_stages`` list carries ``{stage, enabled}`` entries the
+        admin edits in the SOP management UI (CLAUDE.md §3.2 / §12.6 — expert
+        capabilities must be configurable, not hardcoded).
+
+        Returns ``{stage_id: enabled}``. Empty dict when no such SOP exists
+        or it has no stages → the orchestrator treats "no manifest" as
+        "all enabled" (``_stage_on`` defaults unknown stages to True), so the
+        default behaviour is unchanged. Best-effort: any failure → empty map.
+        """
+        try:
+            from app.models.workflow import SOPWorkflow
+
+            result = await db.execute(
+                select(SOPWorkflow)
+                .where(
+                    SOPWorkflow.bound_agent == "canvas",
+                    SOPWorkflow.is_active.is_(True),
+                )
+                .limit(1)
+            )
+            sop = result.scalar_one_or_none()
+            if sop is None or not sop.pipeline_stages:
+                return {}
+            return {
+                str(s.get("stage")): bool(s.get("enabled", True))
+                for s in sop.pipeline_stages
+                if isinstance(s, dict) and s.get("stage")
+            }
+        except Exception:
+            logger.exception("workflow manifest load failed — defaulting to all-on")
+            return {}
 
     async def _parse_project_documents(
         self,

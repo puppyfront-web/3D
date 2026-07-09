@@ -489,7 +489,40 @@ async def seed_database() -> None:
             created_at=now,
             updated_at=now,
         )
-        session.add_all([sop_base, sop_smart_mfg])
+
+        # Canvas orchestration manifest (CLAUDE.md §12.6 / §3.2). The
+        # orchestrator reads the active SOPWorkflow bound to agent="canvas"
+        # and runs only the stages whose `enabled` is true on a `full` fill.
+        # Seeded with all six stages enabled so the default behaviour matches
+        # the prior hardcoded pipeline; admins toggle stages in the SOP UI.
+        sop_canvas_workflow = SOPWorkflow(
+            id=uuid.uuid4(),
+            name="画布生成编排流程（Manifest）",
+            description="控制画布「生成新版本」时执行哪些 Agent 阶段。"
+                        "禁用某阶段将在 full 流程中跳过它（显式单独触发不受影响）。"
+                        "顺序由 Agent 间依赖固定（一致性→定调→UI），不可重排。",
+            version="1.0",
+            is_active=True,
+            bound_agent="canvas",
+            category="canvas_orchestration",
+            pipeline_stages=[
+                {"stage": "document_parse", "name": "资料解析", "enabled": True,
+                 "description": "上传资料自动分类（9 类）+ 摘要"},
+                {"stage": "requirement", "name": "需求采集", "enabled": True,
+                 "description": "结构化抽取场景/目的/受众/诉求 + 缺失标记"},
+                {"stage": "planner", "name": "策划专家", "enabled": True,
+                 "description": "三大板块 extract 事实 + plan 文案（并行）"},
+                {"stage": "consistency", "name": "一致性检查", "enabled": True,
+                 "description": "跨板块术语/叙事/数据冲突检查，回流 pending_questions"},
+                {"stage": "tone", "name": "方案定调", "enabled": True,
+                 "description": "基于一致性修正后的文案生成视觉/叙事定调"},
+                {"stage": "ui_expert", "name": "UI 专家", "enabled": True,
+                 "description": "基于定调生成大屏/3D UI 表达建议"},
+            ],
+            created_at=now,
+            updated_at=now,
+        )
+        session.add_all([sop_base, sop_smart_mfg, sop_canvas_workflow])
         await session.flush()
 
         # ── Skills (built-in skill definitions) ──

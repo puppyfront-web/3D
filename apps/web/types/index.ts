@@ -136,6 +136,9 @@ export interface PipelineStage {
   stage: string;
   name: string;
   description: string;
+  /** Whether this stage runs on a `full` canvas fill (canvas manifest only).
+   * Missing/legacy entries default to enabled. */
+  enabled?: boolean;
 }
 
 // ── SOP Step Rule & Prompt ──

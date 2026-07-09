@@ -1277,3 +1277,85 @@ async def test_substage_does_not_erase_full_context_pack(
     pack2 = (canvas.layout_config or {}).get("context_pack") or {}
     assert any("企业官网" in (w.get("title") or "") for w in pack2.get("web_references", [])), \
         "ui_expert sub-stage erased prior web_references — expected merge"
+
+
+@pytest.mark.asyncio
+async def test_workflow_manifest_can_disable_stage(
+    db_session, canvas_project_with_version, stub_llm, monkeypatch
+):
+    """CLAUDE.md §12.6 / §3.2: an admin disables a stage via the active
+    SOPWorkflow (bound_agent='canvas') pipeline_stages.enabled=False, and the
+    orchestrator's `full` run skips it. Explicit single-stage triggers still
+    run (manifest must not veto an explicit ask)."""
+    from app.models.workflow import SOPWorkflow
+    from app.services import canvas_agent_orchestrator as orch_mod
+
+    # A manifest that disables ui_expert (default the rest on).
+    sop = SOPWorkflow(
+        id=uuid.uuid4(),
+        name="canvas 编排 SOP（测试）",
+        version="1.0",
+        is_active=True,
+        bound_agent="canvas",
+        pipeline_stages=[
+            {"stage": "document_parse", "name": "资料解析", "enabled": True},
+            {"stage": "requirement", "name": "需求采集", "enabled": True},
+            {"stage": "planner", "name": "策划专家", "enabled": True},
+            {"stage": "consistency", "name": "一致性检查", "enabled": True},
+            {"stage": "tone", "name": "方案定调", "enabled": True},
+            {"stage": "ui_expert", "name": "UI 专家", "enabled": False},
+        ],
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(sop)
+    await db_session.commit()
+
+    ui_calls = {"n": 0}
+
+    class TrackLLM:
+        async def generate(self, prompt: str, **kw):
+            if "UI专家" in prompt or "UI/大屏表达建议" in prompt:
+                ui_calls["n"] += 1
+            return await stub_llm.generate(prompt, **kw)
+
+    async def fake_get_llm(db=None):
+        return TrackLLM()
+    monkeypatch.setattr(orch_mod, "get_llm_service", fake_get_llm)
+
+    project_id, version_id = canvas_project_with_version
+    result = await CanvasAgentOrchestrator().fill_canvas(
+        db_session, project_id, version_id, stage="full",
+    )
+    assert result["success"] is True
+    # ui_expert was disabled by the manifest → its LLM pass never ran.
+    assert ui_calls["n"] == 0, "ui_expert should be skipped (manifest disabled)"
+
+    # Explicit ui_expert trigger ignores the manifest.
+    ui_calls["n"] = 0
+    await CanvasAgentOrchestrator().fill_canvas(
+        db_session, project_id, version_id, stage="ui_expert",
+    )
+    assert ui_calls["n"] >= 1, "explicit ui_expert trigger must bypass manifest"
+
+    # cleanup so the bound_agent='canvas' SOP doesn't leak to sibling tests.
+    await db_session.delete(sop)
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_workflow_manifest_defaults_all_on_when_absent(
+    db_session, canvas_project_with_version, stub_llm, monkeypatch
+):
+    """No bound_agent='canvas' SOP ⇒ manifest empty ⇒ every stage runs
+    (backward compatible with the pre-manifest hardcoded behaviour)."""
+    from app.services import canvas_agent_orchestrator as orch_mod
+
+    async def fake_get_llm(db=None):
+        return stub_llm
+    monkeypatch.setattr(orch_mod, "get_llm_service", fake_get_llm)
+
+    project_id, version_id = canvas_project_with_version
+    orch = CanvasAgentOrchestrator()
+    manifest = await orch._load_workflow_manifest(db_session)
+    assert manifest == {}, "no canvas SOP ⇒ empty manifest ⇒ defaults all-on"

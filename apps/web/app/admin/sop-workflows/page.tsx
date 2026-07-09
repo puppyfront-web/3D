@@ -161,6 +161,21 @@ export default function SOPWorkflowsPage() {
     setTogglingId(null);
   };
 
+  // Toggle a single canvas-manifest stage's `enabled` flag (CLAUDE.md §12.6).
+  const handleToggleStage = async (
+    wf: SOPWorkflow,
+    stageId: string,
+    next: boolean,
+  ) => {
+    const stages = (wf.pipelineStages ?? []).map((s) =>
+      s.stage === stageId ? { ...s, enabled: next } : s,
+    );
+    setTogglingId(wf.id);
+    const res = await updateSOPWorkflow(wf.id, { pipelineStages: stages });
+    if (res.success) await loadWorkflows();
+    setTogglingId(null);
+  };
+
   // --- Edit ---
   const openEdit = (wf: SOPWorkflow) => {
     setEditingWf(wf);
@@ -431,21 +446,49 @@ export default function SOPWorkflowsPage() {
                 {/* Pipeline Stages Overview */}
                 {wf.pipelineStages && wf.pipelineStages.length > 0 && (
                   <div className="ml-7 mb-5">
-                    <p className="text-xs font-medium text-gray-500 mb-2">PIPELINE 阶段</p>
+                    <p className="text-xs font-medium text-gray-500 mb-2">
+                      PIPELINE 阶段
+                      {wf.boundAgent === "canvas" && (
+                        <span className="ml-2 text-primary font-normal">
+                          （画布编排 Manifest — 勾选/取消以启用/禁用阶段）
+                        </span>
+                      )}
+                    </p>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {wf.pipelineStages.map((stage, i) => (
-                        <div key={stage.stage} className="flex items-center gap-2">
-                          <div className="px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-xs">
-                            <span className="font-medium text-primary">{stage.name}</span>
-                            {stage.description && (
-                              <span className="text-gray-400 ml-1">— {stage.description}</span>
+                      {wf.pipelineStages.map((stage, i) => {
+                        const enabled = stage.enabled !== false;
+                        return (
+                          <div key={stage.stage} className="flex items-center gap-2">
+                            <div
+                              className={
+                                "px-3 py-1.5 border rounded-lg text-xs flex items-center gap-2 " +
+                                (enabled
+                                  ? "bg-blue-50 border-blue-100"
+                                  : "bg-gray-50 border-gray-200 opacity-60")
+                              }
+                            >
+                              {wf.boundAgent === "canvas" && (
+                                <Checkbox
+                                  checked={enabled}
+                                  onCheckedChange={(v) =>
+                                    handleToggleStage(wf, stage.stage, !!v)
+                                  }
+                                  disabled={togglingId === wf.id}
+                                />
+                              )}
+                              <span className={"font-medium " + (enabled ? "text-primary" : "text-gray-400 line-through")}>
+                                {stage.name}
+                              </span>
+                              {stage.description && (
+                                <span className="text-gray-400 ml-1">— {stage.description}</span>
+                              )}
+                            </div>
+                            {i < wf.pipelineStages!.length - 1 && (
+                              <ArrowRight className="h-3 w-3 text-gray-300" />
                             )}
                           </div>
-                          {i < wf.pipelineStages!.length - 1 && (
-                            <ArrowRight className="h-3 w-3 text-gray-300" />
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

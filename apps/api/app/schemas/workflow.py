@@ -47,6 +47,10 @@ class PipelineStage(APIBaseModel):
     stage: str = Field(description="阶段标识，如 enterprise_understanding")
     name: str = Field(description="阶段显示名，如 企业理解")
     description: str = Field(default="", description="阶段描述")
+    # Whether this stage runs when the bound agent's `full` flow executes.
+    # Explicit single-stage triggers (stage=<id>) always run regardless. A
+    # missing/legacy entry defaults to enabled.
+    enabled: bool = Field(default=True, description="full 流程中是否启用该阶段")
 
 
 # ── CRUD schemas ──
