@@ -47,13 +47,23 @@ _SENSITIVE_KEYS = {"llm_api_key", "embedding_api_key", "image_api_key", "web_sea
 # they are sensible code-level fallbacks shown in the admin UI before the user
 # first persists a value. Once a setting is saved to the database, the DB value
 # always wins. Sensitive keys (API keys) have no default (empty until configured).
+#
+# Provider defaults are EMPTY by design, but each factory treats an empty
+# provider DIFFERENTLY — only the LLM factory fails loudly:
+#   - llm_provider: empty/unsupported → get_llm_service RAISES (mock fallback
+#     was removed so misconfiguration surfaces instead of fabricated text).
+#     A real provider+key MUST be set before any AI feature runs.
+#   - embedding_provider / image_provider: empty still DEGRADES to the Mock
+#     services (hash vectors / SVG placeholders) in their factories — retrieval
+#     and visuals limp on instead of crashing. Intentional; flip those to a
+#     hard RuntimeError too if you want symmetric loudness.
 _BUILTIN_DEFAULTS: Dict[str, str] = {
-    "llm_provider": "mock",
+    "llm_provider": "",
     "llm_model": "gpt-4o",
-    "embedding_provider": "mock",
+    "embedding_provider": "",
     "embedding_model": "text-embedding-3-small",
     "embedding_dimensions": "1536",
-    "image_provider": "mock",
+    "image_provider": "",
     "image_model": "dall-e-3",
     "image_quality": "high",
     "web_search_enabled": "true",

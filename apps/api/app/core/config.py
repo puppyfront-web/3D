@@ -29,14 +29,15 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://postgres:postgres@localhost:5432/3dwall"
     )
 
-    # LLM
-    llm_provider: str = "mock"
+    # LLM — provider defaults empty: mock mode was removed, a missing provider
+    # fails loudly at the factory instead of serving fabricated output.
+    llm_provider: str = ""
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = "gpt-4o"
 
     # Embedding
-    embedding_provider: str = "mock"
+    embedding_provider: str = ""
     embedding_api_key: str = ""
     embedding_base_url: str = ""
     embedding_model: str = "text-embedding-3-small"

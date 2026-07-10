@@ -102,6 +102,52 @@ async def _isolate_db_state():
             await conn.execute(table.delete())
 
 
+@pytest.fixture(autouse=True)
+def _inject_mock_llm(monkeypatch):
+    """Test-only LLM injection (production keeps failing loudly).
+
+    The production ``get_llm_service`` factory RAISES when no real provider is
+    configured (mock mode was removed so misconfiguration surfaces instead of
+    serving fabricated output). Business-logic tests don't exercise a real LLM
+    though, so this fixture injects ``MockLLMService`` across every module that
+    imported ``get_llm_service`` — restoring the pre-removal test convenience
+    without weakening the production contract.
+
+    A test that wants to assert the "no provider" failure path can override
+    this by monkeypatching the same attributes itself (later patches win), or
+    by monkeypatching to a stub LLM as the canvas-orchestrator tests do.
+    """
+    import importlib
+
+    from app.services.llm_service import MockLLMService
+
+    async def _fake_get_llm(db=None):
+        return MockLLMService()
+
+    # Patch the source module + every module that did `from ... import
+    # get_llm_service` at top level (they hold their own reference). Modules
+    # that import it locally inside a function re-resolve on each call, so the
+    # source patch covers them.
+    _MODULES = [
+        "app.services.llm_service",
+        "app.routers.skills",
+        "app.routers.agents",
+        "app.services.conversation_service",
+        "app.services.canvas_agent_orchestrator",
+        "app.services.canvas_research_service",
+        "app.services.search_helper",
+        "app.services.auto_tagger",
+        "app.services.intent_service",
+    ]
+    for mod_name in _MODULES:
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError:
+            continue
+        if hasattr(mod, "get_llm_service"):
+            monkeypatch.setattr(mod, "get_llm_service", _fake_get_llm)
+
+
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Provide a fresh database session for each test."""

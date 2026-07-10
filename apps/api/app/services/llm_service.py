@@ -310,8 +310,15 @@ We recommend scheduling a detailed discovery session to finalize scope and prior
 async def get_llm_service(db=None) -> LLMService:
     """Factory function to create the appropriate LLM service.
 
-    If db session is provided, reads config from database (priority) then .env fallback.
-    If no db session, falls back to .env only (backward compatible).
+    Reads config from the database when a session is supplied (priority), else
+    from .env. Only ``openai`` / ``custom`` providers are supported — every
+    other value (including the legacy ``mock``) RAISES instead of silently
+    falling back to MockLLMService. A silent mock fallback served fabricated
+    content in production and hid misconfiguration; failing loudly forces the
+    operator to configure a real provider in the admin settings UI.
+
+    MockLLMService is kept as a class for tests to inject explicitly via
+    monkeypatch; production code must never reach it through this factory.
     """
     if db is not None:
         from app.services.settings_service import SettingsService
@@ -319,28 +326,34 @@ async def get_llm_service(db=None) -> LLMService:
             "llm_provider", "llm_api_key", "llm_base_url", "llm_model",
         ])
         provider = cfg["llm_provider"]
+        api_key = cfg["llm_api_key"]
+        base_url = cfg["llm_base_url"]
+        model = cfg["llm_model"]
     else:
         provider = settings.llm_provider
+        api_key = settings.llm_api_key
+        base_url = settings.llm_base_url
+        model = settings.llm_model
 
     if provider in ("openai", "custom"):
+        if not api_key:
+            raise RuntimeError(
+                "LLM provider is set to 'openai'/'custom' but llm_api_key is empty. "
+                "Configure it in Admin → 系统设置 before invoking AI features."
+            )
         # Hard-fail if the OpenAI package is missing rather than silently
-        # downgrading to the mock — a silent downgrade hides a broken install
-        # and serves fake LLM output in production. Set provider to a non-openai
-        # value explicitly to get MockLLMService.
+        # downgrading — a missing dependency must surface, not serve fake output.
         from app.services.llm.openai_provider import OpenAILLMService
-
-        if db is not None:
-            api_key = cfg["llm_api_key"]
-            base_url = cfg["llm_base_url"]
-            model = cfg["llm_model"]
-        else:
-            api_key = settings.llm_api_key
-            base_url = settings.llm_base_url
-            model = settings.llm_model
-
         return OpenAILLMService(
             api_key=api_key,
             base_url=base_url or None,
             model=model,
         )
-    return MockLLMService()
+
+    # No mock fallback: an unconfigured/unsupported provider fails loudly.
+    raise RuntimeError(
+        f"LLM provider '{provider or '(empty)'}' is not configured. "
+        "Set llm_provider to 'openai' or 'custom' and provide llm_api_key in "
+        "Admin → 系统设置. Mock mode was removed — a missing provider now "
+        "fails instead of serving fabricated content."
+    )
