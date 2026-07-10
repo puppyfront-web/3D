@@ -231,6 +231,93 @@ function renderContentBlock(
     );
   }
 
+  if (block.type === "proposal_section") {
+    // proposal_generation 输出(真实形状):{ content(markdown), content_type, used_cases, … },
+    // missing_info 在 SkillResult 顶层。防御性兼容 proposal_sections:[{title,content}] /
+    // citations / missing_info 形状。用 ReactMarkdown + 与助手正文一致的 prose 样式渲染,
+    // 让设计 Brief 可读(此前无渲染器会落到 JSON dump)。
+    const content = typeof data.content === "string" ? data.content : "";
+    const sections = Array.isArray(data.proposal_sections) ? data.proposal_sections : [];
+    const citations = Array.isArray(data.citations) ? data.citations : [];
+    const missing = asStringList(data.missing_info);
+    const proseClass =
+      "prose prose-sm max-w-none text-on-surface [&_h1]:text-base [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-3 [&_h3]:text-sm [&_p]:my-1.5 [&_ul]:my-1.5 [&_li]:my-0 [&_a]:text-primary [&_a]:underline [&_strong]:text-on-surface [&_blockquote]:border-l-2 [&_blockquote]:border-outline-variant [&_blockquote]:pl-2 [&_blockquote]:text-on-surface-variant [&_blockquote]:text-xs";
+    return (
+      <div key={key} className="rounded-lg border border-primary/30 bg-surface p-3 space-y-2">
+        <div className="flex items-center gap-1.5 text-[10px] text-primary font-semibold uppercase tracking-wider">
+          <FileText className="h-3 w-3" />
+          设计 Brief
+        </div>
+        {content ? (
+          <div className={proseClass}>
+            <ReactMarkdown>{content}</ReactMarkdown>
+          </div>
+        ) : sections.length > 0 ? (
+          <div className="space-y-2">
+            {sections.map((sec, i) => {
+              const t =
+                sec && typeof sec === "object" && "title" in sec
+                  ? String((sec as Record<string, unknown>).title)
+                  : "";
+              const c =
+                sec && typeof sec === "object" && "content" in sec
+                  ? String((sec as Record<string, unknown>).content)
+                  : "";
+              return (
+                <div key={`${key}-sec-${i}`} className="space-y-0.5">
+                  {t ? <div className="text-xs font-semibold text-on-surface">{t}</div> : null}
+                  {c ? (
+                    <div className={proseClass}>
+                      <ReactMarkdown>{c}</ReactMarkdown>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-xs text-outline whitespace-pre-wrap">
+            {JSON.stringify(data, null, 2)}
+          </div>
+        )}
+        {missing.length > 0 ? (
+          <ul className="text-xs text-tertiary space-y-0.5">
+            {missing.map((item, i) => (
+              <li key={`${key}-missing-${i}`}>⚠️ {item}</li>
+            ))}
+          </ul>
+        ) : null}
+        {citations.length > 0 ? (
+          <div className="text-[10px] text-outline">
+            来源：
+            {citations.map((c, i) => {
+              const name =
+                c && typeof c === "object" && "name" in c
+                  ? String((c as Record<string, unknown>).name || "")
+                  : "";
+              const url =
+                c && typeof c === "object" && "url" in c
+                  ? String((c as Record<string, unknown>).url || "")
+                  : "";
+              return (
+                <span key={`${key}-cite-${i}`}>
+                  {i > 0 ? "、" : ""}
+                  {url ? (
+                    <a href={url} target="_blank" rel="noreferrer" className="underline">
+                      {name || url}
+                    </a>
+                  ) : (
+                    name || "网络来源"
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   const fallbackText =
     block.content ||
     (typeof data.content === "string" ? data.content : "") ||
