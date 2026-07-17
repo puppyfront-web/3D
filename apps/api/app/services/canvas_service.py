@@ -387,6 +387,28 @@ class CanvasService:
 
     # ─── Read helpers ─────────────────────────────────────────────────────
 
+    async def ensure_initial_version(
+        self, db: AsyncSession, project_id: uuid.UUID
+    ) -> ProjectVersion:
+        """Create V1 with default topology if the project has no version yet.
+
+        Used at project-creation time (wizard) so a fresh project lands in the
+        Canvas workspace with a usable V1 — the frontend's first paint no
+        longer has to POST ``/versions`` to bootstrap. Idempotent: if the
+        project already has a current version, return it untouched.
+        """
+        project = await db.get(Project, project_id)
+        if project is None:
+            raise NotFoundException("Project", str(project_id))
+        if project.current_version_id:
+            return await self.get_current_version(db, project_id)
+        return await self.create_version(
+            db,
+            project_id=project_id,
+            version_name="V1",
+            change_summary="项目创建初始版本",
+        )
+
     async def get_current_version(
         self, db: AsyncSession, project_id: uuid.UUID
     ) -> ProjectVersion:

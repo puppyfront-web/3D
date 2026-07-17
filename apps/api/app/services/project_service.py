@@ -62,6 +62,16 @@ class ProjectService:
         db.add(project)
         await db.flush()
         await db.refresh(project)
+
+        # PRESALE_DELIVERY_SPEC §4.2 S1: the wizard lands the user directly in
+        # the Canvas workspace, so V1 (default topology + conversation) must
+        # exist the moment the project is created — the first paint must not
+        # have to POST /versions to bootstrap.
+        from app.services.canvas_service import canvas_service
+
+        await canvas_service.ensure_initial_version(db, project.id)
+        await db.refresh(project)
+
         logger.info(
             "Created project %s for company %s (owner=%s, screen=%s)",
             project.id, company.id, owner.email, bool(screen_info),
