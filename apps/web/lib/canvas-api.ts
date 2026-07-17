@@ -321,3 +321,61 @@ export async function exportVersionDoc(
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// ─── Proposal output (设计 Brief) — PRESALE_DELIVERY_SPEC §6.1 / §10.2 ──────
+//
+// The Canvas workspace's Proposal editor panel and the export dropdown both
+// resolve the latest proposal_generation output here to get the output_id +
+// sections_meta that drive章节 review + 导出门控. Returns 404 when no Brief
+// exists yet — callers use that to hide the Proposal entry until auto-fill
+// has produced one.
+
+export interface ProposalSectionMeta {
+  order: number;
+  key?: string;
+  title?: string;
+  content?: string;
+  status?: "draft" | "review" | "approved";
+  require_human_review?: boolean;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  human_confirmed?: boolean;
+  used_cases?: string[];
+  missing_info?: string[];
+}
+
+export interface ProposalOutput {
+  outputId: string;
+  taskId: string;
+  sectionsMeta: ProposalSectionMeta[];
+  usedCases: unknown[];
+  usedDocuments: unknown[];
+  usedChunks: unknown[];
+  usedExternalSources: unknown[];
+  usedSopVersion: string | null;
+  createdAt: string | null;
+}
+
+export async function getProposalOutput(
+  projectId: string,
+): Promise<ApiResponse<ProposalOutput>> {
+  return canvasFetch<ProposalOutput>(
+    `/api/v1/projects/${projectId}/proposal-output`,
+  );
+}
+
+export type SectionReviewStatus = "draft" | "review" | "approved";
+
+export async function updateSectionStatus(
+  outputId: string,
+  sectionOrder: number,
+  status: SectionReviewStatus,
+): Promise<ApiResponse<ProposalOutput>> {
+  return canvasFetch<ProposalOutput>(
+    `/api/v1/generations/outputs/${outputId}/sections/${sectionOrder}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    },
+  );
+}

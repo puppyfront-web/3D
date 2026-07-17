@@ -4,6 +4,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -252,3 +253,68 @@ async def get_project_conversation(
         messages=msg_outs,
     )
     return Response(data=detail, message="Project conversation")
+
+
+@router.get("/{project_id}/proposal-output", response_model=Response)
+async def get_latest_proposal_output(
+    project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+):
+    """Return the latest proposal_generation output (设计 Brief) for a project.
+
+    Used by the Canvas workspace's Proposal editor panel and the export
+    dropdown to resolve the ``output_id`` + ``sections_meta`` that drive
+    章节 review + 导出门控 (PRESALE_DELIVERY_SPEC §6.1 / §10.2).
+
+    Returns 404 when no Brief exists yet — the frontend uses that to hide the
+    Proposal entry until auto-fill has produced one.
+    """
+    from app.models.generation import GenerationOutput, GenerationTask
+    from app.schemas.common import APIBaseModel
+    from typing import Any, List, Optional
+    from datetime import datetime
+
+    class ProposalOutputOut(APIBaseModel):
+        """Serializer for the latest Brief — camelCase on the wire."""
+
+        output_id: str
+        task_id: str
+        sections_meta: List[Any] = Field(default_factory=list)
+        used_cases: List[Any] = Field(default_factory=list)
+        used_documents: List[Any] = Field(default_factory=list)
+        used_chunks: List[Any] = Field(default_factory=list)
+        used_external_sources: List[Any] = Field(default_factory=list)
+        used_sop_version: Optional[str] = None
+        created_at: Optional[str] = None
+
+    project = await db.get(Project, project_id)
+    if not project:
+        raise NotFoundException("Project", str(project_id))
+
+    result = await db.execute(
+        select(GenerationOutput)
+        .join(GenerationTask, GenerationTask.id == GenerationOutput.task_id)
+        .where(
+            GenerationTask.project_id == project_id,
+            GenerationTask.type == "proposal_generation",
+        )
+        .order_by(GenerationOutput.created_at.desc())
+        .limit(1)
+    )
+    output = result.scalar_one_or_none()
+    if output is None:
+        raise NotFoundException("GenerationOutput", f"project={project_id}")
+
+    return Response(
+        data=ProposalOutputOut(
+            output_id=str(output.id),
+            task_id=str(output.task_id),
+            sections_meta=output.sections_meta or [],
+            used_cases=output.used_cases or [],
+            used_documents=output.used_documents or [],
+            used_chunks=output.used_chunks or [],
+            used_external_sources=output.used_external_sources or [],
+            used_sop_version=output.used_sop_version,
+            created_at=output.created_at.isoformat() if output.created_at else None,
+        ),
+        message="Latest proposal output",
+    )

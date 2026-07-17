@@ -62,6 +62,7 @@ import { VersionPanel } from "@/components/canvas/version-panel";
 import { VisualDrawer } from "@/components/canvas/visual-drawer";
 import { ToneCard } from "@/components/canvas/tone-card";
 import { ContextPackDrawer } from "@/components/canvas/context-pack-drawer";
+import { ProposalEditorPanel } from "@/components/canvas/proposal-editor-panel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -138,6 +139,10 @@ function CanvasWorkspaceInner() {
   const [addNodeOpen, setAddNodeOpen] = useState(false);
   const [addingNode, setAddingNode] = useState(false);
   const [contextPackOpen, setContextPackOpen] = useState(false);
+  // Proposal editor panel (PRESALE_DELIVERY_SPEC §10.2) — surfaces the latest
+  // 设计 Brief (proposal_generation output) for章节 review. Opened from the
+  // toolbar.
+  const [proposalOpen, setProposalOpen] = useState(false);
   // Context pack (PRD §9.3) — pulled from canvas.layoutConfig.context_pack
   // on every load so the traceability drawer stays in sync with the version.
   const [contextPack, setContextPack] = useState<Record<string, unknown> | null>(null);
@@ -659,6 +664,14 @@ function CanvasWorkspaceInner() {
             <FileSearch className="h-4 w-4 text-primary" />
             <span className="hidden lg:inline">上下文追溯</span>
           </button>
+          <button
+            onClick={() => setProposalOpen(true)}
+            className="border border-outline-variant px-3 h-9 rounded-lg font-medium text-sm text-on-surface-variant hover:bg-surface-container-low transition-all flex items-center gap-1.5"
+            title="查看 / 审核策划案（设计 Brief）章节"
+          >
+            <FileText className="h-4 w-4 text-primary" />
+            <span className="hidden lg:inline">策划案</span>
+          </button>
           {tone && (
             <button
               onClick={() => setToneOpen(true)}
@@ -751,6 +764,12 @@ function CanvasWorkspaceInner() {
             onClose={() => setContextPackOpen(false)}
           />
         )}
+
+        <ProposalEditorPanel
+          projectId={projectId}
+          open={proposalOpen}
+          onClose={() => setProposalOpen(false)}
+        />
       </section>
 
       <VisualDrawer

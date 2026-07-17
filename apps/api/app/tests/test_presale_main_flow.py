@@ -198,3 +198,49 @@ async def test_auto_fill_persists_generation_output(
     task = result.scalar_one_or_none()
     assert task is not None, "auto-fill 应持久化 proposal_generation GenerationTask"
     assert task.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_get_latest_proposal_output_returns_brief(
+    client: AsyncClient, db_session
+):
+    """Task 3 / §10.2: GET /projects/{id}/proposal-output 返回最新 Brief。
+
+    ProposalEditorPanel 与导出按钮都靠这个端点拿到 output_id + sections_meta。
+    没有 Brief 时返回 404（前端据此隐藏入口）。
+    """
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    # 触发 auto-fill 生成 Brief
+    chat = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+    )
+    assert chat.status_code == 200, chat.text
+
+    resp = await client.get(f"/api/v1/projects/{project_id}/proposal-output")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert "outputId" in data, "应返回 outputId（camelCase）"
+    assert isinstance(data.get("sectionsMeta"), list)
+
+
+@pytest.mark.asyncio
+async def test_get_latest_proposal_output_404_when_no_brief(
+    client: AsyncClient, db_session
+):
+    """没有 Brief 时返回 404 — 前端据此隐藏 Proposal 入口。"""
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+
+    resp = await client.get(f"/api/v1/projects/{project_id}/proposal-output")
+    assert resp.status_code == 404, resp.text
