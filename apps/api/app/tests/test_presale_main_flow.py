@@ -105,3 +105,96 @@ async def test_wizard_creates_project_with_canvas_v1(
     conv_data = conv_resp.json()["data"]
     # API output is camelCase (alias_generator=to_camel)
     assert str(conv_data["projectId"]) == project_id
+
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _parse_sse_events(body: str) -> list[dict]:
+    """Extract every `data: {...}` SSE payload from a raw response body."""
+    events: list[dict] = []
+    for line in body.splitlines():
+        if line.startswith("data: "):
+            try:
+                events.append(json.loads(line[len("data: "):]))
+            except json.JSONDecodeError:
+                continue
+    return events
+
+
+@pytest.mark.asyncio
+async def test_first_message_triggers_auto_fill_with_proposal_blocks(
+    client: AsyncClient, db_session
+):
+    """B1/B2/B3/B4: 首条消息触发 auto-fill → canvas_fill_proposal + 三大板块填充。
+
+    通过 MockLLMService 跑完整 HTTP /chat/stream（而非直接调内部 handler），
+    校验「向导 → Canvas → 首条 auto-fill → 可见 proposal」链路真的接通。
+    """
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    assert wiz.status_code == 201, wiz.text
+    project_id = wiz.json()["data"]["id"]
+
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    resp = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+    )
+    assert resp.status_code == 200, resp.text
+    events = _parse_sse_events(resp.text)
+    types = {e.get("type") for e in events}
+
+    # B2: 必须发出 canvas_fill_proposal（让用户看到分板块填充结果）
+    assert "canvas_fill_proposal" in types, f"missing canvas_fill_proposal; got {types}"
+    # B4: 必须发出策划案初稿（proposal_section）
+    assert "proposal_section" in types, f"missing proposal_section; got {types}"
+
+    # B3: 画布三大板块至少各有一个节点写入 planning 内容
+    canvas_resp = await client.get(f"/api/v1/projects/{project_id}/canvas")
+    assert canvas_resp.status_code == 200, canvas_resp.text
+    nodes = canvas_resp.json()["data"]["nodes"]
+    filled = [n for n in nodes if (n.get("content") or {}).get("planning")]
+    assert len(filled) >= 3, f"三大板块至少 3 个节点应有 planning; got {len(filled)}"
+
+
+@pytest.mark.asyncio
+async def test_auto_fill_persists_generation_output(
+    client: AsyncClient, db_session
+):
+    """B4 增强: auto-fill 产出的策划案写入 GenerationOutput（供审核/导出复用）。
+
+    没有持久化时，章节审核、导出门控都无法定位 proposal；这是 Task 3/4 的前置。
+    """
+    from app.models.generation import GenerationTask
+
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    resp = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    # 必须有一条 proposal_generation 类型的 GenerationTask 落库
+    result = await db_session.execute(
+        select(GenerationTask).where(
+            GenerationTask.project_id == uuid.UUID(project_id),
+            GenerationTask.type == "proposal_generation",
+        )
+    )
+    task = result.scalar_one_or_none()
+    assert task is not None, "auto-fill 应持久化 proposal_generation GenerationTask"
+    assert task.status == "completed"

@@ -71,6 +71,16 @@ class MockLLMService(LLMService):
         max_tokens: int = 2000,
     ) -> str:
         """Return a mock text completion based on prompt keywords."""
+        # Canvas orchestrator / any caller that pins the contract with
+        # 「请严格返回 JSON」 expects a parseable JSON object. Detect the node
+        # keys the prompt enumerates and emit a {node_key: [...]} stub so the
+        # fill_canvas extract/planning passes produce non-empty `planning`
+        # content under MockLLM (otherwise the whole canvas falls back to
+        # pending_review and the auto-fill E2E becomes a no-op). Match
+        # case-insensitively — prompts use 「JSON」 (uppercase).
+        if "请严格返回 json" in prompt.lower():
+            return self._mock_node_json(prompt)
+
         prompt_lower = prompt.lower()
 
         if "company" in prompt_lower and "analysis" in prompt_lower:
@@ -263,6 +273,58 @@ Total project investment: $700K - $1.2M over 6-8 months
 
 ## Next Steps
 We recommend scheduling a detailed discovery session to finalize scope and priorities."""
+
+    @staticmethod
+    def _mock_node_json(prompt: str) -> str:
+        """Stub for canvas-orchestrator extract/planning passes.
+
+        Those prompts ask the model to return ``{"<node_key>": [...]}`` for
+        every node enumerated in the prompt. We extract the node_key list from
+        the embedded JSON spec (``[{"node_key": "...", "title": "..."}]``) and
+        emit one mock bullet per node so the orchestrator's planning pass has
+        real content to write — without that, the auto-fill pipeline produces
+        an all-empty canvas and the E2E assertions in
+        ``test_presale_main_flow`` cannot exercise the visible-blocks path.
+
+        Returns a JSON string (no code fences) matching the prompt contract.
+        """
+        import json as _json
+        import re as _re
+
+        # Find the node-spec list — the prompt embeds it as JSON. Take the
+        # longest bracketed segment we can parse as a list of dicts.
+        candidates = _re.findall(r"\[.*?\]", prompt, flags=_re.DOTALL)
+        node_keys: list[str] = []
+        for seg in sorted(candidates, key=len, reverse=True):
+            try:
+                parsed = _json.loads(seg)
+            except _json.JSONDecodeError:
+                continue
+            if isinstance(parsed, list) and all(isinstance(x, dict) for x in parsed):
+                node_keys = [
+                    str(x.get("node_key") or x.get("title") or "")
+                    for x in parsed
+                    if isinstance(x, dict)
+                ]
+                node_keys = [k for k in node_keys if k]
+                if node_keys:
+                    break
+
+        if not node_keys:
+            # Fallback: a single generic key so callers still see non-empty
+            # JSON rather than a parse error.
+            return '{"company_profile": ["（Mock）企业简介要点"]}'
+
+        # Distinguish extract vs planning by a marker in the prompt — planning
+        # prompts contain 「撰写文案」/「售前文案」, extract prompts contain
+        # 「抽取」/「客观事实」. Copy reads slightly differently but the shape
+        # is identical, which is all the orchestrator parses.
+        is_planning = any(
+            kw in prompt for kw in ("撰写文案", "售前文案", "策划专家")
+        )
+        label = "售前文案" if is_planning else "客观事实"
+        payload = {k: [f"（Mock {label}）{k} 示例要点"] for k in node_keys}
+        return _json.dumps(payload, ensure_ascii=False)
 
     @staticmethod
     def _mock_visual_prompt(prompt: str) -> str:

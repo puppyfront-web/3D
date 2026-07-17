@@ -1730,6 +1730,7 @@ class ConversationService:
         # 镜像 _handle_skill_execution(765-798):独立 session + SkillRegistry.get_instance() +
         # SkillContext(user_id=None) + run_with_react,避免 SQLite 单写者死锁。
         # Brief 失败不阻断主流程(画布已填、可见化已 emit)。
+        _auto_fill_gen_output_id: Optional[str] = None
         try:
             from app.skills.base import SkillContext
             from app.skills.registry import SkillRegistry
@@ -1768,8 +1769,51 @@ class ConversationService:
             skill_output = skill_result.get("output", {})
             if skill_output:
                 yield f"data: {json.dumps({'type': 'proposal_section', 'data': skill_output}, ensure_ascii=False)}\n\n"
+
+                # PRESALE_DELIVERY_SPEC §6.1 / §9 — the proposal (设计 Brief)
+                # must be persisted as a GenerationOutput so the章节审核 / 导出
+                # 门控 / Proposal 编辑器都能定位到它。没有这一步,Task 3 的
+                # GET /projects/{id}/proposal-output 和 Task 4 的导出门控都
+                # 找不到数据。写库用 skill_db(独立会话,避免 SQLite 单写者
+                # 死锁),提交后 id 通过闭包变量传到下方的 assistant metadata。
+                try:
+                    from app.models.generation import GenerationOutput, GenerationTask
+
+                    gen_task = GenerationTask(
+                        project_id=proj_uuid,
+                        type="proposal_generation",
+                        status="completed",
+                        model_used=skill_ctx.llm_service.__class__.__name__,
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    skill_db.add(gen_task)
+                    await skill_db.flush()
+
+                    gen_output = GenerationOutput(
+                        task_id=gen_task.id,
+                        content_type="application/json",
+                        content=json.dumps(skill_output, ensure_ascii=False),
+                        used_cases=list(skill_output.get("used_cases") or []),
+                        used_documents=list(skill_output.get("used_documents") or []),
+                        used_chunks=list(skill_output.get("used_chunks") or []),
+                        used_external_sources=list(
+                            skill_output.get("used_external_sources") or []
+                        ),
+                        sections_meta=list(skill_output.get("sections_meta") or []),
+                    )
+                    skill_db.add(gen_output)
+                    await skill_db.commit()
+                    _auto_fill_gen_output_id = str(gen_output.id)
+                except Exception:
+                    logger.exception(
+                        "auto_fill: persist proposal GenerationOutput failed; continuing"
+                    )
+                    _auto_fill_gen_output_id = None
+            else:
+                _auto_fill_gen_output_id = None
         except Exception:
             logger.exception("auto_fill: brief generation failed; continuing")
+            _auto_fill_gen_output_id = None
 
         # ── Stage 3: summary reply ──
         filled = fill_result.get("filled_count", 0)
@@ -1803,6 +1847,10 @@ class ConversationService:
                 "filled_count": filled,
                 "web_search_used": bool(web_hits),
                 "node_ids": node_ids,
+                # Link the assistant turn to the persisted Brief so the frontend
+                # can open the Proposal editor / trigger export directly from
+                # this message (PRESALE_DELIVERY_SPEC §6.1).
+                "generation_output_id": _auto_fill_gen_output_id,
             },
             auto_commit=True,
         )

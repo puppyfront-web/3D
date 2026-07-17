@@ -128,6 +128,22 @@ async def canvas_project_with_version(db_session):
         await db_session.execute(delete(CanvasGroup).where(CanvasGroup.canvas_id.in_(canvas_ids)))
         await db_session.execute(delete(Canvas).where(Canvas.id.in_(canvas_ids)))
     await db_session.execute(delete(ProjectVersion).where(ProjectVersion.id == version_id))
+    # auto-fill now persists proposal GenerationTask/GenerationOutput (Plan
+    # Task 2). These reference the project via FK, so delete them BEFORE the
+    # project row or the teardown trips a FOREIGN KEY constraint.
+    from app.models.generation import GenerationOutput, GenerationTask
+
+    gen_task_ids_res = await db_session.execute(
+        select(GenerationTask.id).where(GenerationTask.project_id == project_id)
+    )
+    gen_task_ids = [r[0] for r in gen_task_ids_res.all()]
+    if gen_task_ids:
+        await db_session.execute(
+            delete(GenerationOutput).where(GenerationOutput.task_id.in_(gen_task_ids))
+        )
+        await db_session.execute(
+            delete(GenerationTask).where(GenerationTask.id.in_(gen_task_ids))
+        )
     await db_session.execute(delete(Project).where(Project.id == project_id))
     await db_session.execute(delete(Company).where(Company.id == company_id))
     await db_session.execute(delete(User).where(User.id == user_id))
