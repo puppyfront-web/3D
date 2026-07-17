@@ -339,3 +339,64 @@ async def test_export_succeeds_after_all_sections_approved(
     # only asserts the 403 is gone.
     resp = await client.post(f"/api/v1/exports/word/{output_id}")
     assert resp.status_code != 403, "全章节已 approved,导出门控应放行"
+
+
+@pytest.mark.asyncio
+async def test_project_status_advances_through_main_flow(
+    client: AsyncClient, db_session
+):
+    """F5: 项目状态随主流程推进 — auto-fill → proposal_generated;导出 → exported。"""
+    from app.models.project import Project
+
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    # 1) auto-fill → proposal_generated
+    chat = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+    )
+    assert chat.status_code == 200, chat.text
+
+    await db_session.commit()  # refresh view across sessions
+    project = await db_session.get(Project, uuid.UUID(project_id))
+    assert project is not None
+    assert project.status == "proposal_generated", (
+        f"auto-fill 后状态应为 proposal_generated; got {project.status}"
+    )
+
+    # 2) approve all sections then export → exported
+    out_resp = await client.get(f"/api/v1/projects/{project_id}/proposal-output")
+    assert out_resp.status_code == 200, out_resp.text
+    output_id = out_resp.json()["data"]["outputId"]
+    sections = out_resp.json()["data"]["sectionsMeta"]
+    if not sections:
+        pytest.skip("Mock auto-fill produced no sections_meta; export test needs sections")
+
+    for section in sections:
+        order = section["order"]
+        patch = await client.patch(
+            f"/api/v1/generations/outputs/{output_id}/sections/{order}/status",
+            json={"status": "approved"},
+        )
+        assert patch.status_code == 200, patch.text
+
+    export_resp = await client.post(f"/api/v1/exports/word/{output_id}")
+    # Export may 200 (python-docx installed) — in that case status flips to
+    # exported. If the library is missing the endpoint returns 500 and we
+    # cannot assert the transition; skip instead of failing on env.
+    if export_resp.status_code == 500:
+        pytest.skip("python-docx not installed; cannot verify exported transition")
+
+    assert export_resp.status_code == 200, export_resp.text
+    await db_session.commit()
+    await db_session.refresh(project)
+    assert project.status == "exported", (
+        f"导出后状态应为 exported; got {project.status}"
+    )

@@ -65,6 +65,31 @@ def _check_export_eligibility(output: GenerationOutput) -> tuple[bool, list[str]
     return len(blockers) == 0, blockers
 
 
+async def _mark_project_exported(db: AsyncSession, task: GenerationTask) -> None:
+    """Stamp the project lifecycle to `exported` after a successful export.
+
+    PRESALE_DELIVERY_SPEC §4.2 / F5 — every successful DOCX/PDF/PPTX export
+    advances the project so the workspace status chip reflects reality. Runs
+    in the request session and commits there; failures only log (export itself
+    already succeeded, we must not surface a 500 for a status flip).
+    """
+    try:
+        from app.models.project import Project
+
+        project = await db.get(Project, task.project_id)
+        if project is not None:
+            project.status = "exported"
+            await db.commit()
+    except Exception:
+        # Don't fail the export over a status update — log and move on.
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "export: failed to mark project %s as exported", task.project_id
+        )
+        await db.rollback()
+
+
 @router.post("/word/{task_id}")
 async def export_to_word(
     task_id: uuid.UUID,
@@ -136,6 +161,8 @@ async def export_to_word(
     filename = f"export_{task_id}.docx"
     filepath = os.path.join(storage_dir, filename)
     doc.save(filepath)
+
+    await _mark_project_exported(db, task)
 
     return FileResponse(
         path=filepath,
@@ -222,6 +249,8 @@ async def export_to_pdf(
             story.append(Paragraph(safe, styles["Normal"]))
 
     doc.build(story)
+
+    await _mark_project_exported(db, task)
 
     return FileResponse(
         path=filepath,

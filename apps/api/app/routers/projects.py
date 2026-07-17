@@ -48,7 +48,26 @@ def _message_to_out(m: Message) -> MessageOut:
         created_at=m.created_at,
     )
 
-VALID_STATUSES = {"draft", "in_progress", "review", "completed", "archived"}
+# Project lifecycle statuses. The first four are manual milestones; the rest
+# are auto-set by the presale main flow (PRESALE_DELIVERY_SPEC §4.2 / F5):
+#   proposal_generated — auto-fill produced a Brief (set in _handle_auto_fill)
+#   pending_review     — all Brief sections approved, ready to export
+#   exported           — at least one format exported successfully
+# proposal_draft / visual_design are legacy skill-stamped values kept for
+# backward compatibility with rows written before this lifecycle landed.
+VALID_STATUSES = {
+    "draft",
+    "in_progress",
+    "review",
+    "completed",
+    "archived",
+    "proposal_generated",
+    "pending_review",
+    "exported",
+    # legacy (skill-stamped, kept so PATCH /status doesn't reject old rows)
+    "proposal_draft",
+    "visual_design",
+}
 
 
 @router.get("", response_model=PaginatedResponse[ProjectOut])

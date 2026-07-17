@@ -1821,6 +1821,18 @@ class ConversationService:
                     # — without this commit those rows roll back when the
                     # session closes and the editor / export gate can't find
                     # the Brief.
+                    #
+                    # PRESALE_DELIVERY_SPEC §4.2 / F5: a successful auto-fill that
+                    # produced a Brief advances the project lifecycle to
+                    # `proposal_generated`. The skill already stamps
+                    # `proposal_draft` (legacy); normalise to the canonical value
+                    # so the workspace status chip reads correctly.
+                    if _auto_fill_gen_output_id:
+                        from app.models.project import Project as _Project
+
+                        proj_row = await skill_db.get(_Project, proj_uuid)
+                        if proj_row is not None:
+                            proj_row.status = "proposal_generated"
                     await skill_db.commit()
                 except Exception:
                     logger.exception(
