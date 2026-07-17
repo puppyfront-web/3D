@@ -1764,52 +1764,75 @@ class ConversationService:
                     },
                     skill_ctx,
                 )
-            # run_with_react 返回 dict(runner.py:97-118),output 在 "output" 键下 ——
-            # 不能用 getattr(dict, "output")(恒为 None)。镜像 _handle_skill_execution:860。
-            skill_output = skill_result.get("output", {})
-            if skill_output:
-                yield f"data: {json.dumps({'type': 'proposal_section', 'data': skill_output}, ensure_ascii=False)}\n\n"
+                # run_with_react 返回 dict(runner.py:97-118),output 在 "output" 键下
+                # —— 不能用 getattr(dict, "output")(恒为 None)。镜像 _handle_skill_execution:860。
+                skill_output = skill_result.get("output", {}) or {}
 
                 # PRESALE_DELIVERY_SPEC §6.1 / §9 — the proposal (设计 Brief)
                 # must be persisted as a GenerationOutput so the章节审核 / 导出
-                # 门控 / Proposal 编辑器都能定位到它。没有这一步,Task 3 的
-                # GET /projects/{id}/proposal-output 和 Task 4 的导出门控都
-                # 找不到数据。写库用 skill_db(独立会话,避免 SQLite 单写者
-                # 死锁),提交后 id 通过闭包变量传到下方的 assistant metadata。
+                # 门控 / Proposal 编辑器都能定位到它。proposal_generation 在 DB
+                # 模式下已经写了自己的 GenerationOutput(含 sections_meta)并返回
+                # output_id;优先复用那一行,避免重复落库 + sections_meta 丢失。
+                # 仅当 skill 没有持久化(chat 模式 / 旧路径)才在此补建。
+                #
+                # 重要:这段 commit 必须在 `async with skill_db` 之内执行 —— 否则
+                # async with 退出会关闭 session 并回滚 skill 的 flush,导致 Brief
+                # 落不进库(Proposal 编辑器 / 导出门控都找不到)。
                 try:
-                    from app.models.generation import GenerationOutput, GenerationTask
+                    skill_output_id = skill_output.get("output_id")
+                    if skill_output_id:
+                        _auto_fill_gen_output_id = str(skill_output_id)
+                    else:
+                        from app.models.generation import (
+                            GenerationOutput,
+                            GenerationTask,
+                        )
 
-                    gen_task = GenerationTask(
-                        project_id=proj_uuid,
-                        type="proposal_generation",
-                        status="completed",
-                        model_used=skill_ctx.llm_service.__class__.__name__,
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                    skill_db.add(gen_task)
-                    await skill_db.flush()
+                        gen_task = GenerationTask(
+                            project_id=proj_uuid,
+                            type="proposal_generation",
+                            status="completed",
+                            model_used=skill_ctx.llm_service.__class__.__name__,
+                            completed_at=datetime.now(timezone.utc),
+                        )
+                        skill_db.add(gen_task)
+                        await skill_db.flush()
 
-                    gen_output = GenerationOutput(
-                        task_id=gen_task.id,
-                        content_type="application/json",
-                        content=json.dumps(skill_output, ensure_ascii=False),
-                        used_cases=list(skill_output.get("used_cases") or []),
-                        used_documents=list(skill_output.get("used_documents") or []),
-                        used_chunks=list(skill_output.get("used_chunks") or []),
-                        used_external_sources=list(
-                            skill_output.get("used_external_sources") or []
-                        ),
-                        sections_meta=list(skill_output.get("sections_meta") or []),
-                    )
-                    skill_db.add(gen_output)
+                        gen_output = GenerationOutput(
+                            task_id=gen_task.id,
+                            content_type="application/json",
+                            content=json.dumps(skill_output, ensure_ascii=False),
+                            used_cases=list(skill_output.get("used_cases") or []),
+                            used_documents=list(
+                                skill_output.get("used_documents") or []
+                            ),
+                            used_chunks=list(skill_output.get("used_chunks") or []),
+                            used_external_sources=list(
+                                skill_output.get("used_external_sources") or []
+                            ),
+                            sections_meta=list(
+                                skill_output.get("sections_meta") or []
+                            ),
+                        )
+                        skill_db.add(gen_output)
+                        _auto_fill_gen_output_id = str(gen_output.id)
+                    # Commit in BOTH branches: the DB-mode skill already flushed
+                    # its GenerationTask/Output into skill_db but never commits
+                    # — without this commit those rows roll back when the
+                    # session closes and the editor / export gate can't find
+                    # the Brief.
                     await skill_db.commit()
-                    _auto_fill_gen_output_id = str(gen_output.id)
                 except Exception:
                     logger.exception(
                         "auto_fill: persist proposal GenerationOutput failed; continuing"
                     )
                     _auto_fill_gen_output_id = None
-            else:
+            # Emit the proposal_section block AFTER the skill_db transaction is
+            # committed — the SSE event is the user-facing signal that the Brief
+            # is ready; emitting earlier would race the editor's GET.
+            if skill_output:
+                yield f"data: {json.dumps({'type': 'proposal_section', 'data': skill_output}, ensure_ascii=False)}\n\n"
+            if not skill_output:
                 _auto_fill_gen_output_id = None
         except Exception:
             logger.exception("auto_fill: brief generation failed; continuing")

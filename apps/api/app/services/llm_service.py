@@ -85,7 +85,7 @@ class MockLLMService(LLMService):
 
         if "company" in prompt_lower and "analysis" in prompt_lower:
             return self._mock_company_analysis(prompt)
-        elif "proposal" in prompt_lower:
+        elif "proposal" in prompt_lower or "需求理解" in prompt:
             return self._mock_proposal(prompt)
         elif "visual" in prompt_lower or "design" in prompt_lower:
             return self._mock_visual_prompt(prompt)
@@ -250,6 +250,45 @@ The company holds a solid mid-market position with approximately 15-20% market s
 
     @staticmethod
     def _mock_proposal(prompt: str) -> str:
+        # PRESALE_DELIVERY_SPEC §6.3 structured Brief: when the prompt asks for
+        # the canonical 10-section proposal (检测「需求理解」章节名), return a
+        # numbered-headers markdown so _parse_sections_meta produces real
+        # sections_meta — without this the auto-fill Brief has empty
+        # sections_meta and the章节审核 / 导出门控 E2E cannot exercise the
+        # require_human_review path (Task 4 export gate tests would skip).
+        if "需求理解" in prompt:
+            return """# 售前方案（Mock）
+
+## 1. 需求理解
+（Mock）综合六看框架，客户希望基于裸眼3D幕墙实现品牌发布。
+
+## 2. 企业解析摘要
+（Mock）企业为核心行业玩家，技术与品牌力具备落地基础。
+
+## 3. 项目背景
+（Mock）宏观政策、中观行业、微观定位三层递进。
+
+## 4. 项目目标
+（Mock）至少 3 条可衡量目标（待客户确认具体指标）。
+
+## 5. 创意主题
+（Mock）2-3 个方向，结合品牌基因与差异化。
+
+## 6. 方案亮点
+（Mock）差异化卖点 + 视觉冲击。
+
+## 7. 视觉方向
+（Mock）色彩、风格、动效参考。
+
+## 8. 参考案例
+（Mock）引用案例库中的真实案例。
+
+## 9. 实施建议
+（Mock）预算与工期需人工确认：预算区间待客户反馈，工期约 6-8 周。
+
+## 10. 风险与待确认事项
+（Mock）报价、工期、屏幕参数需进一步确认。"""
+
         return """# Project Proposal
 
 ## Executive Summary

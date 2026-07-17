@@ -295,7 +295,12 @@ async def get_latest_proposal_output(
         .join(GenerationTask, GenerationTask.id == GenerationOutput.task_id)
         .where(
             GenerationTask.project_id == project_id,
-            GenerationTask.type == "proposal_generation",
+            # The proposal_generation skill stamps its task as type="proposal"
+            # (skills/builtins/proposal_generation.py:433); the auto-fill
+            # fallback path uses "proposal_generation". Accept both so the
+            # editor / export dropdown resolves the Brief regardless of which
+            # code path persisted it.
+            GenerationTask.type.in_(["proposal_generation", "proposal"]),
         )
         .order_by(GenerationOutput.created_at.desc())
         .limit(1)

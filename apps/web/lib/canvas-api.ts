@@ -379,3 +379,46 @@ export async function updateSectionStatus(
     },
   );
 }
+
+// Export the proposal Brief as DOCX/PDF. Hits /exports/{word|pdf}/{output_id},
+// which enforces the章节审核 gate (403 with blockers until all sections are
+// approved — PRESALE_DELIVERY_SPEC §9.2). Returns a binary file, so this uses
+// plain fetch + blob() and triggers a browser download (mirrors
+// exportVersionDoc above).
+export async function exportProposalDoc(
+  outputId: string,
+  format: "word" | "pdf",
+): Promise<void> {
+  const ext = format === "word" ? "docx" : "pdf";
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(
+    `${API_BASE_URL}/api/v1/exports/${format}/${outputId}`,
+    { method: "POST", headers },
+  );
+  if (!res.ok) {
+    // The export gate returns 403 with { detail: { message, blockers } } —
+    // surface the blockers so the user knows which sections to approve.
+    const err = await res.json().catch(() => ({}));
+    if (err?.detail && typeof err.detail === "object" && Array.isArray(err.detail.blockers)) {
+      const blockers = err.detail.blockers as string[];
+      throw new Error(`${err.detail.message || "导出被阻断"}：${blockers.join("；")}`);
+    }
+    const detail =
+      (err?.detail && (err.detail.message || err.detail)) ||
+      err?.message ||
+      `导出失败 (${res.status})`;
+    throw new Error(typeof detail === "string" ? detail : "导出失败");
+  }
+  const blob = await res.blob();
+  const disp = res.headers.get("content-disposition") || "";
+  const match = disp.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || `proposal.${ext}`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}

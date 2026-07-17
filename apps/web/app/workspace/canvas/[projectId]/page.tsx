@@ -28,8 +28,10 @@ import {
   addNode,
   createVersion,
   exportVersionDoc,
+  exportProposalDoc,
   getAgentRun,
   getCurrentCanvas,
+  getProposalOutput,
   getVersionCanvas,
   listVersions,
   triggerAgentRun,
@@ -67,6 +69,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -533,6 +536,26 @@ function CanvasWorkspaceInner() {
     }
   }
 
+  async function handleExportProposalDoc(format: "word" | "pdf") {
+    // PRESALE_DELIVERY_SPEC §9.2 / §10.2 — export the 设计 Brief (proposal
+    // GenerationOutput). Enforces the章节审核 gate: if any require_human_review
+    // section isn't approved, the backend returns 403 with blockers and the
+    // client surfaces them (no silent download of half-reviewed content).
+    try {
+      const out = await getProposalOutput(projectId);
+      if (!out.success || !out.data) {
+        toast.error("还没有可导出的策划案 — 请先在对话中触发首轮 auto-fill");
+        return;
+      }
+      await exportProposalDoc(out.data.outputId, format);
+      toast.success(`已导出策划案 ${format === "word" ? "Word" : "PDF"}`);
+      // Brief exports flip the project status downstream; reload to refresh.
+      loadCurrent();
+    } catch (e) {
+      toast.error(`导出失败：${e instanceof Error ? e.message : "未知错误"}`);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full bg-surface">
@@ -635,6 +658,13 @@ function CanvasWorkspaceInner() {
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleExportVersionDoc("pdf")} className="gap-2">
                 <FileType className="h-4 w-4" /> 方案文档 (PDF)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleExportProposalDoc("word")} className="gap-2">
+                <FileText className="h-4 w-4" /> 策划案 Brief (Word · 需审核)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportProposalDoc("pdf")} className="gap-2">
+                <FileType className="h-4 w-4" /> 策划案 Brief (PDF · 需审核)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
