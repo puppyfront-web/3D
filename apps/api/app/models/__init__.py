@@ -16,6 +16,7 @@ from app.models.feedback import Feedback
 from app.models.skill import Skill, SkillExecution
 from app.models.conversation import Conversation, ConversationThread, Message
 from app.models.conversation_lock import ConversationLock
+from app.models.project_memory import ConversationState, ProjectMemory
 from app.models.app_setting import AppSetting
 from app.models.industry_material import IndustryMaterial
 from app.models.talking_point import TalkingPoint
@@ -55,6 +56,9 @@ __all__ = [
     "ConversationThread",
     "Message",
     "ConversationLock",
+    # Project + conversation memory (PRESALE_DELIVERY_SPEC §7.2)
+    "ProjectMemory",
+    "ConversationState",
     "AppSetting",
     # Internal knowledge bases (PRD §12)
     "IndustryMaterial",

@@ -1317,6 +1317,49 @@ class ConversationService:
                 + f"\n\n【网络搜索命中】（回答时可引用，标注来自网络）\n{web_block}\n"
             )
 
+        # ── PRESALE_DELIVERY_SPEC §7.2 — inject project memory so follow-up
+        # turns don't "失忆". The canvas_digest carries the boards / missing_info
+        # from the most recent auto-fill, and last_web_hits carries the prior
+        # search so a question like "刚才搜到的主营业务是什么?" can cite it
+        # without a new search. Both are best-effort: missing/empty memory
+        # degrades silently to no injection.
+        if project_id:
+            try:
+                from app.services.project_memory_service import (
+                    project_memory_service,
+                )
+
+                proj_uuid_mem = (
+                    uuid.UUID(project_id) if isinstance(project_id, str) else project_id
+                )
+                digest = await project_memory_service.get_project_memory(
+                    db, proj_uuid_mem, "canvas_digest"
+                )
+                if digest and digest.get("boards"):
+                    # Truncate to keep the prompt bounded; the full digest lives
+                    # in DB for the editor / export path.
+                    digest_blob = json.dumps(digest, ensure_ascii=False)[:4000]
+                    system_prompt = (
+                        system_prompt
+                        + f"\n\n【项目画布摘要】（来自上一轮 auto-fill，回答时优先基于此）\n{digest_blob}\n"
+                    )
+                last_web = await project_memory_service.get_conversation_state(
+                    db, conversation_id, "last_web_hits"
+                )
+                if last_web and last_web.get("hits"):
+                    prior_block = "\n".join(
+                        f"- {h.get('title') or h.get('domain')}：{(h.get('snippet') or '').strip()[:120]}"
+                        for h in (last_web.get("hits") or [])[:3]
+                    )
+                    system_prompt = (
+                        system_prompt
+                        + f"\n\n【上一轮联网检索】（用户追问上轮结果时引用，不要重复搜索）\n{prior_block}\n"
+                    )
+            except Exception:
+                logger.exception(
+                    "conversational: inject project memory failed; continuing"
+                )
+
         rich_stream = getattr(llm, "generate_with_history_stream_rich", None)
 
         yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '正在检索网络信息…' if web_hits else '正在理解你的问题并组织回复…'}, ensure_ascii=False)}\n\n"
@@ -1849,6 +1892,43 @@ class ConversationService:
         except Exception:
             logger.exception("auto_fill: brief generation failed; continuing")
             _auto_fill_gen_output_id = None
+
+        # ── Stage 2.5: persist project + conversation memory ──
+        # PRESALE_DELIVERY_SPEC §7.2 — write the canvas_digest (so follow-up
+        # turns answer "刚才填充的企业主营业务是什么?" without re-searching) and the
+        # last_web_hits conversation state (so a fact question can cite the
+        # prior search). Uses a dedicated session so the SSE request session
+        # isn't pinned; memory failures never abort the main flow (the Brief
+        # is already emitted).
+        try:
+            from app.db.session import async_session_factory as _asf
+            from app.services.project_memory_service import (
+                project_memory_service,
+            )
+
+            async with _asf() as mem_db:
+                digest = await project_memory_service.build_canvas_digest(
+                    mem_db, proj_uuid
+                )
+                # Attach the just-collected web hits to the digest so the LLM
+                # has the one-turn-ago search context inline.
+                digest["last_web_search"] = {
+                    "hits": web_hits or [],
+                    "summary": search_summary,
+                } if web_hits else None
+                await project_memory_service.upsert_project_memory(
+                    mem_db, proj_uuid, "canvas_digest", digest
+                )
+                if web_hits:
+                    await project_memory_service.upsert_conversation_state(
+                        mem_db,
+                        conversation_id,
+                        "last_web_hits",
+                        {"hits": web_hits, "summary": search_summary},
+                    )
+                await mem_db.commit()
+        except Exception:
+            logger.exception("auto_fill: write project memory failed; continuing")
 
         # ── Stage 3: summary reply ──
         filled = fill_result.get("filled_count", 0)

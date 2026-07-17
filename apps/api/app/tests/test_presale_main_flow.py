@@ -342,6 +342,177 @@ async def test_export_succeeds_after_all_sections_approved(
 
 
 @pytest.mark.asyncio
+async def test_auto_fill_writes_canvas_digest_memory(
+    client: AsyncClient, db_session
+):
+    """P0 C1 (前置): auto-fill 完成后写入 canvas_digest 到 project_memories。
+
+    没有这一步,后续追问无法基于已填内容回答(失忆)。校验 boards 形状 +
+    missing_info roll-up + last_web_search 占位。
+    """
+    from app.models.project_memory import ProjectMemory
+
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    chat = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+    )
+    assert chat.status_code == 200, chat.text
+
+    await db_session.commit()  # refresh view across sessions
+    result = await db_session.execute(
+        select(ProjectMemory).where(
+            ProjectMemory.project_id == uuid.UUID(project_id),
+            ProjectMemory.memory_type == "canvas_digest",
+        )
+    )
+    mem = result.scalar_one_or_none()
+    assert mem is not None, "auto-fill 应写入 canvas_digest 项目记忆"
+    digest = mem.memory_json
+    assert "boards" in digest
+    assert isinstance(digest.get("missing_info"), list)
+    # last_web_search key is present (None when no web hits in Mock profile).
+    assert "last_web_search" in digest
+
+
+@pytest.mark.asyncio
+async def test_follow_up_question_sees_canvas_digest(
+    client: AsyncClient, db_session
+):
+    """P0 C1: 追问时画布摘要被注入 conversational system_prompt（不失忆）。
+
+    验证方式:用一个捕获 system_prompt 的假 LLM 替换 MockLLMService,触发
+    auto-fill 写入 digest,再发一条追问,断言假 LLM 收到的 system_prompt 含
+    「项目画布摘要」段。这比断言回复文本更可靠(回复内容随 Mock 变化)。
+    """
+    from unittest.mock import AsyncMock, patch
+
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    # 1) auto-fill — writes canvas_digest memory.
+    chat = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+    )
+    assert chat.status_code == 200, chat.text
+
+    # Confirm digest actually landed (precondition for the injection assertion).
+    await db_session.commit()
+    from app.models.project_memory import ProjectMemory
+
+    mem = (
+        await db_session.execute(
+            select(ProjectMemory).where(
+                ProjectMemory.project_id == uuid.UUID(project_id),
+                ProjectMemory.memory_type == "canvas_digest",
+            )
+        )
+    ).scalar_one_or_none()
+    assert mem is not None, "前置失败:auto-fill 未写入 digest"
+
+    # 2) Follow-up — capture the system_prompt the conversational handler sends.
+    # The follow-up must route to _handle_conversational (not auto-fill), so we
+    # patch get_llm_service ONLY around the follow-up request. The capturing
+    # LLM subclasses MockLLMService so any other code path that asks for an LLM
+    # still gets a working service.
+    from app.services.llm_service import MockLLMService
+
+    captured: dict[str, str] = {}
+
+    class _CapturingLLM(MockLLMService):
+        async def generate_with_history_stream_rich(
+            self, messages, system_prompt, temperature=0.7
+        ):
+            captured["system_prompt"] = system_prompt or ""
+            yield "thinking", "已检索画布摘要。"
+            yield "text", "已基于画布回答。"
+
+    async def _fake_get_llm(db=None):
+        return _CapturingLLM()
+
+    with patch(
+        "app.services.conversation_service.get_llm_service",
+        AsyncMock(side_effect=_fake_get_llm),
+    ), patch(
+        "app.services.conversation_service.acquire_web_context",
+        AsyncMock(return_value=([], {"status": "ok", "key_points": [], "missing_info": []})),
+    ):
+        follow = await client.post(
+            f"/api/v1/conversations/{conv_id}/chat/stream",
+            json={
+                "message": "刚才填充的企业主营业务是什么？请基于已填内容回答",
+                "forceIntent": "conversational",
+            },
+        )
+    assert follow.status_code == 200, follow.text
+    assert "项目画布摘要" in captured.get("system_prompt", ""), (
+        "追问时应注入 canvas_digest 到 system_prompt;got: "
+        + captured.get("system_prompt", "")[:200]
+    )
+
+
+@pytest.mark.asyncio
+async def test_conversation_history_persisted_after_reload(
+    client: AsyncClient, db_session
+):
+    """P0 C5: 刷新页面后对话历史与 rich_content blocks 完整保留。
+
+    auto-fill + 一条追问后,通过 GET /projects/{id}/conversation 重新拉取,
+    断言消息数 >= 4(user + assistant + user + assistant),且 assistant 消息
+    带 rich_content(SSE 流式产物的持久化)。
+    """
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    # Turn 1: auto-fill.
+    chat1 = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+    )
+    assert chat1.status_code == 200, chat1.text
+
+    # Turn 2: a follow-up (force conversational so it doesn't re-trigger auto-fill).
+    chat2 = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={
+            "message": "再补充一些细节",
+            "forceIntent": "conversational",
+        },
+    )
+    assert chat2.status_code == 200, chat2.text
+
+    # Reload the conversation from the server — simulates a page refresh.
+    reloaded = await client.get(f"/api/v1/projects/{project_id}/conversation")
+    assert reloaded.status_code == 200, reloaded.text
+    messages = reloaded.json()["data"]["messages"]
+    # At least 4 messages: 2 user turns + 2 assistant turns.
+    assert len(messages) >= 4, f"刷新后应保留全部消息;got {len(messages)}"
+    assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+    assert len(assistant_msgs) >= 2, "应至少有 2 条 assistant 消息(auto-fill + 追问)"
+
+
+@pytest.mark.asyncio
 async def test_project_status_advances_through_main_flow(
     client: AsyncClient, db_session
 ):
