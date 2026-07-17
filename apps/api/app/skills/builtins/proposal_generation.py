@@ -382,6 +382,28 @@ class ProposalGenerationSkill(BaseSkill):
 
         # Load SOP steps via sop_load Tool
         sop_steps_text = ""
+        # PRESALE_DELIVERY_SPEC §4.3 / D3: resolve the SOP the project should
+        # run under when the caller didn't pass one. The matcher falls back to
+        # default_presale_sop; we then load its steps for the prompt AND stamp
+        # ``used_sop_version`` on the GenerationOutput so the artifact is
+        # traceable to a specific SOP version.
+        resolved_sop = None
+        if not sop_workflow_id:
+            try:
+                from app.services.sop_matcher_service import sop_matcher_service
+
+                company_row = await context.db.get(Company, project.company_id) if project.company_id else None
+                resolved_sop = await sop_matcher_service.match(
+                    context.db,
+                    industry=(company_row.industry if company_row else None),
+                    project_type=(project.preferences or {}).get("project_type")
+                    if project.preferences
+                    else None,
+                )
+                if resolved_sop is not None:
+                    sop_workflow_id = str(resolved_sop.id)
+            except Exception as e:
+                logger.warning("SOP matcher failed: %s", e)
         if sop_workflow_id:
             try:
                 sop_tool = registry.get("sop_load")
@@ -391,8 +413,21 @@ class ProposalGenerationSkill(BaseSkill):
                         sop_data = sop_result.data["sop"]
                         if sop_data.get("steps"):
                             sop_steps_text = json.dumps(sop_data["steps"], ensure_ascii=False, indent=2)
+                        # Cache the resolved SOP row so used_sop_version below
+                        # reflects the matched workflow, not just the input.
+                        if resolved_sop is None:
+                            from app.models.workflow import SOPWorkflow
+
+                            resolved_sop = await context.db.get(SOPWorkflow, sop_workflow_id)
             except Exception as e:
                 logger.warning("SOP load failed: %s", e)
+
+        # Build the traceable SOP version stamp ("sop_id@version"); falls back
+        # to the legacy "1.0" when no SOP could be resolved.
+        if resolved_sop is not None:
+            used_sop_version_stamp = f"{resolved_sop.id}@{resolved_sop.version}"
+        else:
+            used_sop_version_stamp = "1.0"
 
         # Load prompt template via prompt_template_load Tool
         db_template = None
@@ -447,7 +482,7 @@ class ProposalGenerationSkill(BaseSkill):
             used_cases=used_cases,
             used_documents=used_documents,
             used_chunks=used_chunks,
-            used_sop_version="1.0",
+            used_sop_version=used_sop_version_stamp,
             sections_meta=self._parse_sections_meta(proposal_content),
         )
         context.db.add(output)

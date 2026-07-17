@@ -90,6 +90,54 @@ async def _mark_project_exported(db: AsyncSession, task: GenerationTask) -> None
         await db.rollback()
 
 
+async def _enforce_export_gate(
+    db: AsyncSession, task: GenerationTask, output: GenerationOutput
+) -> None:
+    """Run the configurable export gate; raise 403 with blockers if it fails.
+
+    PRESALE_DELIVERY_SPEC §9.2 (配置化) — replaces the hard-coded
+    ``_check_export_eligibility`` with the SOP-aware gate. The matched SOP's
+    quality_review checklist is surfaced as advisory items; canvas-node fill
+    state is enforced for the three default boards.
+    """
+    from app.services.export_gate_service import export_gate_service
+
+    # Resolve the matched SOP (best-effort; missing SOP → legacy behaviour).
+    sop = None
+    canvas_boards = None
+    try:
+        from app.services.sop_matcher_service import sop_matcher_service
+
+        sop = await sop_matcher_service.match(db, project_type=None)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("export: SOP match failed; continuing")
+    try:
+        from app.services.project_memory_service import project_memory_service
+
+        digest = await project_memory_service.get_project_memory(
+            db, task.project_id, "canvas_digest"
+        )
+        if digest:
+            canvas_boards = digest.get("boards")
+    except Exception:
+        pass
+
+    result = await export_gate_service.check(
+        db, output, sop=sop, canvas_boards=canvas_boards
+    )
+    if not result["eligible"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": "导出前需完成审核",
+                "blockers": result["blocking"],
+                "advisory": result.get("advisory") or [],
+            },
+        )
+
+
 @router.post("/word/{task_id}")
 async def export_to_word(
     task_id: uuid.UUID,
@@ -98,12 +146,7 @@ async def export_to_word(
     """Export a generation task's output as a Word document."""
     task, output = await _get_task_output(task_id, db)
 
-    eligible, blockers = _check_export_eligibility(output)
-    if not eligible:
-        raise HTTPException(
-            status_code=403,
-            detail={"message": "导出前需完成审核", "blockers": blockers},
-        )
+    await _enforce_export_gate(db, task, output)
 
     try:
         from docx import Document as DocxDocument
@@ -179,12 +222,7 @@ async def export_to_pdf(
     """Export a generation task's output as a PDF document."""
     task, output = await _get_task_output(task_id, db)
 
-    eligible, blockers = _check_export_eligibility(output)
-    if not eligible:
-        raise HTTPException(
-            status_code=403,
-            detail={"message": "导出前需完成审核", "blockers": blockers},
-        )
+    await _enforce_export_gate(db, task, output)
 
     try:
         from reportlab.lib.pagesizes import A4
@@ -267,12 +305,7 @@ async def export_to_pptx(
     """Export a generation task's output as a PowerPoint presentation."""
     task, output = await _get_task_output(task_id, db)
 
-    eligible, blockers = _check_export_eligibility(output)
-    if not eligible:
-        raise HTTPException(
-            status_code=403,
-            detail={"message": "导出前需完成审核", "blockers": blockers},
-        )
+    await _enforce_export_gate(db, task, output)
 
     try:
         from app.exporters.pptx_exporter import PPTXExporter

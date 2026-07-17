@@ -571,3 +571,151 @@ async def test_project_status_advances_through_main_flow(
     assert project.status == "exported", (
         f"导出后状态应为 exported; got {project.status}"
     )
+
+
+@pytest.mark.asyncio
+async def test_proposal_records_used_sop_version(
+    client: AsyncClient, db_session
+):
+    """P0 D3: auto-fill 产出的 Brief 记录 used_sop_version(可追溯到具体 SOP)。
+
+    Seed 一条 default_presale_sop,触发 auto-fill,断言 GenerationOutput 的
+    used_sop_version 形如 "<sop_id>@<version>" 而非 legacy 的 "1.0"。
+    """
+    from datetime import datetime, timezone
+
+    from app.models.generation import GenerationOutput, GenerationTask
+    from app.models.workflow import SOPWorkflow
+
+    # Seed the default presale SOP.
+    sop = SOPWorkflow(
+        id=uuid.uuid4(),
+        name="default_presale_sop",
+        version="2.3",
+        category="presale",
+        is_active=True,
+        pipeline_stages=[
+            {"stage": "quality_review", "name": "质量审核", "checklist": ["x"]}
+        ],
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(sop)
+
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+    await db_session.commit()  # persist the seeded SOP + project chain
+
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+    chat = await client.post(
+        f"/api/v1/conversations/{conv_id}/chat/stream",
+        json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+    )
+    assert chat.status_code == 200, chat.text
+
+    await db_session.commit()
+    # The latest proposal output should stamp the matched SOP version.
+    out_resp = await client.get(f"/api/v1/projects/{project_id}/proposal-output")
+    assert out_resp.status_code == 200, out_resp.text
+    # Resolve the raw row (the wire schema omits sop version when null).
+    task_row = (
+        await db_session.execute(
+            select(GenerationTask).where(
+                GenerationTask.project_id == uuid.UUID(project_id),
+                GenerationTask.type.in_(["proposal_generation", "proposal"]),
+            )
+        )
+    ).scalar_one()
+    output_row = (
+        await db_session.execute(
+            select(GenerationOutput).where(GenerationOutput.task_id == task_row.id)
+        )
+    ).scalar_one()
+    assert output_row.used_sop_version == f"{sop.id}@2.3", (
+        f"used_sop_version 应为 '<sop_id>@2.3'; got {output_row.used_sop_version}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_auto_fill_passes_uploaded_document_context_to_fill_canvas(
+    client: AsyncClient, db_session
+):
+    """P0 B6 / D2: 消息含 [ref_doc:uuid] 时,文档 chunk 进入 fill_canvas 上下文。
+
+    验证方式:用 patch 捕获 fill_canvas 的 document_context 入参,断言非空且含
+    上传资料的摘要文本。
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from app.models.document import Document, DocumentChunk
+
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+
+    # Seed an uploaded doc + chunk for this project.
+    doc = Document(
+        id=uuid.uuid4(),
+        project_id=uuid.UUID(project_id),
+        filename="客户简介.pdf",
+        original_filename="客户简介.pdf",
+        content_type="application/pdf",
+        file_size=1024,
+        file_path="/tmp/fake.pdf",
+        title="客户简介",
+        status="completed",
+        parse_status="parsed",
+    )
+    db_session.add(doc)
+    await db_session.flush()
+    chunk = DocumentChunk(
+        id=uuid.uuid4(),
+        document_id=doc.id,
+        content="客户是一家专注于裸眼3D的科技企业,主打品牌发布。",
+        chunk_index=0,
+    )
+    db_session.add(chunk)
+    await db_session.commit()
+
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    captured: dict = {}
+
+    async def _capture_fill(
+        _db,
+        _proj,
+        _ver,
+        web_search_results=None,
+        extra_context=None,
+        document_context=None,
+        document_sources=None,
+    ):
+        captured["document_context"] = document_context
+        captured["document_sources"] = document_sources
+        return {"success": True, "filled_count": 1, "node_ids": [], "errors": []}
+
+    with patch(
+        "app.services.canvas_agent_orchestrator.canvas_agent_orchestrator.fill_canvas",
+        AsyncMock(side_effect=_capture_fill),
+    ):
+        resp = await client.post(
+            f"/api/v1/conversations/{conv_id}/chat/stream",
+            json={"message": f"分析企业 [ref_doc:{doc.id}]"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert captured.get("document_context"), (
+        "fill_canvas 应收到上传资料的 document_context;got empty"
+    )
+    assert "裸眼3D" in captured["document_context"], (
+        "document_context 应含上传资料正文;got: "
+        + str(captured["document_context"])[:200]
+    )
