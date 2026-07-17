@@ -17,6 +17,7 @@ from app.models.skill import Skill, SkillExecution
 from app.models.conversation import Conversation, ConversationThread, Message
 from app.models.conversation_lock import ConversationLock
 from app.models.project_memory import ConversationState, ProjectMemory
+from app.models.operation_run import OperationRun
 from app.models.app_setting import AppSetting
 from app.models.industry_material import IndustryMaterial
 from app.models.talking_point import TalkingPoint
@@ -59,6 +60,8 @@ __all__ = [
     # Project + conversation memory (PRESALE_DELIVERY_SPEC §7.2)
     "ProjectMemory",
     "ConversationState",
+    # Operation-level observability parent (PRESALE_DELIVERY_SPEC §11.2)
+    "OperationRun",
     "AppSetting",
     # Internal knowledge bases (PRD §12)
     "IndustryMaterial",

@@ -1697,6 +1697,12 @@ class ConversationService:
         if doc_context:
             yield f"data: {json.dumps({'type': 'thinking_delta', 'text': f'已读取 {len(doc_sources)} 份上传资料摘要，准备融合到三大板块…'}, ensure_ascii=False)}\n\n"
 
+        # PRESALE_DELIVERY_SPEC §11.2 — collect a per-step trace through the
+        # turn, then persist ONE OperationRun at the end via a dedicated
+        # session. Updating it inline would race the skill_db / mem_db commits
+        # under SQLite's single-writer model; batching avoids that.
+        _op_steps: List[Dict[str, Any]] = []
+
         # ── Stage 1: web search ──
         # Run web_search + fill_canvas in a DEDICATED session so the SSE
         # request session (held for the whole stream) isn't pinned during the
@@ -1725,6 +1731,11 @@ class ConversationService:
             # Search failure is non-fatal — degrade and continue to fill.
             logger.exception("auto_fill: web_search failed, degrading")
             yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '联网搜索异常（标记「未核实」），继续基于内部知识生成…'}, ensure_ascii=False)}\n\n"
+        _op_steps.append({
+            "step": "web_search",
+            "status": "completed" if web_hits else "skipped",
+            "hit_count": len(web_hits),
+        })
 
         # ── Stage 2: fill canvas (passes the user's free-text + web hits) ──
         # Uses a dedicated session so the canvas writes don't block the SSE
@@ -1929,6 +1940,7 @@ class ConversationService:
                 await mem_db.commit()
         except Exception:
             logger.exception("auto_fill: write project memory failed; continuing")
+        _op_steps.append({"step": "memory_write", "status": "completed"})
 
         # ── Stage 3: summary reply ──
         filled = fill_result.get("filled_count", 0)
@@ -1969,3 +1981,26 @@ class ConversationService:
             },
             auto_commit=True,
         )
+
+        # Close the OperationRun — completed unless fill_canvas itself failed.
+        # Write the whole run (start + steps + finish) in ONE dedicated session
+        # so it doesn't race the skill_db / mem_db commits under SQLite's
+        # single-writer model (PRESALE_DELIVERY_SPEC §11.2).
+        run_status = "completed" if fill_result.get("success") else "failed"
+        try:
+            from app.db.session import async_session_factory as _asf
+            from app.services.operation_run_service import operation_run_service
+
+            async with _asf() as op_db:
+                op_run = await operation_run_service.start(
+                    op_db, proj_uuid, "auto_fill", conversation_id=conversation_id
+                )
+                for step in _op_steps:
+                    await operation_run_service.add_step(
+                        op_db, op_run, step["step"], step["status"],
+                        extra={k: v for k, v in step.items() if k not in ("step", "status")},
+                    )
+                await operation_run_service.finish(op_db, op_run, status=run_status)
+                await op_db.commit()
+        except Exception:
+            logger.exception("auto_fill: persist OperationRun failed; continuing")
