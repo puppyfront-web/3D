@@ -100,7 +100,7 @@ export function CaseSection() {
               精选案例
             </h2>
             <p className="text-on-surface-variant text-sm mt-2">
-              查看花生ONE助力企业数字化转型的成功实践
+              行业售前方案实践与参考案例
             </p>
           </div>
           <Link

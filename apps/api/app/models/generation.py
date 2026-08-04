@@ -82,7 +82,7 @@ class GenerationOutput(Base):
             "[{id, title, order, status, reviewed_by, reviewed_at, "
             "require_human_review, human_confirmed}] — sections flagged "
             "require_human_review block export until human_confirmed is set "
-            "(see routers/exports._check_export_eligibility)."
+            "(see app.services.export_gate_service)."
         ),
     )
     version: Mapped[int] = mapped_column(default=1, server_default="1", nullable=False)

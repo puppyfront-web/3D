@@ -59,10 +59,10 @@ export function ValueGrid() {
               <span className="text-xs">产品简介</span>
             </div>
             <h2 className="text-2xl font-semibold text-on-background leading-snug">
-              花生ONE 售前助手，帮助售前团队快速获取企业信息、梳理需求，生成结构化方案。
+              企业知识助手，帮助团队沉淀资料、检索知识，并获得可追溯引用的专业问答。
             </h2>
             <p className="text-on-surface-variant text-sm leading-relaxed">
-              让每一次客户沟通更高效、更专业、更有说服力。通过AI自动识别客户痛点并匹配最佳3D数字化解决方案。
+              让每一次业务咨询有据可依。基于内部知识库与混合检索，减少重复查找文档的时间。
             </p>
           </div>
 

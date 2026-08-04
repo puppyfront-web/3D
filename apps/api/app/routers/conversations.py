@@ -20,6 +20,7 @@ from app.schemas.common import Response
 from app.schemas.conversation import (
     ActionRequest,
     ChatRequest,
+    ClearConversationRequest,
     ConversationCreate,
     ConversationDetail,
     ConversationOut,
@@ -192,6 +193,29 @@ async def update_conversation(
     return Response(data=out, message="Conversation updated")
 
 
+@router.post("/{conversation_id}/clear", response_model=Response[dict])
+async def clear_conversation(
+    conversation_id: str,
+    body: ClearConversationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove all messages in a thread (清空对话)."""
+    conv = await _conv_service.get_conversation_detail(db, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    try:
+        removed = await _conv_service.clear_thread_messages(
+            db,
+            conv.id,
+            uuid.UUID(body.thread_id),
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation thread not found")
+
+    return Response(data={"removed": removed}, message="Conversation cleared")
+
+
 # ─── SSE Streaming Chat ─────────────────────────────────────────
 
 
@@ -338,6 +362,7 @@ from app.core.config import settings
 # images/video/archives that are stored but not content-parsed.
 _CHAT_ALLOWED_EXTENSIONS = {
     ".pdf", ".pptx", ".docx", ".txt", ".md",
+    ".xlsx", ".xls", ".csv",
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
     ".mp4", ".mov", ".avi",
     ".zip", ".rar",
@@ -350,19 +375,31 @@ async def upload_chat_file(
     conversation_id: str,
     file: UploadFile = File(...),
     caption: str = Query(default=""),
+    project_id: uuid.UUID | None = Query(
+        default=None,
+        description="Bind the attachment (and an unbound conversation) to this project",
+    ),
+    category: str = Query(default="", description="附件分类（PRD §11.2）"),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a file as a chat message attachment.
 
     Stores the file locally and creates a user message with attachment metadata.
-    For text-parseable types (pdf/pptx/docx/txt/md) a Document row is also
-    created so the attachment shows up in the project's document list with a
-    parse_status, and can be re-parsed / categorised / deleted from the
-    workspace attachment tray (PRD §11).
+    For text-parseable types a Document row is also created and indexed into the
+    knowledge base, so anything dropped into the chat is immediately retrievable
+    and manageable from /admin/assets (PRD §11).
+
+    The attachment inherits the conversation's project. When the conversation is
+    not yet bound to one, ``project_id`` binds both, so a chat upload never lands
+    as an orphan document.
     """
     conv = await _conv_service.get_conversation_detail(db, conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conv.project_id is None and project_id is not None:
+        conv.project_id = project_id
+        await db.flush()
 
     original_filename = file.filename or "unnamed"
     _, ext = os.path.splitext(original_filename)
@@ -400,28 +437,44 @@ async def upload_chat_file(
     # can track parse_status / category / re-parse / delete (PRD §11.3-11.5).
     parseable_exts = {".pdf", ".pptx", ".docx", ".txt", ".md", ".xlsx", ".xls", ".csv"}
     document_id_str: str | None = None
-    initial_parse_status = "uploaded"
+    parse_status = "uploaded"
+    chunk_count = 0
     if ext in parseable_exts:
-        try:
-            from app.models.document import Document
+        from app.models.document import Document
 
-            doc = Document(
-                project_id=conv.project_id,
-                filename=stored_name,
-                original_filename=original_filename,
-                content_type=file.content_type or "application/octet-stream",
-                file_size=len(content),
-                file_path=file_path,
-                title=original_filename,
-                status="uploaded",
-                parse_status="uploaded",
-                chunk_count=0,
+        doc = Document(
+            project_id=conv.project_id,
+            filename=stored_name,
+            original_filename=original_filename,
+            content_type=file.content_type or "application/octet-stream",
+            file_size=len(content),
+            file_path=file_path,
+            title=original_filename,
+            status="uploaded",
+            parse_status="uploaded",
+            category=category.strip() or None,
+            chunk_count=0,
+        )
+        db.add(doc)
+        await db.flush()
+        document_id_str = str(doc.id)
+
+        # Index inline so the reply is generated against a searchable document
+        # and the attachment tray shows the settled state instead of a stale
+        # "待解析". A parse failure is non-fatal — the user can re-parse from
+        # the tray (PRD §11.5).
+        try:
+            from app.services.document_service import DocumentService
+
+            await DocumentService(storage_path=settings.storage_path).index_document(
+                doc.id, db
             )
-            db.add(doc)
-            await db.flush()
-            document_id_str = str(doc.id)
-        except Exception:  # noqa: BLE001 — Document creation is best-effort
-            logger.warning("Failed to create Document row for chat attachment", exc_info=True)
+        except Exception:  # noqa: BLE001 — parse is best-effort
+            logger.warning("Parse failed for attachment %s", document_id_str, exc_info=True)
+
+        await db.refresh(doc)
+        parse_status = doc.parse_status or "uploaded"
+        chunk_count = doc.chunk_count
 
     # Rich content with attachment info
     attachment_data = {
@@ -432,7 +485,9 @@ async def upload_chat_file(
         "is_image": is_image,
         "url": f"/api/v1/conversations/files/{stored_name}",
         "document_id": document_id_str,
-        "parse_status": initial_parse_status,
+        "parse_status": parse_status,
+        "chunk_count": chunk_count,
+        "category": category.strip() or None,
     }
     attachment_block = {"type": "attachment", "data": attachment_data}
 
@@ -456,18 +511,6 @@ async def upload_chat_file(
         metadata={"attachments": [attachment_data]},
         auto_commit=True,
     )
-
-    # Kick off indexing asynchronously so the tray flips to "parsed" once done.
-    # Failures are non-fatal — the document keeps parse_status="uploaded" and
-    # the user can re-parse from the tray (PRD §11.5).
-    if document_id_str:
-        try:
-            from app.services.document_service import document_service
-
-            await document_service.index_document(uuid.UUID(document_id_str), db)
-            await db.commit()
-        except Exception:  # noqa: BLE001 — async parse is best-effort
-            logger.warning("Async parse failed for attachment %s", document_id_str, exc_info=True)
 
     return Response(
         data=_message_to_out(msg),

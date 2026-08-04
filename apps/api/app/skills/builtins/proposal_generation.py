@@ -608,7 +608,7 @@ class ProposalGenerationSkill(BaseSkill):
         touches a HITL-gated topic — the SOP ``export_gate`` check items
         ``报价人工确认`` / ``工期人工确认`` (see init_db seed) — are flagged
         ``require_human_review=True`` / ``human_confirmed=False`` so the export
-        gate (routers/exports._check_export_eligibility) actually fires until a
+        gate (app.services.export_gate_service) actually fires until a
         human confirms them. Those keywords live in the body (实施建议 /
         风险与待确认事项), not the chapter titles, so the body is scanned too.
         """

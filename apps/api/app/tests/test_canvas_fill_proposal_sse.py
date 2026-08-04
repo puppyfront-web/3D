@@ -211,6 +211,10 @@ async def test_auto_fill_emits_canvas_fill_proposal(
 # ─── Task 6: ask 模式引擎接入 _handle_conversational ───────────────────────────
 
 
+@pytest.mark.skip(
+    reason="KB-QA-Foundation 将问答路径改为 KB-first,ask 模式的 canvas_fill_proposal "
+    "已从 _handle_conversational 移除;若重新启用画布需恢复此断言。"
+)
 async def test_conversational_emits_ask_proposal_on_new_info(
     canvas_project_with_version, db_session, monkeypatch
 ):

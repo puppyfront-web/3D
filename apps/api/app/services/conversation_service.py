@@ -7,9 +7,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.prompts import GLOBAL_CAPABILITY_CONSTRAINT
 from app.models.conversation import Conversation, ConversationThread, Message
 from app.services import canvas_research_service
@@ -20,15 +21,22 @@ from app.services.search_helper import acquire_web_context
 logger = logging.getLogger(__name__)
 _REF_DOC_RE = re.compile(r"\[ref_doc:([0-9a-fA-F-]{32,36})\]")
 
-# System prompt for conversational mode — direct answers, not advice.
-_CONVERSATION_SYSTEM_PROMPT = """你是花生ONE 展厅+文旅 售前问答助手。
+# System prompt for conversational mode — KB-first answers with conclusion + plan.
+_CONVERSATION_SYSTEM_PROMPT = """你是企业知识库与方案问答助手，服务内部业务、销售、策划与项目经理。
 
-回答原则：
-1. 能直接回答就直接回答，专业、具体、落地。不要用「建议你考虑…」「你可以去…」式空话。
-2. 用户问的是事实/区别/参数/方案思路时，基于【网络搜索命中】和已有上下文直接作答，并在行内简述依据。
-3. 如果缺少关键信息（场地面积、屏幕尺寸、预算、工期等）才能给出确切结论，明确告诉用户「为了给你准确结论，我还需要：X、Y（具体）」，而不是泛泛地建议。
-4. 不要编造案例、报价、屏幕参数或工期；不承诺最终投屏效果。
-5. 涉及以下领域：3D 展示幕墙、裸眼 3D、LED 媒体立面；展厅设计与展陈规划；文旅项目策划（夜游、沉浸式、光影秀）；多媒体展项设计（互动装置、数字沙盘、AR/VR）。
+你的任务是：基于【企业内部知识库命中】与（如有）【网络搜索命中】，给出**可直接使用的结论与方案建议**，而不是空泛建议。
+
+回答结构（按问题选用，必须清晰）：
+1. **结论** — 1–3 句话直接回答核心问题
+2. **方案建议** — 分点列出可执行建议、步骤或选项（若适用）
+3. **依据** — 说明关键判断来自哪些内部资料，正文用 [1][2] 标注引用序号
+4. **待确认** — 资料不足或存在歧义时，列出「⚠️ 需要进一步确认：…」
+
+原则：
+- **内部资料优先**；外网信息仅作补充，须标注「来自网络」。
+- 禁止编造案例、报价、合同条款、交付工期或未在资料中出现的承诺。
+- 资料未覆盖时明确写「资料中未找到相关信息」，不要臆测。
+- 用户要方案/对比/选型时，给出结构化方案要点，而非「建议你考虑…」式空话。
 """ + GLOBAL_CAPABILITY_CONSTRAINT
 
 
@@ -403,6 +411,28 @@ class ConversationService:
         )
         return list(result.scalars().all())
 
+    async def clear_thread_messages(
+        self,
+        db: AsyncSession,
+        conversation_id: uuid.UUID,
+        thread_id: uuid.UUID,
+    ) -> int:
+        """Delete all messages in a thread. Returns removed count."""
+        from sqlalchemy import delete
+
+        thread = await self.get_thread(db, thread_id)
+        if thread is None or thread.conversation_id != conversation_id:
+            raise ValueError("Conversation thread not found")
+
+        result = await db.execute(
+            delete(Message).where(
+                Message.conversation_id == conversation_id,
+                Message.thread_id == thread_id,
+            )
+        )
+        await db.commit()
+        return int(result.rowcount or 0)
+
     def filter_messages_for_scope(
         self,
         messages: List[Message],
@@ -591,7 +621,8 @@ class ConversationService:
             prior_user_msgs = [m for m in messages if m.role == "user"]
             is_first_message = len(prior_user_msgs) == 1  # only the just-saved one
             if (
-                is_first_message
+                settings.canvas_auto_fill_enabled
+                and is_first_message
                 and project_id
                 and not self._is_social_greeting(user_message)
             ):
@@ -985,15 +1016,12 @@ class ConversationService:
             # If nothing meaningful is left, ask for info
             if len(cleaned) < 2:
                 return (
-                    "请先提供企业的基本信息，我将为您进行专业解析。\n\n"
-                    "至少需要：\n"
-                    "1. **企业名称**（必填）\n\n"
-                    "补充以下信息可获得更精准的分析：\n"
-                    "- 所属行业\n"
-                    "- 主要产品或服务\n"
-                    "- 品牌关键词或调性\n"
-                    "- 本次项目目标\n\n"
-                    "您可以直接输入，例如：*「华为，科技行业，主要做5G通信设备和手机」*"
+                    "请描述你要解析的对象或问题，我将基于你提供的信息进行结构化分析。\n\n"
+                    "可以输入：\n"
+                    "- 一段背景描述或资料摘要\n"
+                    "- 某个行业/产品/场景的说明\n"
+                    "- 上传资料后在对话中引用\n\n"
+                    "示例：*「分析裸眼3D幕墙在品牌发布场景的应用要点」*"
                 )
 
         return None
@@ -1285,20 +1313,38 @@ class ConversationService:
         history: List[Dict[str, str]],
         project_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
-        """Handle conversational intent with streaming LLM response.
+        """KB-first conversational Q&A with optional web supplement."""
+        from app.services.knowledge_context_service import (
+            acquire_kb_context,
+            is_web_search_enabled,
+        )
 
-        Task 4: searches the web first when the user asks a real question
-        (not a greeting / tiny message), then answers directly with the hits
-        folded into the system prompt. Preserves the rich-stream thinking
-        trace + fallback behaviour of the original.
-        """
         llm = await get_llm_service(db)
         full_text = ""
-
-        # ── Task 4: web-search pass for real questions (skip greetings/tiny) ──
         msg = (user_message or "").strip()
+        is_real_question = bool(msg) and not self._is_social_greeting(msg) and len(msg) >= 4
+
+        kb_citations: List[Dict[str, Any]] = []
+        kb_meta: Dict[str, Any] = {}
+
+        if is_real_question:
+            yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '正在检索企业知识库…'}, ensure_ascii=False)}\n\n"
+            try:
+                kb_citations, kb_block, kb_meta = await acquire_kb_context(
+                    db, msg, project_id=project_id, top_k=8,
+                )
+            except Exception:
+                logger.exception("conversational: kb retrieval failed; continuing.")
+                kb_block = ""
+            else:
+                if kb_citations:
+                    yield f"data: {json.dumps({'type': 'thinking_delta', 'text': f'命中 {len(kb_citations)} 条内部资料'}, ensure_ascii=False)}\n\n"
+        else:
+            kb_block = ""
+
         web_hits: List[Dict[str, Any]] = []
-        if msg and not self._is_social_greeting(msg) and len(msg) >= 4:
+        web_enabled = await is_web_search_enabled(db)
+        if is_real_question and web_enabled:
             try:
                 web_hits, _ = await acquire_web_context(
                     db, msg, max_results=5, context_hint=msg
@@ -1307,6 +1353,8 @@ class ConversationService:
                 logger.exception("conversational: web search failed; continuing.")
 
         system_prompt = _CONVERSATION_SYSTEM_PROMPT
+        if kb_block:
+            system_prompt += kb_block
         if web_hits:
             web_block = "\n".join(
                 f"- {h.get('title') or h.get('domain')}：{(h.get('snippet') or '').strip()[:120]}"
@@ -1314,8 +1362,10 @@ class ConversationService:
             )
             system_prompt = (
                 system_prompt
-                + f"\n\n【网络搜索命中】（回答时可引用，标注来自网络）\n{web_block}\n"
+                + f"\n\n【网络搜索命中】（补充信息，标注来自网络）\n{web_block}\n"
             )
+        elif is_real_question and not web_enabled:
+            system_prompt += "\n\n【联网搜索】已关闭，仅使用内部知识库与对话上下文。\n"
 
         # ── PRESALE_DELIVERY_SPEC §7.2 — inject project memory so follow-up
         # turns don't "失忆". The canvas_digest carries the boards / missing_info
@@ -1336,12 +1386,22 @@ class ConversationService:
                     db, proj_uuid_mem, "canvas_digest"
                 )
                 if digest and digest.get("boards"):
-                    # Truncate to keep the prompt bounded; the full digest lives
-                    # in DB for the editor / export path.
                     digest_blob = json.dumps(digest, ensure_ascii=False)[:4000]
                     system_prompt = (
                         system_prompt
-                        + f"\n\n【项目画布摘要】（来自上一轮 auto-fill，回答时优先基于此）\n{digest_blob}\n"
+                        + f"\n\n【项目上下文摘要】\n{digest_blob}\n"
+                    )
+                last_kb = await project_memory_service.get_conversation_state(
+                    db, conversation_id, "last_kb_citations"
+                )
+                if last_kb and last_kb.get("citations"):
+                    prior_kb = "\n".join(
+                        f"- [{c.get('index')}] {c.get('title') or '资料'}"
+                        for c in (last_kb.get("citations") or [])[:5]
+                    )
+                    system_prompt = (
+                        system_prompt
+                        + f"\n\n【上一轮知识库引用】\n{prior_kb}\n"
                     )
                 last_web = await project_memory_service.get_conversation_state(
                     db, conversation_id, "last_web_hits"
@@ -1362,7 +1422,13 @@ class ConversationService:
 
         rich_stream = getattr(llm, "generate_with_history_stream_rich", None)
 
-        yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '正在检索网络信息…' if web_hits else '正在理解你的问题并组织回复…'}, ensure_ascii=False)}\n\n"
+        if web_hits and not kb_citations:
+            thinking = "内部资料较少，已补充网络检索，正在组织回复…"
+        elif kb_citations:
+            thinking = "已检索知识库，正在整理结论与方案…"
+        else:
+            thinking = "正在理解你的问题并组织回复…"
+        yield f"data: {json.dumps({'type': 'thinking_delta', 'text': thinking}, ensure_ascii=False)}\n\n"
 
         if rich_stream is not None:
             got_real_thinking = False
@@ -1392,33 +1458,53 @@ class ConversationService:
                 full_text += chunk
                 yield f"data: {json.dumps({'type': 'text_delta', 'text': chunk}, ensure_ascii=False)}\n\n"
 
-        # ask 模式：把搜到的模块相关「新增」要点整理成提案，问用户是否归档（不写库）。
-        # 复用已取到的 web_hits（不二次搜索）；寒暄/无关/全重复 → 不 emit。
-        if project_id and web_hits and not self._is_social_greeting(msg) and len(msg) >= 4:
-            try:
-                # 规范成 UUID：process_message_stream 透传的是 str(conv.project_id)，
-                # Postgres pg-uuid 接受字符串，但 SQLite 测试环境的 UUID 绑定期望 UUID
-                # 对象（'str' object has no attribute 'hex'），故此处统一转换。
-                proj_uuid = uuid.UUID(project_id) if isinstance(project_id, str) else project_id
-                proposal = await canvas_research_service.research_and_propose(
-                    db, proj_uuid, context_hint=msg, mode="ask", web_hits=web_hits,
-                )
-                if proposal.get("boards"):
-                    _, nodes_by_key = await canvas_research_service._current_canvas_nodes_by_board(
-                        db, proj_uuid
-                    )
-                    proposal = canvas_research_service.filter_new_points(proposal, nodes_by_key)
-                    if proposal.get("boards"):
-                        yield f"data: {json.dumps({'type': 'canvas_fill_proposal', 'data': proposal}, ensure_ascii=False)}\n\n"
-            except Exception:
-                logger.exception("conversational: research_and_propose failed; skipping proposal")
+        citation_block: Optional[Dict[str, Any]] = None
+        if kb_citations or web_hits:
+            citation_block = {
+                "type": "knowledge_citations",
+                "data": {
+                    "citations": kb_citations,
+                    "web_sources": [
+                        {
+                            "title": h.get("title") or h.get("domain"),
+                            "url": h.get("url"),
+                            "snippet": (h.get("snippet") or "")[:160],
+                        }
+                        for h in web_hits[:5]
+                    ],
+                    "kb_meta": kb_meta,
+                },
+            }
+            yield f"data: {json.dumps({'type': 'content_block_start', 'data': {'block_type': 'knowledge_citations'}}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'content_block_data', 'data': citation_block}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'content_block_end'}, ensure_ascii=False)}\n\n"
 
-        # Save complete assistant message
+        if kb_citations:
+            try:
+                from app.services.project_memory_service import project_memory_service
+
+                await project_memory_service.upsert_conversation_state(
+                    db,
+                    conversation_id,
+                    "last_kb_citations",
+                    {"citations": kb_citations, "query": msg},
+                )
+            except Exception:
+                logger.exception("conversational: persist last_kb_citations failed")
+
+        rich_content = (
+            {"blocks": [citation_block]} if citation_block else None
+        )
         await self.save_message(
             db, conversation_id, "assistant",
             content=full_text,
             content_type="text",
-            metadata={"intent": "conversational"},
+            rich_content=rich_content,
+            metadata={
+                "intent": "conversational",
+                "kb_hit_count": kb_meta.get("total", 0),
+                "web_hit_count": len(web_hits),
+            },
             auto_commit=True,
         )
 
@@ -1502,7 +1588,7 @@ class ConversationService:
             f"【网络搜索命中】\n{web_block}\n"
         )
         system_prompt = (
-            "你是花生ONE 售前文案撰写助手。用户正在「节点级对话」中，要你为画布上的单个节点撰写内容。\n"
+            "你是售前方案工作台的文案撰写助手。用户正在「节点级对话」中，要你为画布上的单个节点撰写内容。\n"
             "硬性约束：\n"
             "1. 只为「当前节点」撰写内容，绝不要涉及其它节点。\n"
             "2. 直接输出该节点可用的成品售前文案——也就是用户采纳后能直接写进节点的内容。"
@@ -1644,13 +1730,13 @@ class ConversationService:
         """Courteous fixed reply for social greetings (no LLM, no workflow)."""
         msg = user_message.strip()
         if any(k in msg for k in ("你好", "您好", "嗨", "哈喽", "hi", "hello")):
-            reply = "你好！我是花生ONE 售前助手。请在上方输入企业名称或需求，我会自动联网检索并填充右侧画布的三大板块。"
+            reply = "你好！我是企业知识问答助手。你可以直接提问，或上传资料后基于内部知识库获得可追溯的回答。"
         elif any(k in msg for k in ("谢谢", "感谢", "thanks")):
-            reply = "不客气！如需修改某个节点，点击画布上的节点即可进入节点对话。"
+            reply = "不客气！如有其他问题，继续提问即可。"
         elif any(k in msg for k in ("再见", "拜拜", "bye")):
-            reply = "再见！随时回来继续完善方案。"
+            reply = "再见！随时回来继续提问。"
         else:
-            reply = "收到。请输入企业名称或需求，我会自动填充画布。"
+            reply = "收到。请描述你的问题，或上传相关资料。"
 
         yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '收到你的消息'}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'text_delta', 'text': reply}, ensure_ascii=False)}\n\n"
@@ -1741,6 +1827,7 @@ class ConversationService:
         # Uses a dedicated session so the canvas writes don't block the SSE
         # stream's request session (Defect #3).
         yield f"data: {json.dumps({'type': 'thinking_delta', 'text': '正在为「企业介绍 / 产品技术 / 未来责任」三大板块生成节点内容…'}, ensure_ascii=False)}\n\n"
+        fill_result: Dict[str, Any] = {"success": False, "filled_count": 0, "node_ids": [], "errors": []}
         try:
             from app.db.session import async_session_factory as _asf
             async with _asf() as fill_db:
@@ -1765,7 +1852,24 @@ class ConversationService:
                 metadata={"intent": "auto_fill", "project_id": project_id, "error": str(e)},
                 auto_commit=True,
             )
+            # Persist a failed OperationRun so排障 has the same trace as the
+            # success path (PRESALE_DELIVERY_SPEC §11.2 — previous early return
+            # wrote nothing, leaving the failure invisible to the run table).
+            _op_steps.append({
+                "step": "canvas_fill",
+                "status": "failed",
+                "error": str(e),
+            })
+            _op_steps.append({"step": "persist_message", "status": "completed"})
+            await self._persist_op_run(
+                proj_uuid, conversation_id, _op_steps, status="failed", error=str(e)
+            )
             return
+        _op_steps.append({
+            "step": "canvas_fill",
+            "status": "completed" if fill_result.get("success") else "failed",
+            "filled_count": fill_result.get("filled_count", 0),
+        })
 
         # 可见化:从 fill_canvas 写回结果派生 Proposal,让用户看到填了什么(所见即所写)
         try:
@@ -1900,9 +2004,20 @@ class ConversationService:
                 yield f"data: {json.dumps({'type': 'proposal_section', 'data': skill_output}, ensure_ascii=False)}\n\n"
             if not skill_output:
                 _auto_fill_gen_output_id = None
-        except Exception:
+        except Exception as e:
             logger.exception("auto_fill: brief generation failed; continuing")
             _auto_fill_gen_output_id = None
+            _op_steps.append({
+                "step": "skill_execute",
+                "status": "failed",
+                "error": str(e),
+            })
+        else:
+            _op_steps.append({
+                "step": "skill_execute",
+                "status": "completed" if _auto_fill_gen_output_id else "skipped",
+                "output_id": _auto_fill_gen_output_id,
+            })
 
         # ── Stage 2.5: persist project + conversation memory ──
         # PRESALE_DELIVERY_SPEC §7.2 — write the canvas_digest (so follow-up
@@ -1981,26 +2096,57 @@ class ConversationService:
             },
             auto_commit=True,
         )
+        _op_steps.append({"step": "persist_message", "status": "completed"})
 
         # Close the OperationRun — completed unless fill_canvas itself failed.
-        # Write the whole run (start + steps + finish) in ONE dedicated session
-        # so it doesn't race the skill_db / mem_db commits under SQLite's
-        # single-writer model (PRESALE_DELIVERY_SPEC §11.2).
+        # Delegated to a helper so both the success path and the early-return
+        # failure path (canvas_fill exception above) write a run.
         run_status = "completed" if fill_result.get("success") else "failed"
+        await self._persist_op_run(
+            proj_uuid, conversation_id, _op_steps, status=run_status
+        )
+
+    async def _persist_op_run(
+        self,
+        project_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        steps: List[Dict[str, Any]],
+        status: str = "completed",
+        error: Optional[str] = None,
+    ) -> None:
+        """Persist ONE OperationRun (start + steps + finish) in a dedicated session.
+
+        PRESALE_DELIVERY_SPEC §11.2 — write the whole run in one go so it
+        doesn't race the skill_db / mem_db commits under SQLite's
+        single-writer model. Soft-fail: a persistence failure only logs (the
+        user-facing turn already completed). Shared by the auto-fill success
+        path and the fill_canvas-failed early return.
+        """
         try:
             from app.db.session import async_session_factory as _asf
             from app.services.operation_run_service import operation_run_service
 
             async with _asf() as op_db:
                 op_run = await operation_run_service.start(
-                    op_db, proj_uuid, "auto_fill", conversation_id=conversation_id
+                    op_db, project_id, "auto_fill", conversation_id=conversation_id
                 )
-                for step in _op_steps:
+                for step in steps:
+                    # ``error`` is a first-class field on add_step (top-level on
+                    # the step entry); everything else lands in ``extra``.
+                    step_error = step.get("error")
+                    extra = {
+                        k: v
+                        for k, v in step.items()
+                        if k not in ("step", "status", "error")
+                    }
                     await operation_run_service.add_step(
                         op_db, op_run, step["step"], step["status"],
-                        extra={k: v for k, v in step.items() if k not in ("step", "status")},
+                        error=step_error,
+                        extra=extra or None,
                     )
-                await operation_run_service.finish(op_db, op_run, status=run_status)
+                await operation_run_service.finish(
+                    op_db, op_run, status=status, error=error
+                )
                 await op_db.commit()
         except Exception:
             logger.exception("auto_fill: persist OperationRun failed; continuing")

@@ -136,7 +136,10 @@ async def test_gate_blocks_when_canvas_board_empty(
     )
     # Only one of three required boards is filled.
     canvas_boards = [
-        {"board_key": "company_intro", "nodes": [{"node_key": "company_profile"}]},
+        {
+            "board_key": "company_intro",
+            "nodes": [{"node_key": "company_profile", "points": ["国内 LED 龙头"]}],
+        },
     ]
     result = await export_gate_service.check(
         db_session, output, canvas_boards=canvas_boards
@@ -148,6 +151,33 @@ async def test_gate_blocks_when_canvas_board_empty(
 
 
 @pytest.mark.asyncio
+async def test_gate_blocks_when_board_has_nodes_but_no_planning(
+    db_session, gate_output_factory
+):
+    """Boards with placeholder nodes (no points/planning content) block export.
+
+    Regression for the old check that only verified the board had any node —
+    an auto-fill that produced zero usable points must not pass the gate.
+    """
+    output = await gate_output_factory(
+        sections_meta=[{"title": "x", "order": 1, "status": "approved"}]
+    )
+    canvas_boards = [
+        {"board_key": "company_intro", "nodes": [{"node_key": "x"}]},  # no points
+        {"board_key": "product_tech_scenarios", "nodes": [{"node_key": "y", "points": []}]},
+        {
+            "board_key": "future_social_responsibility",
+            "nodes": [{"node_key": "z", "points": ["   "]}],  # whitespace only
+        },
+    ]
+    result = await export_gate_service.check(
+        db_session, output, canvas_boards=canvas_boards
+    )
+    assert not result["eligible"]
+    assert len(result["blocking"]) == 3
+
+
+@pytest.mark.asyncio
 async def test_gate_passes_when_all_required_boards_filled(
     db_session, gate_output_factory
 ):
@@ -155,11 +185,114 @@ async def test_gate_passes_when_all_required_boards_filled(
         sections_meta=[{"title": "x", "order": 1, "status": "approved"}]
     )
     canvas_boards = [
-        {"board_key": "company_intro", "nodes": [{"node_key": "x"}]},
-        {"board_key": "product_tech_scenarios", "nodes": [{"node_key": "y"}]},
-        {"board_key": "future_social_responsibility", "nodes": [{"node_key": "z"}]},
+        {"board_key": "company_intro", "nodes": [{"node_key": "x", "points": ["a"]}]},
+        {"board_key": "product_tech_scenarios", "nodes": [{"node_key": "y", "points": ["b"]}]},
+        {"board_key": "future_social_responsibility", "nodes": [{"node_key": "z", "points": ["c"]}]},
     ]
     result = await export_gate_service.check(
         db_session, output, canvas_boards=canvas_boards
     )
     assert result["eligible"], result
+
+
+@pytest.mark.asyncio
+async def test_gate_accepts_planning_list_shape(
+    db_session, gate_output_factory
+):
+    """Tolerates the raw canvas-node ``planning`` shape (content.planning)."""
+    output = await gate_output_factory(
+        sections_meta=[{"title": "x", "order": 1, "status": "approved"}]
+    )
+    canvas_boards = [
+        {"board_key": "company_intro", "nodes": [{"node_key": "x", "planning": ["a"]}]},
+        {"board_key": "product_tech_scenarios", "nodes": [{"node_key": "y", "planning": ["b"]}]},
+        {"board_key": "future_social_responsibility", "nodes": [{"node_key": "z", "planning": ["c"]}]},
+    ]
+    result = await export_gate_service.check(
+        db_session, output, canvas_boards=canvas_boards
+    )
+    assert result["eligible"], result
+
+
+# ─── Export-path SOP industry resolution (P0 #3) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_resolve_project_industry_reads_company_industry(
+    db_session, sample_project_id
+):
+    """`_resolve_project_industry` returns the project's company.industry.
+
+    Regression: the export path used to call sop_matcher with project_type=None
+    and always hit the default SOP. The helper now plumbs company.industry so
+    industry-specific SOPs (Phase 3) actually fire on export.
+    """
+    from app.routers.exports import _resolve_project_industry
+
+    industry = await _resolve_project_industry(db_session, sample_project_id)
+    # conftest's sample_company_id sets industry="Technology".
+    assert industry == "Technology"
+
+
+@pytest.mark.asyncio
+async def test_resolve_project_industry_returns_none_for_missing_project(
+    db_session,
+):
+    """A missing project must not raise — soft-fail to None."""
+    from app.routers.exports import _resolve_project_industry
+
+    industry = await _resolve_project_industry(db_session, uuid.uuid4())
+    assert industry is None
+
+
+@pytest.mark.asyncio
+async def test_enforce_export_gate_uses_industry_for_sop_match(
+    db_session, sample_project_id
+):
+    """The export gate passes the resolved industry into sop_matcher.match.
+
+    Patches the matcher so we can assert the call without seeding an
+    industry-specific SOP (which would also need a quality_review stage to be
+    useful). This isolates the wiring fix from the matcher's own behaviour.
+    """
+    from app.models.generation import GenerationOutput, GenerationTask
+    from app.routers import exports as exports_module
+
+    captured = {}
+
+    class _StubMatcher:
+        async def match(self, db, industry=None, project_type=None, scene=None):
+            captured["industry"] = industry
+            return None  # let gate fall through to legacy checks
+
+    # Replace the module-level singleton reference (the router imports the
+    # singleton lazily, so this takes effect when _enforce_export_gate runs).
+    import app.services.sop_matcher_service as sms
+
+    original_singleton = sms.sop_matcher_service
+    sms.sop_matcher_service = _StubMatcher()
+    try:
+        task = GenerationTask(
+            id=uuid.uuid4(),
+            project_id=sample_project_id,
+            type="proposal",
+            status="completed",
+        )
+        db_session.add(task)
+        await db_session.flush()
+        output = GenerationOutput(
+            id=uuid.uuid4(),
+            task_id=task.id,
+            content_type="text/markdown",
+            content="x",
+            sections_meta=[{"title": "x", "order": 1, "status": "approved"}],
+        )
+        db_session.add(output)
+        await db_session.flush()
+
+        # Should pass (no SOP, section approved, no canvas).
+        await exports_module._enforce_export_gate(db_session, task, output)
+    finally:
+        sms.sop_matcher_service = original_singleton
+
+    assert captured.get("industry") == "Technology"

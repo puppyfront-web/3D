@@ -77,3 +77,18 @@ class DocumentBatchIndexResponse(APIBaseModel):
     failed: int
     total_chunks: int
     message: str = "Batch indexing completed"
+
+
+class DocumentBatchDeleteRequest(APIBaseModel):
+    """Request body for batch deletion."""
+
+    document_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=200)
+
+
+class DocumentBatchDeleteResponse(APIBaseModel):
+    """Response after batch deletion."""
+
+    total: int
+    deleted: int
+    not_found: int
+    message: str = "Batch deletion completed"

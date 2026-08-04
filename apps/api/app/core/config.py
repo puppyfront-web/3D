@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = "3D Wall API"
+    app_name: str = "Enterprise Knowledge Assistant API"
     app_version: str = "0.1.0"
     debug: bool = False
 
@@ -53,8 +53,18 @@ class Settings(BaseSettings):
     #   zhipu: cogview-4, cogview-3-plus, cogview-3
     image_quality: str = "high"  # low | medium | high | auto | hd (vendor-specific)
 
+    # Canvas auto-fill on first message is disabled for KB-QA mode (Canvas hidden).
+    canvas_auto_fill_enabled: bool = False
+
+    # Retrieval backend for Q&A search (indexing stays local unless synced to FastGPT separately)
+    # local | fastgpt | dual
+    retrieval_provider: str = "local"
+    fastgpt_base_url: str = ""
+    fastgpt_api_key: str = ""
+    fastgpt_dataset_id: str = ""
+    fastgpt_search_mode: str = "embedding"  # embedding | fullTextRecall | mixedRecall
+
     # Web search — used by WebSearchTool for external information retrieval.
-    # Precedence at runtime: tavily (if api key set) → llm native → degraded fallback.
     # All configurable via admin settings UI (DB-first, .env fallback) — see settings_service.py.
     web_search_enabled: bool = True
     web_search_mode: str = "auto"  # auto | tavily | llm_native | disabled

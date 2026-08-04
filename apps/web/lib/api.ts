@@ -6,6 +6,8 @@ import {
   VisualImage,
   ReviewChecklist,
   Asset,
+  PaginatedAssets,
+  AssetStatus,
   AssetType,
   CaseItem,
   SOPWorkflow,
@@ -474,21 +476,60 @@ function formatFileSize(bytes: number): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pickField(obj: any, ...keys: string[]): unknown {
+  for (const k of keys) {
+    if (obj != null && obj[k] !== undefined && obj[k] !== null) return obj[k];
+  }
+  return undefined;
+}
+
+const ASSET_STATUSES: readonly AssetStatus[] = ["pending", "uploaded", "indexed", "error"];
+
+/** Narrow the backend's indexer status to the badge states the UI renders. */
+function toAssetStatus(raw: unknown): AssetStatus {
+  const value = String(raw ?? "");
+  if ((ASSET_STATUSES as readonly string[]).includes(value)) return value as AssetStatus;
+  return value === "parsing" ? "pending" : "uploaded";
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapDocumentToAsset(doc: any): Asset {
+  const fileSize = Number(pickField(doc, "fileSize", "file_size") ?? 0);
+  const chunkCount = Number(pickField(doc, "chunkCount", "chunk_count") ?? 0);
+  const created = pickField(doc, "createdAt", "created_at") as string | undefined;
   return {
-    id: doc.id,
-    name: doc.original_filename || doc.filename,
-    type: contentTypeToAssetType(doc.content_type || ""),
-    category: "document",
+    id: String(doc.id),
+    name: String(pickField(doc, "originalFilename", "original_filename", "filename") ?? "未命名"),
+    type: contentTypeToAssetType(String(pickField(doc, "contentType", "content_type") ?? "")),
+    category: String(pickField(doc, "category") ?? "document"),
     url: "",
-    size: formatFileSize(doc.file_size || 0),
-    file_size: doc.file_size || 0,
-    project_id: doc.project_id || null,
-    status: doc.status || "uploaded",
-    chunk_count: doc.chunk_count || 0,
-    uploadedAt: doc.created_at || new Date().toISOString(),
+    size: formatFileSize(fileSize),
+    file_size: fileSize,
+    project_id: (pickField(doc, "projectId", "project_id") as string | null) ?? null,
+    status: toAssetStatus(pickField(doc, "status")),
+    parse_status: String(pickField(doc, "parseStatus", "parse_status") ?? ""),
+    chunk_count: chunkCount,
+    uploadedAt: created ?? new Date().toISOString(),
     uploadedBy: "",
     tags: [],
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function normalizeRetrievalLog(raw: any): RetrievalLogItem {
+  return {
+    id: String(raw.id),
+    query: String(raw.query ?? ""),
+    retrieval_type: String(pickField(raw, "retrievalType", "retrieval_type") ?? ""),
+    results_count: Number(pickField(raw, "resultsCount", "results_count") ?? 0),
+    top_scores: (pickField(raw, "topScores", "top_scores") as number[]) ?? [],
+    latency_ms: Number(pickField(raw, "latencyMs", "latency_ms") ?? 0),
+    triggered_by: String(pickField(raw, "triggeredBy", "triggered_by") ?? ""),
+    structured_query_json: (pickField(raw, "structuredQueryJson", "structured_query_json") as Record<string, unknown>) ?? {},
+    retrieved_items_json: (pickField(raw, "retrievedItemsJson", "retrieved_items_json") as Array<Record<string, unknown>>) ?? [],
+    selected_context_json: (pickField(raw, "selectedContextJson", "selected_context_json") as Record<string, unknown>) ?? {},
+    final_output_id: pickField(raw, "finalOutputId", "final_output_id") as string | undefined,
+    created_at: String(pickField(raw, "createdAt", "created_at") ?? new Date().toISOString()),
   };
 }
 
@@ -496,17 +537,55 @@ function mapDocumentToAsset(doc: any): Asset {
 // Admin: Assets / Documents API
 // ============================================================
 
-export async function getAssets(page = 1, pageSize = 50): Promise<ApiResponse<Asset[]>> {
-  const result = await apiFetch<{ items: unknown[]; total: number }>(
-    `/api/v1/documents?page=${page}&page_size=${pageSize}`
-  );
+export async function getAssets(options?: {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  parseStatus?: string;
+  category?: string;
+  q?: string;
+}): Promise<ApiResponse<PaginatedAssets>> {
+  const params = new URLSearchParams();
+  params.set("page", String(options?.page ?? 1));
+  params.set("page_size", String(options?.pageSize ?? 20));
+  if (options?.status) params.set("status", options.status);
+  if (options?.parseStatus) params.set("parse_status", options.parseStatus);
+  if (options?.category) params.set("category", options.category);
+  if (options?.q?.trim()) params.set("q", options.q.trim());
+
+  const result = await apiFetch<{
+    items: unknown[];
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+  }>(`/api/v1/documents?${params.toString()}`);
+
   if (result.success && result.data) {
     return {
-      data: result.data.items.map(mapDocumentToAsset),
       success: true,
+      data: {
+        items: result.data.items.map(mapDocumentToAsset),
+        total: result.data.total,
+        page: result.data.page,
+        pageSize: result.data.page_size,
+        totalPages: result.data.total_pages,
+      },
     };
   }
-  return { data: [], success: false, message: result.message };
+  return {
+    success: false,
+    data: { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 },
+    message: result.message,
+  };
+}
+
+export async function getDocument(id: string): Promise<ApiResponse<Asset>> {
+  const result = await apiFetch<unknown>(`/api/v1/documents/${id}`);
+  if (result.success && result.data) {
+    return { success: true, data: mapDocumentToAsset(result.data) };
+  }
+  return { success: false, data: null as unknown as Asset, message: result.message };
 }
 
 /**
@@ -547,6 +626,53 @@ export async function uploadAsset(
 
 export async function deleteAsset(id: string): Promise<ApiResponse<null>> {
   return apiFetch<null>(`/api/v1/documents/${id}`, { method: "DELETE" });
+}
+
+export interface BatchDeleteResult {
+  total: number;
+  deleted: number;
+  notFound: number;
+}
+
+export async function deleteAssetsBatch(
+  documentIds: string[],
+): Promise<ApiResponse<BatchDeleteResult>> {
+  return apiFetch<BatchDeleteResult>("/api/v1/documents/delete-batch", {
+    method: "POST",
+    body: JSON.stringify({ document_ids: documentIds }),
+  });
+}
+
+/**
+ * Download the 资料清单 as CSV — either an explicit selection or the current
+ * filter set. Metadata only; document contents never leave the system.
+ */
+export async function exportAssets(options?: {
+  documentIds?: string[];
+  status?: string;
+  parseStatus?: string;
+  category?: string;
+  q?: string;
+}): Promise<Blob> {
+  const params = new URLSearchParams();
+  options?.documentIds?.forEach((id) => params.append("document_ids", id));
+  if (options?.status) params.set("status", options.status);
+  if (options?.parseStatus) params.set("parse_status", options.parseStatus);
+  if (options?.category) params.set("category", options.category);
+  if (options?.q?.trim()) params.set("q", options.q.trim());
+
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(
+    `${API_BASE_URL}/api/v1/documents/export?${params.toString()}`,
+    { headers },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "导出失败" }));
+    throw new Error(err.detail?.message || err.detail || "导出失败");
+  }
+  return res.blob();
 }
 
 export async function indexDocument(documentId: string): Promise<ApiResponse<DocumentIndexResponse>> {
@@ -806,7 +932,12 @@ export async function getRetrievalLogs(params?: {
   if (params?.retrieval_type) qs.set("retrieval_type", params.retrieval_type);
   if (params?.limit) qs.set("limit", String(params.limit));
   const tail = qs.toString();
-  return apiFetch<RetrievalLogItem[]>(`/api/v1/rag/logs${tail ? `?${tail}` : ""}`);
+  return apiFetch<RetrievalLogItem[]>(`/api/v1/rag/logs${tail ? `?${tail}` : ""}`).then((res) => {
+    if (res.success && res.data) {
+      return { ...res, data: res.data.map(normalizeRetrievalLog) };
+    }
+    return res;
+  });
 }
 
 // ============================================================
@@ -829,10 +960,36 @@ export async function submitFeedback(data: {
 // RAG Search API
 // ============================================================
 
-export async function searchKnowledge(query: string, filters?: Record<string, string>): Promise<ApiResponse<unknown>> {
-  return apiFetch("/api/v1/rag/search", {
+export interface RAGSearchHit {
+  chunkId: string;
+  documentId: string;
+  content: string;
+  score: number;
+  pageNumber?: number | null;
+  source?: string | null;
+  title?: string | null;
+}
+
+export interface RAGSearchResponse {
+  query: string;
+  results: RAGSearchHit[];
+  total: number;
+  latencyMs: number;
+  retrievalType: string;
+}
+
+export async function searchKnowledge(
+  query: string,
+  options?: { topK?: number; projectId?: string; retrievalType?: string },
+): Promise<ApiResponse<RAGSearchResponse>> {
+  const params = new URLSearchParams({
+    query,
+    top_k: String(options?.topK ?? 5),
+    retrieval_type: options?.retrievalType ?? "hybrid",
+  });
+  if (options?.projectId) params.set("project_id", options.projectId);
+  return apiFetch<RAGSearchResponse>(`/api/v1/rag/search?${params.toString()}`, {
     method: "POST",
-    body: JSON.stringify({ query, filters }),
   });
 }
 

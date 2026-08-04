@@ -49,10 +49,10 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 text-primary font-bold text-2xl mb-2">
             <CloudCog className="h-8 w-8" />
-            <span>花生ONE</span>
+            <span>企业知识助手</span>
           </div>
           <p className="text-sm text-on-surface-variant">
-            企业3D数字化整体解决方案售前助手
+            内部知识库与可追溯问答
           </p>
         </div>
 
@@ -116,7 +116,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-outline mt-6">
-          © {new Date().getFullYear()} 花生ONE · 内部售前 AI 工作台
+          © {new Date().getFullYear()} 企业知识助手
         </p>
       </div>
     </div>

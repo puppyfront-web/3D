@@ -130,3 +130,9 @@ class ActionRequest(APIBaseModel):
     skill_id: Optional[str] = None
     form_data: Optional[Dict[str, Any]] = None
     target_message_id: Optional[str] = None
+
+
+class ClearConversationRequest(APIBaseModel):
+    """Clear all messages in a scoped thread."""
+
+    thread_id: str = Field(..., description="Thread whose messages should be removed")

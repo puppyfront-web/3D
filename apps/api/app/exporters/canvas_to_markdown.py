@@ -145,5 +145,5 @@ def canvas_to_markdown(
 
     lines.append("---")
     lines.append("")
-    lines.append("*本文档由花生ONE 自动生成，AI 补全内容请人工核实后使用。*")
+    lines.append("*本文档由售前方案工作台自动生成，AI 补全内容请人工核实后使用。*")
     return "\n".join(lines)

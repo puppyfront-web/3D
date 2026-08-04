@@ -5,6 +5,7 @@ persisted in the app_settings table. There is NO .env fallback: a setting not in
 the database is treated as unset (callers receive "" or a supplied default).
 """
 
+import logging
 import re
 from typing import Dict, Iterable, Optional
 
@@ -12,6 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
+
+logger = logging.getLogger(__name__)
 
 # All known setting keys — the whitelist for get_all enumeration and update
 # validation. Only these keys are accepted by PUT /settings and returned by
@@ -38,10 +41,16 @@ _SETTING_KEYS = {
     "web_search_max_results",
     "web_search_timeout",
     "web_search_min_confidence",
+    # Retrieval provider (local pgvector vs FastGPT external search)
+    "retrieval_provider",
+    "fastgpt_base_url",
+    "fastgpt_api_key",
+    "fastgpt_dataset_id",
+    "fastgpt_search_mode",
 }
 
 # Keys that contain sensitive data
-_SENSITIVE_KEYS = {"llm_api_key", "embedding_api_key", "image_api_key", "web_search_tavily_api_key"}
+_SENSITIVE_KEYS = {"llm_api_key", "embedding_api_key", "image_api_key", "web_search_tavily_api_key", "fastgpt_api_key"}
 
 # Built-in defaults for non-sensitive settings. These are NOT read from .env —
 # they are sensible code-level fallbacks shown in the admin UI before the user
@@ -71,6 +80,10 @@ _BUILTIN_DEFAULTS: Dict[str, str] = {
     "web_search_max_results": "5",
     "web_search_timeout": "15",
     "web_search_min_confidence": "0.5",
+    "retrieval_provider": "local",
+    "fastgpt_base_url": "",
+    "fastgpt_dataset_id": "",
+    "fastgpt_search_mode": "embedding",
 }
 
 _MASK_PATTERN = re.compile(r"^\*{4}")
@@ -91,6 +104,19 @@ class SettingsService:
         if row is not None:
             return row.value
         return default or ""
+
+    @staticmethod
+    async def get_safe(db: AsyncSession, key: str, default: str = "") -> str:
+        """Read a setting, falling back to ``default`` if the store is unreachable.
+
+        For feature toggles and provider routing, an unreadable settings store
+        must degrade to the default rather than abort the caller mid-answer.
+        """
+        try:
+            return await SettingsService.get(db, key, default)
+        except Exception:  # noqa: BLE001 — a toggle read must never break callers
+            logger.warning("Settings read failed for %r; using default", key, exc_info=True)
+            return default
 
     @staticmethod
     async def get_all(db: AsyncSession) -> Dict[str, str]:

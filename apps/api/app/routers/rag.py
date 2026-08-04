@@ -16,13 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.retrieval import RetrievalLog
-from app.rag.retriever import HybridRetriever
+from app.rag.retrieval_orchestrator import retrieval_orchestrator
 from app.schemas.common import APIBaseModel, Response
 
 router = APIRouter(prefix="/rag", tags=["rag"])
-
-# Single retriever instance — weights are configured here, centrally.
-_retriever = HybridRetriever()
 
 
 class RAGSearchResultItem(BaseModel):
@@ -55,38 +52,28 @@ async def hybrid_search(
     retrieval_type: str = Query("hybrid", description="hybrid, keyword, or vector"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Perform hybrid search using the shared HybridRetriever.
-
-    Scoring weights and retrieval logic live in app.rag.retriever.HybridRetriever.
-    This router only handles HTTP request/response and logging.
-    """
+    """Perform knowledge search via RetrievalOrchestrator (local / FastGPT / dual)."""
     start = time.monotonic()
 
-    # Delegate to the centralised retriever (includes logging inside search())
-    raw_results = await _retriever.search(
-        query=query,
+    hits = await retrieval_orchestrator.search(
+        db,
+        query,
         top_k=top_k,
         project_id=project_id,
-        retrieval_type=retrieval_type,
-        db=db,
+        triggered_by="rag_search_api",
     )
-
-    # Development fallback: return mock results when no real data is indexed.
-    # This keeps the endpoint usable during early development without data.
-    if not raw_results:
-        raw_results = _retriever._mock_search(query, top_k, retrieval_type)
 
     results = [
         RAGSearchResultItem(
-            chunk_id=r.chunk_id,
-            document_id=r.document_id,
-            content=r.content,
-            score=r.score,
-            page_number=r.page_number,
-            source=r.source,
-            title=r.title,
+            chunk_id=h.chunk_id,
+            document_id=h.document_id,
+            content=h.content,
+            score=h.score,
+            page_number=h.page_number,
+            source=h.source,
+            title=h.title,
         )
-        for r in raw_results
+        for h in hits
     ]
 
     elapsed_ms = int((time.monotonic() - start) * 1000)

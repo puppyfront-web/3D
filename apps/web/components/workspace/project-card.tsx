@@ -12,10 +12,8 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ project }: ProjectCardProps) {
-  // Projects open into the canvas workspace (the legacy 6-tab detail is being
-  // phased out — see app/workspace/projects/[id]/layout.tsx redirect).
   return (
-    <Link href={`/workspace/canvas/${project.id}`}>
+    <Link href={`/workspace/chat/${project.id}`}>
       <Card className="group hover:shadow-md hover:border-primary/40 transition-all duration-200 cursor-pointer border-outline-variant">
         <CardContent className="p-5">
           <div className="flex items-start justify-between mb-3">

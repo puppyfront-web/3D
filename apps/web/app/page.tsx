@@ -24,13 +24,13 @@ export default function HomePage() {
             <div className="flex items-start gap-4">
               <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />
               <p className="text-sm leading-relaxed">
-                输入企业信息或上传资料，系统基于 AI + SOP + 企业资料 + 网络搜索进行调研与分析，自动生成结构化售前方案。
+                输入问题或上传资料，系统基于内部知识库检索与 AI 分析，提供可追溯引用的问答与方案建议。
               </p>
             </div>
             <div className="flex items-start gap-4">
               <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />
               <p className="text-sm leading-relaxed">
-                支持资料优先、搜索补充、最小追问，减少反复沟通，提升售前效率。让专业方案随手可得。
+                支持资料入库、检索测试与多轮问答，减少反复查找文档的时间，让团队共享可验证的企业知识。
               </p>
             </div>
           </div>
@@ -42,10 +42,10 @@ export default function HomePage() {
           <div className="flex flex-col items-center md:items-start gap-2">
             <div className="font-semibold text-primary flex items-center gap-2">
               <CloudCog className="h-5 w-5" />
-              <span>花生ONE</span>
+              <span>企业知识助手</span>
             </div>
             <p className="text-on-surface-variant text-xs">
-              © {new Date().getFullYear()} 花生ONE 企业3D数字化整体解决方案. All rights reserved.
+              © {new Date().getFullYear()} 企业知识助手. All rights reserved.
             </p>
           </div>
           <nav className="flex gap-8 text-xs">

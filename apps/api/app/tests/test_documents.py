@@ -100,3 +100,105 @@ class TestDocumentCRUD:
         fake_id = str(uuid.uuid4())
         response = await client.get(f"/api/v1/documents/{fake_id}")
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_search_documents_by_filename(self, client, sample_project_id):
+        await client.post(
+            "/api/v1/documents/upload",
+            params={"project_id": str(sample_project_id), "auto_index": "false"},
+            files={"file": ("quarterly-report.txt", io.BytesIO(b"content"), "text/plain")},
+        )
+        await client.post(
+            "/api/v1/documents/upload",
+            params={"project_id": str(sample_project_id), "auto_index": "false"},
+            files={"file": ("unrelated.txt", io.BytesIO(b"content"), "text/plain")},
+        )
+
+        response = await client.get("/api/v1/documents", params={"q": "quarterly"})
+        assert response.status_code == 200
+        filenames = [d["originalFilename"] for d in response.json()["items"]]
+        assert filenames == ["quarterly-report.txt"]
+
+
+class TestDocumentBatchOperations:
+    """Batch delete + CSV manifest export."""
+
+    async def _upload(self, client, project_id, filename: str) -> str:
+        resp = await client.post(
+            "/api/v1/documents/upload",
+            params={"project_id": str(project_id), "auto_index": "false"},
+            files={"file": (filename, io.BytesIO(b"content"), "text/plain")},
+        )
+        assert resp.status_code == 201
+        return resp.json()["data"]["id"]
+
+    @pytest.mark.asyncio
+    async def test_delete_batch_removes_selected_documents(self, client, sample_project_id):
+        keep_id = await self._upload(client, sample_project_id, "keep.txt")
+        drop_ids = [
+            await self._upload(client, sample_project_id, "drop-a.txt"),
+            await self._upload(client, sample_project_id, "drop-b.txt"),
+        ]
+
+        response = await client.post(
+            "/api/v1/documents/delete-batch",
+            json={"document_ids": drop_ids},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["total"] == 2
+        assert data["deleted"] == 2
+        assert data["notFound"] == 0
+
+        remaining = await client.get("/api/v1/documents")
+        remaining_ids = [d["id"] for d in remaining.json()["items"]]
+        assert keep_id in remaining_ids
+        for dropped in drop_ids:
+            assert dropped not in remaining_ids
+
+    @pytest.mark.asyncio
+    async def test_delete_batch_reports_missing_ids(self, client, sample_project_id):
+        doc_id = await self._upload(client, sample_project_id, "present.txt")
+
+        response = await client.post(
+            "/api/v1/documents/delete-batch",
+            json={"document_ids": [doc_id, str(uuid.uuid4())]},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["deleted"] == 1
+        assert data["notFound"] == 1
+
+    @pytest.mark.asyncio
+    async def test_delete_batch_rejects_empty_selection(self, client):
+        response = await client.post(
+            "/api/v1/documents/delete-batch", json={"document_ids": []}
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_export_returns_csv_manifest(self, client, sample_project_id):
+        await self._upload(client, sample_project_id, "exported.txt")
+
+        response = await client.get("/api/v1/documents/export")
+        assert response.status_code == 200
+        assert "text/csv" in response.headers["content-type"]
+        assert "documents.csv" in response.headers["content-disposition"]
+
+        body = response.content.decode("utf-8")
+        assert body.startswith("\ufeff")
+        assert "文件名" in body
+        assert "exported.txt" in body
+
+    @pytest.mark.asyncio
+    async def test_export_honours_explicit_selection(self, client, sample_project_id):
+        wanted_id = await self._upload(client, sample_project_id, "wanted.txt")
+        await self._upload(client, sample_project_id, "skipped.txt")
+
+        response = await client.get(
+            "/api/v1/documents/export", params={"document_ids": [wanted_id]}
+        )
+        assert response.status_code == 200
+        body = response.content.decode("utf-8")
+        assert "wanted.txt" in body
+        assert "skipped.txt" not in body

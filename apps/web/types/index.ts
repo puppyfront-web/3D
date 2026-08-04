@@ -291,10 +291,19 @@ export interface Asset {
   file_size: number;
   project_id: string | null;
   status: AssetStatus;
+  parse_status?: string;
   chunk_count: number;
   uploadedAt: string;
   uploadedBy: string;
   tags: string[];
+}
+
+export interface PaginatedAssets {
+  items: Asset[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 // --- Admin: Case ---
@@ -689,7 +698,8 @@ export interface ContentBlock {
     | "stage_summary"
     | "plan_progress"
     | "node_draft"
-    | "canvas_fill_proposal";
+    | "canvas_fill_proposal"
+    | "knowledge_citations";
   content?: string;
   data?: Record<string, unknown>;
 }

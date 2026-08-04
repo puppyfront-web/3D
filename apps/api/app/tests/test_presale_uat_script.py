@@ -139,7 +139,9 @@ async def _run_uat_script(client: AsyncClient, db_session) -> dict:
     )
     evidence["step4_status"] = follow.status_code
 
-    # Step 7+8: 章节审核 → 全 approved
+    # Step 7: 策划案章节内容编辑 (Spec E2 / 本轮修复 #5)
+    # PUT /generations/outputs/{id} 替换整段 sections_meta,前端 ProposalEditorPanel
+    # 的铅笔按钮就走这个端点。剧本操作是「编辑创意主题章节内容 → 保存成功」。
     out = await client.get(f"/api/v1/projects/{project_id}/proposal-output")
     evidence["step7_output_id"] = (
         out.json()["data"]["outputId"] if out.status_code == 200 else None
@@ -147,14 +149,48 @@ async def _run_uat_script(client: AsyncClient, db_session) -> dict:
     evidence["step7_sections"] = (
         out.json()["data"]["sectionsMeta"] if out.status_code == 200 else []
     )
+    edited_marker = "[UAT 编辑] 创意主题：科技品牌 3D 发布"
+    if evidence["step7_output_id"] and evidence["step7_sections"]:
+        # 选第一个章节编辑内容 (镜像前端 handleSaveEdit 的整个 sections_meta PUT)
+        first_order = evidence["step7_sections"][0]["order"]
+        edited_meta = [
+            {**s, "content": edited_marker} if s["order"] == first_order else s
+            for s in evidence["step7_sections"]
+        ]
+        put = await client.put(
+            f"/api/v1/generations/outputs/{evidence['step7_output_id']}",
+            json={"sections_meta": edited_meta},
+        )
+        evidence["step7_edit_status"] = put.status_code
+        # Re-read to confirm the edit landed.
+        re_out = await client.get(f"/api/v1/projects/{project_id}/proposal-output")
+        if re_out.status_code == 200:
+            re_sections = re_out.json()["data"]["sectionsMeta"]
+            edited_section = next(
+                (s for s in re_sections if s["order"] == first_order), None
+            )
+            evidence["step7_edit_persisted"] = bool(
+                edited_section and edited_section.get("content") == edited_marker
+            )
+
+    # Step 8: 全章节 approved → pending_review (本轮修复 #4)
     if evidence["step7_output_id"] and evidence["step7_sections"]:
         for section in evidence["step7_sections"]:
             await client.patch(
                 f"/api/v1/generations/outputs/{evidence['step7_output_id']}/sections/{section['order']}/status",
                 json={"status": "approved"},
             )
+        # 全章节 approved 后,project 应推进到 pending_review (Spec F5)。
+        from app.models.project import Project
+
+        await db_session.commit()
+        proj_row = await db_session.get(Project, uuid.UUID(project_id))
+        evidence["step8_project_status"] = proj_row.status if proj_row else None
 
     # Step 9: 导出 PDF(门控放行)
+    # 经过本轮加强的 export gate:
+    #   - #2 canvas planning 检查 (每板至少一 node 的 planning 非空)
+    #   - #3 industry-aware SOP match (从 company.industry 解析)
     if evidence["step7_output_id"]:
         export = await client.post(
             f"/api/v1/exports/pdf/{evidence['step7_output_id']}"
@@ -194,6 +230,9 @@ async def _run_uat_script(client: AsyncClient, db_session) -> dict:
         ("step2_status", 200),
         ("step3_filled_node_count", 3),  # >= 3 filled nodes (三大板块)
         ("step4_status", 200),
+        ("step7_edit_status", 200),  # 章节内容编辑保存成功 (Spec E2)
+        ("step7_edit_persisted", True),  # 编辑后重读内容已落库
+        ("step8_project_status", "pending_review"),  # 全 approved → pending_review (F5)
         ("step9_status", 200),  # PDF export succeeds after gate
     ],
 )

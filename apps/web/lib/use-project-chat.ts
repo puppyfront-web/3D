@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamChat, uploadChatFile } from "@/lib/chat-api";
-import { getProjectConversation } from "@/lib/canvas-api";
+import { clearProjectConversation, getProjectConversation } from "@/lib/canvas-api";
 import type { ChatMessage, ContentBlock } from "@/types";
 import { toast } from "sonner";
 
@@ -39,10 +39,12 @@ export interface UseProjectChat extends ProjectChatState {
    *  opts.nodeId, when set, scopes the AI reply to a single canvas node
    *  (node-scoped conversation). Falls back to the hook's activeNodeId. */
   send: (text: string, opts?: { nodeId?: string | null }) => void;
-  /** Upload a file as a chat attachment to the project conversation. */
-  upload: (file: File, caption?: string) => Promise<void>;
+  /** Upload a file as a chat attachment, bound to the project's knowledge base. */
+  upload: (file: File, caption?: string, category?: string) => Promise<void>;
   /** Abort an in-flight stream. */
   abort: () => void;
+  /** Clear all messages in the current thread. */
+  clear: () => Promise<void>;
 }
 
 /**
@@ -258,14 +260,19 @@ export function useProjectChat(
   }, [initialPrompt, conversationId, isStreaming, activeNodeId, send]);
 
   const upload = useCallback(
-    async (file: File, caption?: string) => {
+    async (file: File, caption?: string, category?: string) => {
       if (!conversationId) return;
       setIsUploading(true);
       setError(null);
       try {
-        const res = await uploadChatFile(conversationId, file, caption);
+        const res = await uploadChatFile(conversationId, file, caption, {
+          projectId,
+          category,
+        });
         if (res.success && res.data) {
           setMessages((prev) => [...prev, res.data!]);
+          messagesLenRef.current += 1;
+          toast.success(`${file.name} 已入知识库`);
         } else {
           toast.error(res.message ?? "上传失败");
         }
@@ -277,7 +284,7 @@ export function useProjectChat(
         setIsUploading(false);
       }
     },
-    [conversationId],
+    [conversationId, projectId],
   );
 
   const abort = useCallback(() => {
@@ -289,6 +296,20 @@ export function useProjectChat(
     setStreamingThinkingText("");
     setStreamingBlocks([]);
   }, []);
+
+  const clear = useCallback(async () => {
+    if (!conversationId || !threadId || isStreaming) return;
+    abort();
+    const res = await clearProjectConversation(conversationId, threadId);
+    if (res.success) {
+      setMessages([]);
+      messagesLenRef.current = 0;
+      setError(null);
+      toast.success("对话已清空");
+    } else {
+      toast.error(res.message ?? "清空对话失败");
+    }
+  }, [conversationId, threadId, isStreaming, abort]);
 
   return {
     conversationId,
@@ -303,5 +324,6 @@ export function useProjectChat(
     send,
     upload,
     abort,
+    clear,
   };
 }

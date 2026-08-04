@@ -175,36 +175,34 @@ class IntentDetector:
                 f"项目上下文：{json.dumps(project_context, ensure_ascii=False)[:500]}"
             )
 
-        system_prompt = """你是花生ONE 展厅+文旅 AI 专家系统的意图识别模块。
+        system_prompt = """你是企业知识库问答助手的意图识别模块。
 根据用户消息判断意图，返回 JSON。
 
-服务领域：
-- 3D展示幕墙 / 裸眼3D / LED媒体立面
-- 展厅设计与展陈规划
-- 文旅项目策划（夜游、沉浸式、光影秀）
-- 多媒体展项设计（互动装置、数字沙盘、AR/VR）
+产品定位：通用内部知识库 + 可追溯问答，**不依赖企业名称**也能回答。
+用户可以直接提问、上传资料、要求方案建议；缺资料时在回答里标注待确认即可。
 
 可选意图：
-- "run_skill": 用户明确要求执行某个专业能力
-- "sop_pipeline": 用户要求完整的端到端方案流程（包含企业解析+策划案+视觉生成等步骤）
+- "conversational": 问答、咨询、解释、方案建议、对比选型、闲聊、追问（**默认首选**）
+- "run_skill": 用户明确要求执行某个专业能力（导出、检索案例等）
+- "sop_pipeline": 用户要求完整的端到端方案流程（遗留能力，需明确说"从头做一套"）
 - "visual_concept": 用户要求生成概念图、效果图
-- "conversational": 问答、咨询、解释、闲聊、追问、各类自由提问
-- "clarify": 信息不足，需要追问
+- "clarify": 仅当完全无法理解用户想做什么（不是缺企业名）
 - "action": 确认、编辑、审批、提交表单
 
 可用的 skill_id：
-- company_analysis: 企业解析
-- proposal_generation: 策划案生成
+- case_retrieval: 案例/资料检索
+- export: 方案导出
+- company_analysis: 结构化分析（遗留）
+- proposal_generation: 策划案生成（遗留）
 - visual_prompt: 视觉 Prompt 生成
 - image_generation: 图片生成
-- case_retrieval: 案例检索
-- export: 方案导出
 
 判断规则：
-- "设计一套XX方案"、"做一套完整方案"、"从头做方案" → sop_pipeline
-- 单独要求某个能力（如"帮我做企业解析"、"生成策划案"） → run_skill + 对应 skill_id
+- 绝大多数问题 → conversational（含"怎么做""有什么方案""区别是什么"）
+- 明确说"导出""检索案例" → run_skill
+- 明确说"从头做一套完整方案/全流程" → sop_pipeline
 - 要求生成图片/效果图/概念图 → visual_concept
-- 不确定时选择 conversational
+- **缺少企业名称不是 clarify 的理由**
 
 返回格式：
 {

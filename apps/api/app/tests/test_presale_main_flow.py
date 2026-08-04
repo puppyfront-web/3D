@@ -162,6 +162,28 @@ async def test_first_message_triggers_auto_fill_with_proposal_blocks(
     filled = [n for n in nodes if (n.get("content") or {}).get("planning")]
     assert len(filled) >= 3, f"三大板块至少 3 个节点应有 planning; got {len(filled)}"
 
+    # §11.2: a successful auto-fill must persist an OperationRun whose steps
+    # cover the full main flow (web_search / canvas_fill / skill_execute /
+    # memory_write / persist_message). Regression for the earlier bug where
+    # only web_search + memory_write were recorded.
+    from app.models.operation_run import OperationRun
+
+    await db_session.commit()  # cross-session visibility
+    runs = (
+        await db_session.execute(
+            select(OperationRun).where(OperationRun.project_id == uuid.UUID(project_id))
+        )
+    ).scalars().all()
+    assert len(runs) >= 1, "auto-fill should write an OperationRun"
+    run = runs[-1]
+    assert run.operation_type == "auto_fill"
+    assert run.status == "completed", f"expected completed run; got {run.status}"
+    step_names = [s.get("step") for s in (run.steps or [])]
+    for required_step in ("web_search", "canvas_fill", "skill_execute", "persist_message"):
+        assert required_step in step_names, (
+            f"OperationRun missing step {required_step}; got {step_names}"
+        )
+
 
 @pytest.mark.asyncio
 async def test_auto_fill_persists_generation_output(
@@ -460,7 +482,7 @@ async def test_follow_up_question_sees_canvas_digest(
             },
         )
     assert follow.status_code == 200, follow.text
-    assert "项目画布摘要" in captured.get("system_prompt", ""), (
+    assert "项目上下文摘要" in captured.get("system_prompt", ""), (
         "追问时应注入 canvas_digest 到 system_prompt;got: "
         + captured.get("system_prompt", "")[:200]
     )
@@ -558,6 +580,13 @@ async def test_project_status_advances_through_main_flow(
         )
         assert patch.status_code == 200, patch.text
 
+    # F5: all sections approved → project advances to pending_review (P0 #4).
+    await db_session.commit()
+    await db_session.refresh(project)
+    assert project.status == "pending_review", (
+        f"全章节 approved 后状态应为 pending_review; got {project.status}"
+    )
+
     export_resp = await client.post(f"/api/v1/exports/word/{output_id}")
     # Export may 200 (python-docx installed) — in that case status flips to
     # exported. If the library is missing the endpoint returns 500 and we
@@ -649,9 +678,13 @@ async def test_auto_fill_passes_uploaded_document_context_to_fill_canvas(
 
     验证方式:用 patch 捕获 fill_canvas 的 document_context 入参,断言非空且含
     上传资料的摘要文本。
+
+    KB-QA-Foundation 起首条消息的画布自动填充默认关闭(改为 KB-first 问答),
+    这里显式打开开关以继续覆盖仍在服役的 auto-fill 链路。
     """
     from unittest.mock import AsyncMock, patch
 
+    from app.core.config import settings
     from app.models.document import Document, DocumentChunk
 
     await _seed_admin_owner(db_session)
@@ -703,7 +736,7 @@ async def test_auto_fill_passes_uploaded_document_context_to_fill_canvas(
         captured["document_sources"] = document_sources
         return {"success": True, "filled_count": 1, "node_ids": [], "errors": []}
 
-    with patch(
+    with patch.object(settings, "canvas_auto_fill_enabled", True), patch(
         "app.services.canvas_agent_orchestrator.canvas_agent_orchestrator.fill_canvas",
         AsyncMock(side_effect=_capture_fill),
     ):
@@ -719,3 +752,227 @@ async def test_auto_fill_passes_uploaded_document_context_to_fill_canvas(
         "document_context 应含上传资料正文;got: "
         + str(captured["document_context"])[:200]
     )
+
+
+# ─── pending_review state-machine roll-up (P0 #4) ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pending_review_helper_skips_when_section_unapproved(
+    db_session, sample_project_id
+):
+    """`_maybe_advance_to_pending_review` does nothing when a section is still
+    draft — only an all-approved set flips the project."""
+    from app.models.generation import GenerationOutput, GenerationTask
+    from app.models.project import Project
+    from app.routers.generations import _maybe_advance_to_pending_review
+
+    task = GenerationTask(
+        id=uuid.uuid4(),
+        project_id=sample_project_id,
+        type="proposal",
+        status="completed",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    output = GenerationOutput(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        content_type="text/markdown",
+        content="x",
+        sections_meta=[
+            {"title": "A", "order": 1, "status": "approved"},
+            {"title": "B", "order": 2, "status": "draft"},  # not all approved
+        ],
+    )
+    db_session.add(output)
+    await db_session.flush()
+
+    project = await db_session.get(Project, sample_project_id)
+    original_status = project.status
+    await _maybe_advance_to_pending_review(db_session, output)
+
+    await db_session.refresh(project)
+    assert project.status == original_status, (
+        "未全部 approved 时不应推进状态; got " + project.status
+    )
+
+
+@pytest.mark.asyncio
+async def test_pending_review_helper_skips_hitl_unconfirmed(
+    db_session, sample_project_id
+):
+    """All approved but a HITL section unconfirmed → no flip."""
+    from app.models.generation import GenerationOutput, GenerationTask
+    from app.models.project import Project
+    from app.routers.generations import _maybe_advance_to_pending_review
+
+    task = GenerationTask(
+        id=uuid.uuid4(),
+        project_id=sample_project_id,
+        type="proposal",
+        status="completed",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    output = GenerationOutput(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        content_type="text/markdown",
+        content="x",
+        sections_meta=[
+            {"title": "A", "order": 1, "status": "approved"},
+            {
+                "title": "报价",
+                "order": 2,
+                "status": "approved",
+                "require_human_review": True,
+                "human_confirmed": False,  # HITL not satisfied
+            },
+        ],
+    )
+    db_session.add(output)
+    await db_session.flush()
+
+    project = await db_session.get(Project, sample_project_id)
+    original_status = project.status
+    await _maybe_advance_to_pending_review(db_session, output)
+
+    await db_session.refresh(project)
+    assert project.status == original_status
+
+
+@pytest.mark.asyncio
+async def test_pending_review_helper_flips_when_all_approved_and_confirmed(
+    db_session, sample_project_id
+):
+    """All approved + HITL confirmed → pending_review."""
+    from app.models.generation import GenerationOutput, GenerationTask
+    from app.models.project import Project
+    from app.routers.generations import _maybe_advance_to_pending_review
+
+    task = GenerationTask(
+        id=uuid.uuid4(),
+        project_id=sample_project_id,
+        type="proposal",
+        status="completed",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    output = GenerationOutput(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        content_type="text/markdown",
+        content="x",
+        sections_meta=[
+            {"title": "A", "order": 1, "status": "approved"},
+            {
+                "title": "报价",
+                "order": 2,
+                "status": "approved",
+                "require_human_review": True,
+                "human_confirmed": True,
+            },
+        ],
+    )
+    db_session.add(output)
+    await db_session.flush()
+
+    project = await db_session.get(Project, sample_project_id)
+    project.status = "proposal_generated"
+    await db_session.flush()
+
+    await _maybe_advance_to_pending_review(db_session, output)
+    await db_session.refresh(project)
+    assert project.status == "pending_review"
+
+
+@pytest.mark.asyncio
+async def test_pending_review_helper_does_not_regress_exported(
+    db_session, sample_project_id
+):
+    """An already-exported project must not regress to pending_review."""
+    from app.models.generation import GenerationOutput, GenerationTask
+    from app.models.project import Project
+    from app.routers.generations import _maybe_advance_to_pending_review
+
+    task = GenerationTask(
+        id=uuid.uuid4(),
+        project_id=sample_project_id,
+        type="proposal",
+        status="completed",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    output = GenerationOutput(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        content_type="text/markdown",
+        content="x",
+        sections_meta=[{"title": "A", "order": 1, "status": "approved"}],
+    )
+    db_session.add(output)
+    await db_session.flush()
+
+    project = await db_session.get(Project, sample_project_id)
+    project.status = "exported"
+    await db_session.flush()
+
+    await _maybe_advance_to_pending_review(db_session, output)
+    await db_session.refresh(project)
+    assert project.status == "exported"
+
+
+# ─── OperationRun failure-path persistence (P0 #1) ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_auto_fill_failure_still_persists_failed_operation_run(
+    client: AsyncClient, db_session
+):
+    """§11.2: fill_canvas failing must NOT skip the OperationRun.
+
+    Regression: the old early-return wrote nothing, so a failed turn was
+    invisible in the run table and排障 had to read logs. Now the failure path
+    records canvas_fill(failed) + persist_message + status=failed.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from app.models.operation_run import OperationRun
+
+    await _seed_admin_owner(db_session)
+    suffix = uuid.uuid4().hex[:8]
+    wiz = await client.post("/api/v1/projects/wizard", json=await _wizard_payload(suffix))
+    project_id = wiz.json()["data"]["id"]
+    conv_id = (
+        (await client.get(f"/api/v1/projects/{project_id}/conversation"))
+        .json()["data"]["id"]
+    )
+
+    with patch(
+        "app.services.canvas_agent_orchestrator.canvas_agent_orchestrator.fill_canvas",
+        AsyncMock(side_effect=RuntimeError("simulated planner failure")),
+    ):
+        resp = await client.post(
+            f"/api/v1/conversations/{conv_id}/chat/stream",
+            json={"message": "给测试企业做一个裸眼3D幕墙发布方案"},
+        )
+    assert resp.status_code == 200, resp.text  # SSE still 200; error is in-payload
+
+    await db_session.commit()
+    runs = (
+        await db_session.execute(
+            select(OperationRun).where(OperationRun.project_id == uuid.UUID(project_id))
+        )
+    ).scalars().all()
+    assert len(runs) >= 1, "失败路径也必须写入 OperationRun"
+    run = runs[-1]
+    assert run.operation_type == "auto_fill"
+    assert run.status == "failed", f"失败路径 run.status 应为 failed; got {run.status}"
+    assert run.error, "failed run 应携带 error 文本"
+    step_names = [s.get("step") for s in (run.steps or [])]
+    assert "canvas_fill" in step_names
+    assert "persist_message" in step_names
+    canvas_fill_step = next(s for s in run.steps if s.get("step") == "canvas_fill")
+    assert canvas_fill_step.get("status") == "failed"
+    assert canvas_fill_step.get("error"), "canvas_fill step 应携带 error 字段"

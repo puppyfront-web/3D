@@ -38,6 +38,7 @@ services:
       IMAGE_BASE_URL: ${IMAGE_BASE_URL:-}
       IMAGE_MODEL: ${IMAGE_MODEL:-dall-e-3}
       STORAGE_PATH: ./storage
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:5173
     volumes:
       - ./apps/api/storage:/app/storage
     depends_on:
@@ -51,7 +52,7 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3000}:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
     depends_on:

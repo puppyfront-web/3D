@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, Eye, EyeOff, Loader2, Check, Cpu, Brain, ImageIcon } from "lucide-react";
+import { Settings, Eye, EyeOff, Loader2, Check, Cpu, Brain, ImageIcon, Search } from "lucide-react";
 import { getAppSettings, updateAppSettings } from "@/lib/api";
 
 interface ServiceConfig {
@@ -50,6 +50,13 @@ export default function SettingsPage() {
   const [embeddingDimensions, setEmbeddingDimensions] = useState("1536");
   const [imageQuality, setImageQuality] = useState("high");
 
+  const [retrievalProvider, setRetrievalProvider] = useState("local");
+  const [fastgptBaseUrl, setFastgptBaseUrl] = useState("");
+  const [fastgptApiKey, setFastgptApiKey] = useState("");
+  const [fastgptDatasetId, setFastgptDatasetId] = useState("");
+  const [fastgptSearchMode, setFastgptSearchMode] = useState("embedding");
+  const [showFastgptKey, setShowFastgptKey] = useState(false);
+
   const [showKeys, setShowKeys] = useState({
     llm: false,
     embedding: false,
@@ -81,6 +88,11 @@ export default function SettingsPage() {
       });
       setEmbeddingDimensions(d.embedding_dimensions || "1536");
       setImageQuality(d.image_quality || "high");
+      setRetrievalProvider(d.retrieval_provider || "local");
+      setFastgptBaseUrl(d.fastgpt_base_url || "");
+      setFastgptApiKey(d.fastgpt_api_key || "");
+      setFastgptDatasetId(d.fastgpt_dataset_id || "");
+      setFastgptSearchMode(d.fastgpt_search_mode || "embedding");
     }
     setLoading(false);
   }, []);
@@ -107,6 +119,11 @@ export default function SettingsPage() {
       image_model: image.model,
       embedding_dimensions: embeddingDimensions,
       image_quality: imageQuality,
+      retrieval_provider: retrievalProvider,
+      fastgpt_base_url: fastgptBaseUrl,
+      fastgpt_api_key: fastgptApiKey,
+      fastgpt_dataset_id: fastgptDatasetId,
+      fastgpt_search_mode: fastgptSearchMode,
     });
     if (res.success) {
       setSaved(true);
@@ -272,6 +289,84 @@ export default function SettingsPage() {
             </Select>
           </div>,
         )}
+
+        <Card className="border-gray-200">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Search className="h-4 w-4 text-primary" />
+              知识库检索后端
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-gray-500">
+              资料上传与入库仍在本地完成；此处仅配置<strong>检索</strong>走本地 pgvector 还是外部 FastGPT。
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs">检索提供方</Label>
+                <Select value={retrievalProvider} onValueChange={setRetrievalProvider}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="local">本地（pgvector + 案例库）</SelectItem>
+                    <SelectItem value="fastgpt">FastGPT 知识库</SelectItem>
+                    <SelectItem value="dual">双路（本地 + FastGPT 合并）</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">FastGPT 检索模式</Label>
+                <Select value={fastgptSearchMode} onValueChange={setFastgptSearchMode}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="embedding">向量 embedding</SelectItem>
+                    <SelectItem value="fullTextRecall">全文</SelectItem>
+                    <SelectItem value="mixedRecall">混合</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">FastGPT Base URL</Label>
+              <Input
+                className="h-9"
+                placeholder="http://localhost:3000"
+                value={fastgptBaseUrl}
+                onChange={(e) => setFastgptBaseUrl(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">FastGPT Dataset ID</Label>
+              <Input
+                className="h-9"
+                placeholder="知识库 ID"
+                value={fastgptDatasetId}
+                onChange={(e) => setFastgptDatasetId(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">FastGPT API Key</Label>
+              <div className="relative">
+                <Input
+                  className="h-9 pr-10"
+                  type={showFastgptKey ? "text" : "password"}
+                  value={fastgptApiKey}
+                  onChange={(e) => setFastgptApiKey(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                  onClick={() => setShowFastgptKey((v) => !v)}
+                >
+                  {showFastgptKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="mt-6 flex items-center gap-3">

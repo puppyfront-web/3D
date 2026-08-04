@@ -9,16 +9,17 @@
 // `require_human_review` must reach `approved` before the export gate opens
 // (PRESALE_DELIVERY_SPEC §9.1 / §10.2).
 //
-// Phase 1 scope (per plan Task 3): read-only preview + 审核状态切换 + 章节
-// content 折叠. Inline content editing lands in a later pass — the spec calls
-// it out as deferrable (plan §"风险与依赖").
+// Inline content editing (Spec E2): the铅笔 button on each card switches the
+// preview into a textarea; saving PUTs the full sections_meta back to the
+// Brief (the backend already exposes PUT /generations/outputs/{id}).
 
 import { useCallback, useEffect, useState } from "react";
-import { ClipboardCheck, Loader2, X, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { ClipboardCheck, Loader2, X, AlertTriangle, CheckCircle2, Clock, Pencil, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import {
   getProposalOutput,
+  updateProposalContent,
   updateSectionStatus,
   type ProposalOutput,
   type ProposalSectionMeta,
@@ -76,6 +77,10 @@ export function ProposalEditorPanel({
   const [busyOrder, setBusyOrder] = useState<number | null>(null);
   // Expanded section order (1-based). Toggling shows the full content preview.
   const [expandedOrder, setExpandedOrder] = useState<number | null>(null);
+  // Inline-edit state (Spec E2). editingOrder === section.order switches the
+  // card's preview into a textarea bound to draftContent.
+  const [editingOrder, setEditingOrder] = useState<number | null>(null);
+  const [draftContent, setDraftContent] = useState<string>("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,6 +127,42 @@ export function ProposalEditorPanel({
     }
   };
 
+  const handleStartEdit = (section: ProposalSectionMeta) => {
+    setEditingOrder(section.order);
+    setDraftContent(section.content ?? "");
+    // Expanding makes the textarea visible even if the section was collapsed.
+    if (expandedOrder !== section.order) setExpandedOrder(section.order);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingOrder(null);
+    setDraftContent("");
+  };
+
+  const handleSaveEdit = async (section: ProposalSectionMeta) => {
+    if (!output) return;
+    setBusyOrder(section.order);
+    try {
+      // PUT replaces the whole sections_meta, so build a new array with only
+      // the edited section's content mutated (deep-ish copy of the rest).
+      const nextMeta = output.sectionsMeta.map((s) =>
+        s.order === section.order ? { ...s, content: draftContent } : s,
+      );
+      const res = await updateProposalContent(output.outputId, nextMeta);
+      if (res.success && res.data) {
+        setOutput(res.data);
+        onSectionStatusChanged?.();
+        toast.success(`「${section.title || `章节 ${section.order}`}」内容已保存`);
+        setEditingOrder(null);
+        setDraftContent("");
+      } else {
+        toast.error(res.message || "保存章节内容失败");
+      }
+    } finally {
+      setBusyOrder(null);
+    }
+  };
+
   const sections = output?.sectionsMeta ?? [];
   const approvedCount = sections.filter((s) => s.status === "approved").length;
   const needsReview = sections.filter((s) => s.require_human_review && s.status !== "approved");
@@ -161,7 +202,7 @@ export function ProposalEditorPanel({
 
           {!loading && !output && (
             <div className="text-center py-12 text-on-surface-variant text-sm">
-              还没有策划案。请在对话中触发首轮 auto-fill（输入企业名 + 需求描述）。
+              还没有策划案。请在对话中提问或上传资料，基于知识库生成方案内容。
             </div>
           )}
 
@@ -175,6 +216,7 @@ export function ProposalEditorPanel({
             sections.map((section) => {
               const isExpanded = expandedOrder === section.order;
               const isBusy = busyOrder === section.order;
+              const isEditing = editingOrder === section.order;
               return (
                 <div
                   key={section.order}
@@ -200,20 +242,66 @@ export function ProposalEditorPanel({
                         )}
                       </div>
                     </button>
+                    {!isEditing && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-on-surface-variant"
+                        disabled={isBusy}
+                        onClick={() => handleStartEdit(section)}
+                        aria-label="编辑章节内容"
+                        title="编辑章节内容"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
 
-                  {section.content && (
-                    <div
-                      className={cn(
-                        "mt-2 text-xs text-on-surface-variant whitespace-pre-wrap leading-relaxed",
-                        isExpanded ? "" : "line-clamp-3",
-                      )}
-                    >
-                      {section.content}
+                  {isEditing ? (
+                    <div className="mt-2 space-y-2">
+                      <textarea
+                        value={draftContent}
+                        onChange={(e) => setDraftContent(e.target.value)}
+                        disabled={isBusy}
+                        className="w-full min-h-[120px] rounded-md border border-outline-variant bg-surface-container-lowest p-2 text-xs text-on-surface leading-relaxed focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+                        placeholder="编辑章节内容…"
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          disabled={isBusy}
+                          onClick={() => handleSaveEdit(section)}
+                          className="h-7 px-2.5 text-xs"
+                        >
+                          {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                          保存
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isBusy}
+                          onClick={handleCancelEdit}
+                          className="h-7 px-2.5 text-xs"
+                        >
+                          取消
+                        </Button>
+                      </div>
                     </div>
+                  ) : (
+                    section.content && (
+                      <div
+                        className={cn(
+                          "mt-2 text-xs text-on-surface-variant whitespace-pre-wrap leading-relaxed",
+                          isExpanded ? "" : "line-clamp-3",
+                        )}
+                      >
+                        {section.content}
+                      </div>
+                    )
                   )}
 
-                  {isExpanded && (section.used_cases?.length || section.missing_info?.length) ? (
+                  {!isEditing && isExpanded && (section.used_cases?.length || section.missing_info?.length) ? (
                     <div className="mt-2 space-y-1 text-xs">
                       {section.used_cases && section.used_cases.length > 0 && (
                         <p className="text-on-surface-variant">

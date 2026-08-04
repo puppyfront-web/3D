@@ -126,6 +126,20 @@ export async function getProjectConversation(
   );
 }
 
+/** Clear all messages in the project's active conversation thread. */
+export async function clearProjectConversation(
+  conversationId: string,
+  threadId: string,
+): Promise<ApiResponse<{ removed: number }>> {
+  return canvasFetch<{ removed: number }>(
+    `/api/v1/conversations/${conversationId}/clear`,
+    {
+      method: "POST",
+      body: JSON.stringify({ thread_id: threadId }),
+    },
+  );
+}
+
 // ─── Node CRUD ───────────────────────────────────────────────────────────────
 
 export async function getNode(
@@ -376,6 +390,31 @@ export async function updateSectionStatus(
     {
       method: "PATCH",
       body: JSON.stringify({ status }),
+    },
+  );
+}
+
+/**
+ * Inline-edit the Brief (Spec E2). PUTs the full sections_meta back to
+ * /generations/outputs/{id}; the backend persists content + sections_meta as
+ * one atomic update. Pass the whole camelCase array (matches ProposalOutput);
+ * the body is converted to the snake_case shape the backend
+ * ProposalContentUpdate schema expects.
+ *
+ * Note: this replaces ALL sections on the output — the caller is expected to
+ * pass the entire current sectionsMeta with one section's `content` mutated,
+ * not a single section. Mirrors how the legacy lib/api.ts::updateProposalSection
+ * wraps the same endpoint.
+ */
+export async function updateProposalContent(
+  outputId: string,
+  sectionsMeta: ProposalSectionMeta[],
+): Promise<ApiResponse<ProposalOutput>> {
+  return canvasFetch<ProposalOutput>(
+    `/api/v1/generations/outputs/${outputId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ sections_meta: sectionsMeta }),
     },
   );
 }

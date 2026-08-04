@@ -18,6 +18,16 @@ const API_BASE_URL =
 
 const MAX_LEN = 1000;
 
+function deriveProjectName(prompt: string, fileName?: string | null): string {
+  const trimmed = prompt.trim();
+  if (trimmed) {
+    const firstLine = trimmed.split("\n")[0].trim();
+    if (firstLine) return firstLine.slice(0, 40);
+  }
+  if (fileName) return fileName.replace(/\.[^.]+$/, "").slice(0, 40);
+  return "知识问答";
+}
+
 export function HeroSection() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
@@ -30,7 +40,7 @@ export function HeroSection() {
 
   async function handleStart() {
     if (!canSubmit) {
-      setError("请输入企业名称、官网链接或需求描述，或上传企业资料");
+      setError("请输入问题或需求描述，或上传相关资料");
       return;
     }
     setError(null);
@@ -75,10 +85,10 @@ export function HeroSection() {
         headers,
         body: JSON.stringify({
           step1: {
-            projectName: "企业3D数字化展示方案",
-            clientName: "待补充企业",
+            projectName: deriveProjectName(attachmentHint, selectedFile?.name),
+            clientName: "",
             industry: null,
-            projectType: "企业3D数字化展示",
+            projectType: "知识库问答",
             description: initialMessage,
           },
           screen: { screenType: null },
@@ -96,8 +106,8 @@ export function HeroSection() {
       // Carry the original prompt to the canvas; the left-rail conversation
       // panel will auto-send it as the first message.
       const target = initialMessage.trim()
-        ? `/workspace/canvas/${projectId}?init_prompt=${encodeURIComponent(initialMessage.trim())}`
-        : `/workspace/canvas/${projectId}`;
+        ? `/workspace/chat/${projectId}?init_prompt=${encodeURIComponent(initialMessage.trim())}`
+        : `/workspace/chat/${projectId}`;
       router.push(target);
     } catch (e) {
       setError(e instanceof Error ? e.message : "创建项目失败");
@@ -124,10 +134,10 @@ export function HeroSection() {
       />
       <div className="relative z-10 max-w-container-max mx-auto px-margin-desktop text-center">
         <h1 className="text-4xl md:text-[32px] leading-tight font-bold text-on-background mb-4 tracking-tight">
-          企业3D数字化整体解决方案售前助手
+          企业知识库与方案问答助手
         </h1>
         <p className="text-base md:text-lg text-on-surface-variant max-w-2xl mx-auto mb-12 leading-relaxed">
-          基于 AI + SOP + 企业资料 + 网络搜索，智能生成结构化售前策划方案，助力销售团队快速获取客户信任。
+          上传资料、自动入库检索，基于内部知识库提问并获得可追溯引用的专业回答与方案建议。
         </p>
 
         <div className="max-w-4xl mx-auto bg-surface-container-lowest rounded-xl shadow-xl border border-outline-variant p-6 text-left">
@@ -139,7 +149,7 @@ export function HeroSection() {
                 if (error) setError(null);
               }}
               className="w-full h-40 bg-surface-container-low border border-outline-variant rounded-lg p-6 text-sm leading-relaxed focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none resize-none placeholder:text-outline"
-              placeholder="请输入企业名称、官网链接、需求描述，或上传企业资料..."
+              placeholder="请输入问题、需求描述，或上传相关资料…"
             />
             <div className="absolute bottom-4 right-4 text-xs text-outline">
               {prompt.length} / {MAX_LEN}
@@ -189,7 +199,7 @@ export function HeroSection() {
                 ? "上传附件中…"
                 : submitting
                   ? "创建中…"
-                  : "开始生成方案"}
+                  : "开始问答"}
             </button>
             <label className="w-full md:w-auto border-2 border-primary text-primary px-10 py-4 rounded-lg font-medium hover:bg-primary/5 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer">
               <FileUp className="h-5 w-5" />

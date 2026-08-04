@@ -4,8 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "花生ONE",
-  description: "企业3D数字化整体解决方案售前助手 — AI + SOP + 企业资料 + 网络搜索",
+  title: "企业知识助手",
+  description: "内部知识库与可追溯问答 — 资料入库、检索测试、多轮问答",
 };
 
 export default function RootLayout({

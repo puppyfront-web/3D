@@ -18,15 +18,15 @@ import { toast } from "sonner";
 
 const MARKETING_NAV = [
   { label: "首页", href: "/" },
-  { label: "方案中心", href: "/workspace/projects" },
+  { label: "项目中心", href: "/workspace/projects" },
+  { label: "知识库", href: "/admin/assets" },
   { label: "案例库", href: "/admin/cases" },
-  { label: "模板中心", href: "/admin/proposal-templates" },
 ];
 
 const WORKSPACE_NAV = [
   { label: "首页", href: "/" },
-  { label: "方案中心", href: "/workspace/projects" },
-  { label: "案例库", href: "/admin/cases" },
+  { label: "项目中心", href: "/workspace/projects" },
+  { label: "知识库", href: "/admin/assets" },
 ];
 
 export function TopNav({
@@ -67,7 +67,7 @@ export function TopNav({
             className="font-bold text-primary flex items-center gap-2 text-xl"
           >
             <CloudCog className="h-6 w-6 fill" />
-            <span className="tracking-tight">花生ONE</span>
+            <span>企业知识助手</span>
           </Link>
           <nav className="hidden md:flex gap-6 items-center">
             {items.map((item) => {
@@ -99,7 +99,7 @@ export function TopNav({
               href="/workspace/projects/new"
               className="hidden sm:inline-flex bg-primary text-on-primary px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 active:scale-95 transition-all"
             >
-              开始生成方案
+              新建项目
             </Link>
           )}
 

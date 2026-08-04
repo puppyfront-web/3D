@@ -288,22 +288,7 @@ async def get_latest_proposal_output(
     Proposal entry until auto-fill has produced one.
     """
     from app.models.generation import GenerationOutput, GenerationTask
-    from app.schemas.common import APIBaseModel
-    from typing import Any, List, Optional
-    from datetime import datetime
-
-    class ProposalOutputOut(APIBaseModel):
-        """Serializer for the latest Brief — camelCase on the wire."""
-
-        output_id: str
-        task_id: str
-        sections_meta: List[Any] = Field(default_factory=list)
-        used_cases: List[Any] = Field(default_factory=list)
-        used_documents: List[Any] = Field(default_factory=list)
-        used_chunks: List[Any] = Field(default_factory=list)
-        used_external_sources: List[Any] = Field(default_factory=list)
-        used_sop_version: Optional[str] = None
-        created_at: Optional[str] = None
+    from app.schemas.generation import ProposalOutputOut
 
     project = await db.get(Project, project_id)
     if not project:

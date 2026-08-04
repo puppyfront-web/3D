@@ -1,9 +1,10 @@
 """Export gate service — config-driven export eligibility (PRESALE_DELIVERY_SPEC §9.2).
 
-Replaces the hard-coded ``_check_export_eligibility`` in routers/exports.py
-with a configurable check that:
+Single source of truth for export eligibility. Called from
+``routers/exports._enforce_export_gate``; supersedes the earlier hard-coded
+per-section check. Configurable in two ways:
 
-1. Runs the per-section status / human-review checks (the old logic).
+1. Runs the per-section status / human-review checks (the legacy rules).
 2. Reads additional checklist items from the matched SOP's ``quality_review``
    stage (``pipeline_stages[*].checklist``) and surfaces them as informational
    blockers when they aren't satisfied.
@@ -14,8 +15,9 @@ data check — surfaced so the reviewer sees them). The router only refuses on
 ``blocking``; ``advisory`` is included in the response so the UI can show it.
 
 Canvas-node fill state is checked too (P0 B3 / spec §9.2 "企业画像/画布关键
-节点已 filled") — at least one node per default board must have ``planning``
-content, otherwise the Brief was generated against an empty canvas.
+节点已 filled") — each default board must have at least one node whose
+``points``/``planning`` content is non-empty, otherwise the Brief was
+generated against an empty canvas (boards with placeholder nodes only).
 """
 
 import logging
@@ -79,12 +81,18 @@ class ExportGateService:
                 for item in stage.get("checklist") or []:
                     advisory.append(f"[SOP 检查项] {item}")
 
-        # 3) Canvas fill state — at least one filled node per default board.
+        # 3) Canvas fill state — each default board needs at least one node
+        # whose content (``points``/``planning``) is actually populated. The
+        # earlier check only verified the board had any node, which let an
+        # auto-fill that produced zero usable points slip through (Spec §9.2
+        # "关键节点已 filled"). ``build_fill_proposal_from_canvas`` exposes the
+        # planning list as ``points`` on the digest node; the canvas-node
+        # ``content.planning`` is the underlying source.
         if canvas_boards:
             filled_boards = {
                 b.get("board_key")
                 for b in canvas_boards
-                if b.get("nodes")
+                if _board_has_filled_node(b)
             }
             for required in _REQUIRED_BOARDS:
                 if required not in filled_boards:
@@ -95,6 +103,29 @@ class ExportGateService:
             "blocking": blocking,
             "advisory": advisory,
         }
+
+
+def _board_has_filled_node(board: Dict[str, Any]) -> bool:
+    """True iff the board has ≥1 node with non-empty planning/points content.
+
+    Tolerates both shapes the codebase emits:
+    - canvas digest: ``node["points"]`` (list[str])
+    - raw canvas node ``content``: ``{"planning": [...]}``
+    """
+    for node in (board.get("nodes") or []):
+        planning = node.get("planning")
+        if planning is None:
+            planning = node.get("points")
+        if isinstance(planning, str) and planning.strip():
+            return True
+        if isinstance(planning, list) and any(
+            (isinstance(p, str) and p.strip()) or (p is not None and not isinstance(p, str))
+            for p in planning
+        ):
+            return True
+        if isinstance(planning, dict) and planning:
+            return True
+    return False
 
 
 export_gate_service = ExportGateService()

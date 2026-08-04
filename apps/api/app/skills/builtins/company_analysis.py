@@ -215,8 +215,8 @@ class CompanyAnalysisSkill(BaseSkill):
         if not context_parts:
             return SkillResult(
                 success=False,
-                error="请提供企业相关信息，例如企业名称、行业、产品、目标客户等。",
-                missing_info=["企业名称", "行业", "主要产品/服务"],
+                error="请提供待分析的背景描述或相关资料，例如行业场景、产品要点、项目目标等。",
+                missing_info=["背景描述或相关资料"],
             )
 
         # --- Force web_search (mode A): collect objective public info ---

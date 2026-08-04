@@ -9,6 +9,9 @@ from app.models import (
     Skill,
     SOPWorkflow,
     User,
+    Company,
+    Project,
+    Case,
 )
 from app.db.base import Base
 from app.core.security import hash_password
@@ -525,6 +528,9 @@ async def seed_database() -> None:
         session.add_all([sop_base, sop_smart_mfg, sop_canvas_workflow])
         await session.flush()
 
+        session.add(_default_presale_sop_payload(now))
+        await session.flush()
+
         # ── Skills (built-in skill definitions) ──
         skills_data = [
             {
@@ -743,6 +749,166 @@ async def seed_database() -> None:
         await session.commit()
 
 
+DEMO_SEED_COMPANY_NAME = "__kb_demo_seed__"
+DEMO_CASE_TAG = "kb_demo_seed"
+
+
+def _default_presale_sop_payload(now: datetime) -> SOPWorkflow:
+    return SOPWorkflow(
+        id=uuid.uuid4(),
+        name="default_presale_sop",
+        description="售前主链默认 SOP —— 行业无匹配时使用；含导出门控检查项。",
+        version="1.0",
+        category="presale",
+        is_active=True,
+        pipeline_stages=[
+            {
+                "stage": "quality_review",
+                "name": "质量审核",
+                "description": "导出门控检查项",
+                "checklist": [
+                    "所有章节 status = approved",
+                    "不存在阻断性 missing_info",
+                    "参考案例均有有效 case_id",
+                    "报价 / 工期类内容已人工确认",
+                ],
+            }
+        ],
+        created_at=now,
+        updated_at=now,
+    )
+
+
+async def seed_demo_content_if_needed() -> None:
+    """Idempotent demo seed for private deployments (cases + default SOP).
+
+    Runs on every API startup so existing databases pick up demo content
+    without wiping user data. Fresh installs also get this via seed_database.
+    """
+    from sqlalchemy import func, select
+
+    async with async_session_factory() as session:
+        now = datetime.now(timezone.utc)
+
+        # default_presale_sop — required by sop_matcher + export gate
+        existing_sop = await session.execute(
+            select(SOPWorkflow).where(
+                SOPWorkflow.name == "default_presale_sop",
+                SOPWorkflow.category == "presale",
+            )
+        )
+        if existing_sop.scalar_one_or_none() is None:
+            session.add(_default_presale_sop_payload(now))
+            await session.flush()
+
+        # Demo cases — skip if any seed-tagged case already exists
+        tagged = await session.execute(
+            select(func.count())
+            .select_from(Case)
+            .where(Case.tags == DEMO_CASE_TAG)
+        )
+        if (tagged.scalar() or 0) > 0:
+            await session.commit()
+            return
+
+        admin = await session.execute(
+            select(User).where(User.email == "admin@3dwall.com")
+        )
+        admin_user = admin.scalar_one_or_none()
+        if admin_user is None:
+            await session.commit()
+            return
+
+        company = await session.execute(
+            select(Company).where(Company.name == DEMO_SEED_COMPANY_NAME)
+        )
+        demo_company = company.scalar_one_or_none()
+        if demo_company is None:
+            demo_company = Company(
+                id=uuid.uuid4(),
+                name=DEMO_SEED_COMPANY_NAME,
+                industry="演示",
+                description="系统演示案例库专用企业（勿删）",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(demo_company)
+            await session.flush()
+
+        demo_project = Project(
+            id=uuid.uuid4(),
+            name="演示案例库（系统）",
+            description="挂载演示案例，供 RAG / 策划案引用",
+            company_id=demo_company.id,
+            owner_id=admin_user.id,
+            status="archived",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(demo_project)
+        await session.flush()
+
+        demo_cases = [
+            {
+                "title": "制造企业数字化平台选型项目",
+                "client_name": "某制造集团（脱敏）",
+                "industry": "制造",
+                "project_type": "数字化平台",
+                "challenge": "多工厂数据孤岛，需要统一主数据与生产可视化。",
+                "solution": "分阶段建设数据中台 + MES 对接 + 管理层驾驶舱；先试点后推广。",
+                "results": "试点产线 OEE 可视化上线，管理层周报自动化。",
+                "technologies": "数据中台, MES, BI",
+                "quality_score": 92.0,
+            },
+            {
+                "title": "金融机构合规知识库建设项目",
+                "client_name": "某金融机构（脱敏）",
+                "industry": "金融",
+                "project_type": "知识管理",
+                "challenge": "制度文件分散，业务人员难以快速检索合规要求。",
+                "solution": "文档解析入库 + 混合检索 + 问答助手；关键制度人工审核标签。",
+                "results": "合规查询平均耗时下降，审计可追溯引用来源。",
+                "technologies": "RAG, 向量检索, 权限分级",
+                "quality_score": 88.0,
+            },
+            {
+                "title": "SaaS 企业售前方案标准化项目",
+                "client_name": "某 SaaS 公司（脱敏）",
+                "industry": "软件",
+                "project_type": "售前赋能",
+                "challenge": "销售各自维护方案版本，案例与话术口径不一致。",
+                "solution": "统一案例库 + 话术库 + 项目级问答助手；方案输出带引用。",
+                "results": "新销售上手周期缩短，方案复用率提升。",
+                "technologies": "知识库, 案例库, AI 问答",
+                "quality_score": 90.0,
+            },
+        ]
+        for row in demo_cases:
+            session.add(
+                Case(
+                    id=uuid.uuid4(),
+                    project_id=demo_project.id,
+                    title=row["title"],
+                    client_name=row["client_name"],
+                    industry=row["industry"],
+                    project_type=row["project_type"],
+                    challenge=row["challenge"],
+                    solution=row["solution"],
+                    results=row["results"],
+                    technologies=row["technologies"],
+                    quality_score=row["quality_score"],
+                    is_published=True,
+                    is_desensitized=True,
+                    tags=DEMO_CASE_TAG,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        await session.commit()
+
+
 async def seed_if_needed() -> None:
     """Seed required runtime data without mutating schema."""
     await seed_database()
+    await seed_demo_content_if_needed()

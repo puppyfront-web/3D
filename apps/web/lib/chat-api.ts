@@ -186,13 +186,18 @@ export function streamChat(
 export async function uploadChatFile(
   conversationId: string,
   file: File,
-  caption?: string
+  caption?: string,
+  opts?: { projectId?: string; category?: string }
 ): Promise<ApiResponse<ChatMessage>> {
   const formData = new FormData();
   formData.append("file", file);
 
   const params = new URLSearchParams();
   if (caption) params.set("caption", caption);
+  // Binds the attachment to the project so a chat upload lands in the same
+  // knowledge base as an /admin/assets upload instead of as an orphan.
+  if (opts?.projectId) params.set("project_id", opts.projectId);
+  if (opts?.category) params.set("category", opts.category);
 
   // Inject JWT as Bearer token if available. Do NOT set Content-Type — the
   // browser sets the multipart boundary automatically.

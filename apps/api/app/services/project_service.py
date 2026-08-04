@@ -102,7 +102,13 @@ class ProjectService:
         return user
 
     async def _resolve_or_create_company(self, db: AsyncSession, step1, step2) -> Company:
-        name = step1.client_name.strip()
+        # KB-first workspaces may omit client_name; bind to project_name so each
+        # workspace stays isolated instead of sharing a blank company row.
+        name = (
+            (step1.client_name or "").strip()
+            or (step1.project_name or "").strip()
+            or "通用知识库"
+        )
         company = await self._get_company_by_name(db, name)
         if company is not None:
             return company

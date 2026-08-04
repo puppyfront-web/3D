@@ -64,7 +64,7 @@ export default function ProjectsPage() {
         <div>
           <h1 className="text-xl font-semibold text-on-surface">项目列表</h1>
           <p className="text-sm text-on-surface-variant mt-1">
-            管理所有提案项目，跟踪进度与状态
+            管理项目与资料范围，进入知识问答
           </p>
         </div>
         <Link href="/workspace/projects/new">

@@ -358,7 +358,7 @@ async def test_talking_points_and_pricing_search_log(db_session: AsyncSession):
 
     db_session.add(TalkingPoint(
         id=uuid.uuid4(), scenario="首次接洽", title="开场话术",
-        content="您好，我们是花生ONE…", industry="制造业", is_active=True,
+        content="您好，我们是售前方案团队…", industry="制造业", is_active=True,
     ))
     db_session.add(PricingExperience(
         id=uuid.uuid4(), title="制造业展厅报价参考", industry="制造业",

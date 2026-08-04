@@ -24,12 +24,14 @@ import {
   MessageSquareQuote,
   CircleDollarSign,
   Search,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ADMIN_LINKS = [
   { label: "概览", href: "/admin", icon: LayoutDashboard },
   { label: "资产管理", href: "/admin/assets", icon: Package },
+  { label: "检索测试", href: "/admin/rag-test", icon: FlaskConical },
   { label: "案例库", href: "/admin/cases", icon: BookOpen },
   { label: "行业资料", href: "/admin/industry-materials", icon: BookMarked },
   { label: "SOP 工作流", href: "/admin/sop-workflows", icon: GitBranch },
@@ -57,7 +59,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           className="font-bold text-primary flex items-center gap-2"
         >
           <CloudCog className="h-5 w-5 fill" />
-          <span>花生ONE</span>
+          <span>企业知识助手</span>
         </Link>
         <span className="mx-3 text-outline-variant">/</span>
         <span className="text-sm text-on-surface-variant font-medium">

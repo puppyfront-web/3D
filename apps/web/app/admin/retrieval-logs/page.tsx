@@ -33,8 +33,11 @@ import { cn } from "@/lib/utils";
 
 const TRIGGER_LABEL: Record<string, string> = {
   knowledge_search: "知识库检索",
+  knowledge_qa: "问答检索",
   case_search: "案例检索",
   hybrid_retriever: "混合检索",
+  rag_search_api: "检索测试",
+  retrieval_orchestrator: "检索编排",
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -115,9 +118,12 @@ export default function RetrievalLogsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部来源</SelectItem>
+                <SelectItem value="knowledge_qa">问答检索</SelectItem>
                 <SelectItem value="knowledge_search">知识库检索</SelectItem>
+                <SelectItem value="rag_search_api">检索测试</SelectItem>
                 <SelectItem value="case_search">案例检索</SelectItem>
                 <SelectItem value="hybrid_retriever">混合检索</SelectItem>
+                <SelectItem value="retrieval_orchestrator">检索编排</SelectItem>
               </SelectContent>
             </Select>
             <Select value={retrievalType} onValueChange={setRetrievalType}>
@@ -195,9 +201,11 @@ export default function RetrievalLogsPage() {
                         <TableCell className="text-right text-on-surface-variant">
                           {log.results_count}
                         </TableCell>
-                        <TableCell className="text-right text-on-surface-variant text-sm flex items-center justify-end gap-1">
-                          <Clock className="h-3 w-3" />
-                          {log.latency_ms ?? "—"}ms
+                        <TableCell className="text-right text-on-surface-variant text-sm">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <Clock className="h-3 w-3" />
+                            {log.latency_ms ?? "—"}ms
+                          </span>
                         </TableCell>
                         <TableCell className="text-outline text-sm">
                           {fmtTime(log.created_at)}
@@ -242,9 +250,18 @@ export default function RetrievalLogsPage() {
                                             {Number(it.score).toFixed(3)}
                                           </span>
                                         )}
-                                        <span className="truncate">
-                                          {String(it.title ?? it.id ?? "—")}
+                                        <span className="truncate flex-1">
+                                          {String(it.title ?? it.content ?? it.id ?? "—").slice(0, 120)}
                                         </span>
+                                        {it.document_id ? (
+                                          <a
+                                            href={`/admin/assets?doc=${it.document_id}`}
+                                            className="text-primary text-[10px] shrink-0 hover:underline"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            查看资料
+                                          </a>
+                                        ) : null}
                                       </li>
                                     ))}
                                     {items.length > 10 && (

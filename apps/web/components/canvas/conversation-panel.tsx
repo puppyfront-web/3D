@@ -46,6 +46,10 @@ import {
   type CanvasFillProposalData,
 } from "@/components/canvas/canvas-fill-proposal-block";
 import {
+  KnowledgeCitationsBlock,
+  type KnowledgeCitationsData,
+} from "@/components/canvas/knowledge-citations-block";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -64,6 +68,7 @@ interface AttachmentMeta {
   document_id?: string;
   parse_status?: string;
   category?: string;
+  chunk_count?: number;
 }
 
 // PRD §11.2 attachment categories.
@@ -78,6 +83,10 @@ const ATTACHMENT_CATEGORIES = [
   "参考案例",
   "其他资料",
 ] as const;
+
+// Mirrors _CHAT_ALLOWED_EXTENSIONS in the conversations router.
+const UPLOAD_ACCEPT =
+  ".pdf,.pptx,.docx,.xlsx,.xls,.csv,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.svg,.mp4,.mov,.avi,.zip,.rar";
 
 const PARSE_STATUS_META: Record<
   string,
@@ -231,6 +240,15 @@ function renderContentBlock(
     );
   }
 
+  if (block.type === "knowledge_citations") {
+    return (
+      <KnowledgeCitationsBlock
+        key={key}
+        data={(block.data ?? {}) as KnowledgeCitationsData}
+      />
+    );
+  }
+
   if (block.type === "proposal_section") {
     // proposal_generation 输出(真实形状):{ content(markdown), content_type, used_cases, … },
     // missing_info 在 SkillResult 顶层。防御性兼容 proposal_sections:[{title,content}] /
@@ -362,6 +380,41 @@ function AssistantMessage({
   );
 }
 
+function UserMessage({ message }: { message: ChatMessage }) {
+  const attachments = extractAttachments(message);
+  return (
+    <div className="flex gap-3 flex-row-reverse">
+      <div className="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center shrink-0">
+        <User className="h-4 w-4 text-on-surface-variant" />
+      </div>
+      <div className="bg-primary text-on-primary p-3 rounded-xl rounded-tr-none text-sm shadow-sm max-w-[85%] space-y-2">
+        {message.content ? <p className="whitespace-pre-wrap">{message.content}</p> : null}
+        {attachments.length > 0 ? (
+          <div className="space-y-1.5 pt-1 border-t border-on-primary/20">
+            {attachments.map((a, i) => (
+              <div
+                key={`${message.id}-att-${i}`}
+                className="flex items-center gap-2 text-xs bg-on-primary/10 rounded-md px-2 py-1.5"
+              >
+                {a.is_image ? (
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="truncate">{a.filename}</span>
+                <span className="opacity-70 shrink-0">{fmtSize(a.file_size)}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <span className="block text-[10px] opacity-70 mt-1 text-right">
+          {fmtTime(message.createdAt)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function ConversationPanel({
   projectId,
   initialPrompt,
@@ -370,6 +423,7 @@ export function ConversationPanel({
   onClearNode,
   onNodeAdopted,
   onCanvasAccepted,
+  layout = "sidebar",
 }: {
   projectId: string;
   initialPrompt?: string;
@@ -383,6 +437,8 @@ export function ConversationPanel({
   onNodeAdopted?: () => void;
   /** Called after a canvas-fill proposal is accepted, so the canvas reloads. */
   onCanvasAccepted?: () => void;
+  /** sidebar: fixed 320px rail; page: full-width chat workspace */
+  layout?: "sidebar" | "page";
 }) {
   const {
     messages,
@@ -394,6 +450,7 @@ export function ConversationPanel({
     error,
     send,
     upload,
+    clear,
   } = useProjectChat(projectId, initialPrompt, activeNodeId);
 
   const [input, setInput] = useState("");
@@ -401,6 +458,9 @@ export function ConversationPanel({
   // reasoning (no body text yet) it stays open; the moment body text starts,
   // we auto-collapse it. The user can still toggle it back open.
   const [thinkingOpen, setThinkingOpen] = useState(true);
+  // Category applied to files uploaded from the composer ("" = let the backend
+  // auto-classify).
+  const [uploadCategory, setUploadCategory] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages / streaming.
@@ -474,12 +534,23 @@ export function ConversationPanel({
     setInput("");
   }
 
-  async function handleUpload(file: File) {
-    await upload(file);
+  // Sequential rather than parallel: each upload parses + indexes server-side,
+  // and the tray reads the settled status from the response.
+  async function handleUpload(files: FileList) {
+    for (const file of Array.from(files)) {
+      await upload(file, undefined, uploadCategory || undefined);
+    }
   }
 
   return (
-    <div className="w-80 shrink-0 flex flex-col border-r border-outline-variant bg-surface-container-low">
+    <div
+      className={cn(
+        "flex flex-col bg-surface-container-low h-full",
+        layout === "sidebar"
+          ? "w-80 shrink-0 border-r border-outline-variant"
+          : "w-full max-w-4xl mx-auto border-x border-outline-variant",
+      )}
+    >
       {/* Header — switches between project-global chat and node-scoped chat. */}
       <div className="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-lowest">
         {activeNodeId ? (
@@ -506,11 +577,25 @@ export function ConversationPanel({
           </div>
         ) : (
           <>
-            <h2 className="font-semibold text-on-surface">对话助教</h2>
-            <span className="text-xs text-outline flex items-center gap-1">
-              <Bot className="h-4 w-4" />
-              项目会话
-            </span>
+            <h2 className="font-semibold text-on-surface">知识问答助手</h2>
+            <div className="flex items-center gap-2">
+              {!activeNodeId && messages.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void clear()}
+                  disabled={isStreaming}
+                  className="text-xs text-outline hover:text-error flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-container-high disabled:opacity-50"
+                  title="清空对话"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  清空
+                </button>
+              ) : null}
+              <span className="text-xs text-outline flex items-center gap-1">
+                <Bot className="h-4 w-4" />
+                项目会话
+              </span>
+            </div>
           </>
         )}
       </div>
@@ -525,8 +610,8 @@ export function ConversationPanel({
             <div className="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center shrink-0">
               <Bot className="h-4 w-4 text-primary fill" />
             </div>
-            <div className="bg-surface-container-lowest p-3 rounded-xl rounded-tl-none border border-outline-variant text-sm shadow-sm">
-              你好！我是花生ONE 售前助手。请补充企业资料或需求，我会自动归类并填充右侧画布节点。
+            <div className="bg-surface-container-lowest p-3 rounded-xl rounded-tl-none border border-outline-variant text-sm shadow-sm text-on-surface-variant">
+              你好！我是企业知识问答助手。你可以直接提问；上传资料后我会基于内部知识库给出<strong className="text-on-surface font-medium">结论、方案建议与引用来源</strong>。
             </div>
           </div>
         )}
@@ -535,17 +620,7 @@ export function ConversationPanel({
           m.role === "assistant" ? (
             <AssistantMessage key={m.id} message={m} ctx={{ projectId, activeNodeId, onNodeAdopted, onCanvasAccepted }} />
           ) : (
-            <div key={m.id} className="flex gap-3 flex-row-reverse">
-              <div className="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center shrink-0">
-                <User className="h-4 w-4 text-on-surface-variant" />
-              </div>
-              <div className="bg-primary text-on-primary p-3 rounded-xl rounded-tr-none text-sm shadow-sm max-w-[85%]">
-                {m.content}
-                <span className="block text-[10px] opacity-70 mt-2 text-right">
-                  {fmtTime(m.createdAt)}
-                </span>
-              </div>
-            </div>
+            <UserMessage key={m.id} message={m} />
           ),
         )}
 
@@ -688,6 +763,11 @@ export function ConversationPanel({
                             {category}
                           </span>
                         )}
+                        {a.chunk_count ? (
+                          <span className="text-[10px] text-outline">
+                            {a.chunk_count} 片段
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -754,7 +834,7 @@ export function ConversationPanel({
                 handleSubmit();
               }
             }}
-            placeholder="输入您的需求或补充..."
+            placeholder="输入问题，例如：公司有哪些核心产品？"
             className="w-full h-24 p-3 pr-12 border border-outline-variant rounded-xl resize-none text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none placeholder:text-outline bg-surface-container-low"
           />
           <button
@@ -776,24 +856,65 @@ export function ConversationPanel({
           </button>
         </div>
         <div className="flex gap-2 mt-2">
-          <label className="flex-1 flex items-center justify-center gap-1 text-xs border border-outline-variant text-on-surface-variant px-3 py-1.5 rounded-lg cursor-pointer hover:bg-surface-container-low">
+          <label
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1 text-xs border border-outline-variant text-on-surface-variant px-3 py-1.5 rounded-lg hover:bg-surface-container-low",
+              isUploading ? "cursor-wait opacity-70" : "cursor-pointer",
+            )}
+          >
             {isUploading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Upload className="h-3.5 w-3.5" />
             )}
-            {isUploading ? "上传中…" : "上传资料"}
+            {isUploading ? "上传并入库中…" : "上传资料"}
             <input
               type="file"
+              multiple
+              disabled={isUploading}
+              accept={UPLOAD_ACCEPT}
               className="hidden"
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleUpload(f);
+                const files = e.target.files;
+                if (files?.length) void handleUpload(files);
                 e.target.value = "";
               }}
             />
           </label>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="text-xs border border-outline-variant text-on-surface-variant px-3 py-1.5 rounded-lg hover:bg-surface-container-low flex items-center gap-1"
+                title="设置上传资料的分类"
+              >
+                <FolderInput className="h-3.5 w-3.5" />
+                {uploadCategory || "自动分类"}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel className="text-[10px] text-outline">
+                上传时归类
+              </DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => setUploadCategory("")}>
+                自动分类
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {ATTACHMENT_CATEGORIES.map((cat) => (
+                <DropdownMenuItem
+                  key={`upload-${cat}`}
+                  onClick={() => setUploadCategory(cat)}
+                  className={cn(uploadCategory === cat && "font-semibold text-primary")}
+                >
+                  {cat}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+        <p className="text-[10px] text-outline mt-1.5">
+          上传的资料会自动解析入库并绑定当前项目，可在「知识库资料管理」统一维护。
+        </p>
       </div>
     </div>
   );

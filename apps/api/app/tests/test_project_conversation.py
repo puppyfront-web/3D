@@ -14,6 +14,7 @@ hard-coded company name ("Test Company") which trips the UNIQUE constraint on
 companies.name when several tests in one session each request it.
 """
 
+import io
 import uuid
 from datetime import datetime, timezone
 
@@ -406,3 +407,131 @@ async def test_thread_scoped_history_does_not_leak_between_project_and_node(
         "节点问题",
         "建议先补充企业规模和代表案例。",
     ]
+
+
+@pytest.mark.asyncio
+async def test_clear_conversation_removes_thread_messages(client, db_session):
+    """POST /conversations/{id}/clear removes messages for the given thread."""
+    project_id = await _seed_project(db_session)
+
+    conv_resp = await client.get(f"/api/v1/projects/{project_id}/conversation")
+    assert conv_resp.status_code == 200
+    data = conv_resp.json()["data"]
+    conv_id = data["id"]
+    thread_id = data["threadId"]
+
+    service = ConversationService()
+    conv_uuid = uuid.UUID(conv_id)
+    thread_uuid = uuid.UUID(thread_id)
+    await service.save_message(
+        db_session,
+        conv_uuid,
+        "user",
+        "测试问题",
+        thread_id=thread_uuid,
+        auto_commit=True,
+    )
+    await service.save_message(
+        db_session,
+        conv_uuid,
+        "assistant",
+        "测试回答",
+        thread_id=thread_uuid,
+        auto_commit=True,
+    )
+
+    clear_resp = await client.post(
+        f"/api/v1/conversations/{conv_id}/clear",
+        json={"thread_id": thread_id},
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["data"]["removed"] >= 2
+
+    reloaded = await client.get(f"/api/v1/projects/{project_id}/conversation")
+    assert reloaded.json()["data"]["messages"] == []
+
+
+def _attachment_block(message: dict) -> dict:
+    blocks = (message.get("richContent") or {}).get("blocks") or []
+    attachments = [b for b in blocks if b.get("type") == "attachment"]
+    assert attachments, f"no attachment block in {blocks}"
+    return attachments[0]["data"]
+
+
+@pytest.mark.asyncio
+async def test_chat_upload_binds_document_to_project_and_indexes(client, db_session):
+    """A chat upload lands in the project's knowledge base, already parsed."""
+    from app.models.document import Document
+
+    project_id = await _seed_project(db_session)
+    conv_id = (
+        await client.get(f"/api/v1/projects/{project_id}/conversation")
+    ).json()["data"]["id"]
+
+    resp = await client.post(
+        f"/api/v1/conversations/{conv_id}/upload",
+        params={"category": "产品资料"},
+        files={
+            "file": (
+                "chat-note.txt",
+                io.BytesIO("公司核心产品是知识库助手".encode("utf-8")),
+                "text/plain",
+            )
+        },
+    )
+    assert resp.status_code == 200
+
+    attachment = _attachment_block(resp.json()["data"])
+    assert attachment["document_id"]
+    assert attachment["category"] == "产品资料"
+    # The upload indexes inline, so the tray never shows a stale "待解析".
+    assert attachment["parse_status"] == "parsed"
+    assert attachment["chunk_count"] >= 1
+
+    document = await db_session.get(Document, uuid.UUID(attachment["document_id"]))
+    assert document is not None
+    assert document.project_id == project_id
+    assert document.category == "产品资料"
+
+
+@pytest.mark.asyncio
+async def test_chat_upload_binds_unbound_conversation_to_project(client, db_session):
+    """project_id binds both the attachment and a project-less conversation."""
+    from app.models.conversation import Conversation
+    from app.models.document import Document
+
+    project_id = await _seed_project(db_session)
+    conv_id = (
+        await client.post("/api/v1/conversations", json={"title": "游客会话"})
+    ).json()["data"]["id"]
+
+    resp = await client.post(
+        f"/api/v1/conversations/{conv_id}/upload",
+        params={"project_id": str(project_id)},
+        files={
+            "file": ("orphan.txt", io.BytesIO("待归属资料".encode("utf-8")), "text/plain")
+        },
+    )
+    assert resp.status_code == 200
+
+    conv = await db_session.get(Conversation, uuid.UUID(conv_id))
+    assert conv is not None and conv.project_id == project_id
+
+    attachment = _attachment_block(resp.json()["data"])
+    document = await db_session.get(Document, uuid.UUID(attachment["document_id"]))
+    assert document is not None and document.project_id == project_id
+
+
+@pytest.mark.asyncio
+async def test_chat_upload_accepts_spreadsheets(client, db_session):
+    """Spreadsheets are parseable by the KB indexer, so chat must accept them."""
+    project_id = await _seed_project(db_session)
+    conv_id = (
+        await client.get(f"/api/v1/projects/{project_id}/conversation")
+    ).json()["data"]["id"]
+
+    resp = await client.post(
+        f"/api/v1/conversations/{conv_id}/upload",
+        files={"file": ("prices.csv", io.BytesIO(b"item,price\na,1\n"), "text/csv")},
+    )
+    assert resp.status_code == 200
