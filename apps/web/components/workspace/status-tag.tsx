@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectStatus, ReviewStatus, Priority } from "@/types";
+import type { ProjectStatus, Priority } from "@/types";
 
 const statusConfig: Record<
   ProjectStatus,
@@ -23,18 +23,8 @@ const priorityConfig: Record<Priority, { label: string; color: string; bgColor: 
   low: { label: "低", color: "text-gray-500", bgColor: "bg-gray-100" },
 };
 
-const reviewStatusConfig: Record<
-  ReviewStatus,
-  { label: string; color: string; bgColor: string }
-> = {
-  pass: { label: "通过", color: "text-[#10B981]", bgColor: "bg-green-50" },
-  warning: { label: "警告", color: "text-[#F59E0B]", bgColor: "bg-amber-50" },
-  fail: { label: "不通过", color: "text-[#EF4444]", bgColor: "bg-red-50" },
-  pending: { label: "待审核", color: "text-gray-500", bgColor: "bg-gray-100" },
-};
-
 export function StatusTag({ status }: { status: ProjectStatus }) {
-  const config = statusConfig[status];
+  const config = statusConfig[status] ?? statusConfig.draft;
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.color} ${config.bgColor}`}
@@ -45,18 +35,7 @@ export function StatusTag({ status }: { status: ProjectStatus }) {
 }
 
 export function PriorityTag({ priority }: { priority: Priority }) {
-  const config = priorityConfig[priority];
-  return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.color} ${config.bgColor}`}
-    >
-      {config.label}
-    </span>
-  );
-}
-
-export function ReviewStatusTag({ status }: { status: ReviewStatus }) {
-  const config = reviewStatusConfig[status];
+  const config = priorityConfig[priority] ?? priorityConfig.low;
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.color} ${config.bgColor}`}

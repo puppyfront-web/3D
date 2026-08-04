@@ -3,7 +3,10 @@
 Mirrors skills/registry.py for consistency.
 """
 
+import importlib
+import inspect
 import logging
+import pkgutil
 from typing import Dict, List, Optional
 
 from app.tools.base import BaseTool
@@ -50,26 +53,59 @@ class ToolRegistry:
         ]
 
     def auto_register(self) -> None:
-        """Import and register all built-in Tools."""
-        from app.tools.builtins.case_search import CaseSearchTool
-        from app.tools.builtins.sop_load import SOPLoadTool
-        from app.tools.builtins.prompt_template_load import PromptTemplateLoadTool
-        from app.tools.builtins.template_load import TemplateLoadTool
-        from app.tools.builtins.visual_style_match import VisualStyleMatchTool
-        from app.tools.builtins.rule_query import TechRuleQueryTool, QualityRuleQueryTool
-        from app.tools.builtins.company_profile_load import CompanyProfileLoadTool
-        from app.tools.builtins.knowledge_search import KnowledgeSearchTool
+        """Import and register all built-in Tools via package auto-discovery.
 
-        for cls in [
-            CaseSearchTool,
-            SOPLoadTool,
-            PromptTemplateLoadTool,
-            TemplateLoadTool,
-            VisualStyleMatchTool,
-            TechRuleQueryTool,
-            QualityRuleQueryTool,
-            CompanyProfileLoadTool,
-            KnowledgeSearchTool,
-        ]:
-            self.register(cls())
+        Uses ``pkgutil.iter_modules`` to scan ``app/tools/builtins/`` so newly
+        added tools are picked up automatically instead of being silently
+        missing when forgotten in a hard-coded import list.
+
+        The previous hard-coded list (case_search, sop_load,
+        prompt_template_load, template_load, visual_style_match, rule_query →
+        TechRuleQueryTool & QualityRuleQueryTool, company_profile_load,
+        knowledge_search, web_search, image_generate) is kept below as a
+        reference; discovery replaces it.
+
+        Discovery rules:
+          * Every module in the builtins package is imported.
+          * ``BaseTool`` subclasses are located via ``inspect.getmembers``.
+          * A class is registered only when it is a concrete subclass of
+            ``BaseTool`` *and* actually defined in that module (its
+            ``__module__`` equals the module name) — this prevents the imported
+            ``BaseTool`` base class itself from being registered and avoids
+            double-registration of a class re-exported by another module.
+          * Each module is wrapped in its own try/except so one broken import
+            doesn't prevent the rest from loading.
+        """
+        import app.tools.builtins as builtins_pkg
+
+        pkg_path = builtins_pkg.__path__
+        pkg_prefix = builtins_pkg.__name__ + "."
+
+        for _finder, mod_name, _is_pkg in pkgutil.iter_modules(pkg_path, pkg_prefix):
+            try:
+                module = importlib.import_module(mod_name)
+            except Exception:  # noqa: BLE001 — don't let one module kill startup
+                logger.exception("Failed to import tool module: %s", mod_name)
+                continue
+
+            found_in_module = 0
+            for _attr, cls in inspect.getmembers(module, inspect.isclass):
+                if not (inspect.isclass(cls) and issubclass(cls, BaseTool)):
+                    continue
+                if cls is BaseTool:
+                    continue
+                # Only register classes actually defined in *this* module —
+                # skips re-exported imports and the base class itself.
+                if cls.__module__ != mod_name:
+                    continue
+                try:
+                    self.register(cls())
+                    found_in_module += 1
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "Failed to instantiate tool %s from %s", cls.__name__, mod_name
+                    )
+
+            logger.debug("Module %s contributed %d tool(s)", mod_name, found_in_module)
+
         logger.info("Auto-registered %d tools", len(self._tools))

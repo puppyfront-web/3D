@@ -88,6 +88,8 @@ class SkillRunner:
                 execution_record.used_cases = result.used_cases
                 execution_record.used_documents = result.used_documents
                 execution_record.used_chunks = result.used_chunks
+                execution_record.used_external_sources = result.used_external_sources or None
+                execution_record.external_search_summary = result.external_search_summary
                 execution_record.error_message = result.error
                 execution_record.completed_at = datetime.now(timezone.utc)
                 await context.db.flush()
@@ -175,6 +177,33 @@ class SkillRunner:
                 elif action == "fallback_skill":
                     fallback = reflection.get("fallback_skill_id")
                     if fallback and fallback != current_skill_id:
+                        # Re-validate the fallback skill's input schema before
+                        # switching — the reflection engine may propose a skill
+                        # that needs fields absent from current_input (Defect #13).
+                        # Calling a skill with invalid input would just fail
+                        # again, so give_up instead of looping uselessly.
+                        fallback_skill = self._registry.get(fallback)
+                        if (
+                            fallback_skill is None
+                            or not fallback_skill.validate_input(current_input)
+                        ):
+                            logger.warning(
+                                "ReAct fallback %s rejected: input does not "
+                                "satisfy its schema (missing=%s); giving up.",
+                                fallback,
+                                [
+                                    k
+                                    for k in (
+                                        fallback_skill.manifest.input_schema.get(
+                                            "required", []
+                                        )
+                                        if fallback_skill
+                                        else []
+                                    )
+                                    if k not in current_input
+                                ],
+                            )
+                            break
                         current_skill_id = fallback
                         logger.info(
                             "ReAct fallback turn %d: switching %s -> %s",

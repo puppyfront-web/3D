@@ -1,10 +1,13 @@
 """Case Search Tool — search the structured case library."""
 
+import time
+import uuid
 from typing import Any, Dict, List
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.models.case import Case
+from app.models.retrieval import RetrievalLog
 from app.tools.base import BaseTool, ToolContext, ToolManifest, ToolResult
 
 
@@ -43,10 +46,18 @@ class CaseSearchTool(BaseTool):
         min_score = params.get("min_score", 0)
         limit = min(params.get("limit", 5), 20)
 
+        start = time.monotonic()
+
         stmt = select(Case).where(Case.is_published == True)  # noqa: E712
 
         if industry:
             stmt = stmt.where(Case.industry == industry)
+        if tags:
+            # Case.tags is a Text column (not an array), so match each tag with
+            # ILIKE substring search and OR-combine: any tag match qualifies.
+            tag_conditions = [Case.tags.ilike(f"%{tag}%") for tag in tags if tag]
+            if tag_conditions:
+                stmt = stmt.where(or_(*tag_conditions))
         if min_score > 0:
             stmt = stmt.where(Case.quality_score >= min_score)
 
@@ -70,6 +81,34 @@ class CaseSearchTool(BaseTool):
             }
             for c in cases
         ]
+
+        # Write a retrieval log so case searches are traceable alongside
+        # knowledge_search (PRD §9.4). structured_query captures the exact
+        # filter shape the agent requested.
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        structured = {
+            k: v for k, v in {
+                "industry": industry,
+                "tags": tags,
+                "min_score": min_score,
+                "limit": limit,
+            }.items() if v
+        }
+        context.db.add(RetrievalLog(
+            id=uuid.uuid4(),
+            query=f"case_search:{industry or '全部'}",
+            retrieval_type="case_structured",
+            results_count=len(case_list),
+            top_scores=[c["quality_score"] for c in case_list[:5]],
+            latency_ms=elapsed_ms,
+            triggered_by="case_search",
+            structured_query_json=structured,
+            retrieved_items_json=[
+                {"id": c["id"], "source": "case", "score": c["quality_score"], "title": c["title"]}
+                for c in case_list[:20]
+            ],
+        ))
+        await context.db.flush()
 
         return ToolResult(
             success=True,

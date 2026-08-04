@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from app.schemas.common import APIBaseModel
 from pydantic import Field
@@ -26,6 +26,8 @@ class GenerationOutputCreate(APIBaseModel):
     used_cases: Optional[List[str]] = Field(default_factory=list)
     used_documents: Optional[List[str]] = Field(default_factory=list)
     used_chunks: Optional[List[str]] = Field(default_factory=list)
+    used_external_sources: Optional[List[dict]] = Field(default_factory=list)
+    external_search_summary: Optional[dict] = None
     used_sop_version: Optional[str] = Field(None, max_length=50)
 
 
@@ -37,6 +39,8 @@ class GenerationOutputOut(APIBaseModel):
     used_cases: Optional[List[str]] = None
     used_documents: Optional[List[str]] = None
     used_chunks: Optional[List[str]] = None
+    used_external_sources: Optional[List[dict]] = None
+    external_search_summary: Optional[dict] = None
     used_sop_version: Optional[str] = None
     sections_meta: Optional[List[dict]] = None
     version: int = 1
@@ -125,3 +129,23 @@ class ChecklistGroup(APIBaseModel):
     id: str
     category: str
     items: List[ChecklistItem]
+
+
+class ProposalOutputOut(APIBaseModel):
+    """Serializer for the latest Brief — camelCase on the wire.
+
+    Returned by ``GET /projects/{project_id}/proposal-output`` and consumed by
+    the Canvas workspace's Proposal editor panel + export dropdown. Defined at
+    module scope (not inside the endpoint) so OpenAPI generation is stable and
+    other routers can import it.
+    """
+
+    output_id: str
+    task_id: str
+    sections_meta: List[Any] = Field(default_factory=list)
+    used_cases: List[Any] = Field(default_factory=list)
+    used_documents: List[Any] = Field(default_factory=list)
+    used_chunks: List[Any] = Field(default_factory=list)
+    used_external_sources: List[Any] = Field(default_factory=list)
+    used_sop_version: Optional[str] = None
+    created_at: Optional[str] = None

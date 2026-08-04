@@ -34,7 +34,7 @@ Skill（业务能力原子单元）
 
 Tool（标准化数据访问接口）
   → case_search / sop_load / template_load / prompt_template / visual_style_match
-  → tech_rule_check / quality_check / knowledge_search / image_generate
+  → tech_rule_check / quality_check / knowledge_search / web_search / image_generate
 ```
 
 - 每个专业能力封装为独立 Skill，通过标准 Manifest 定义输入输出
@@ -61,6 +61,7 @@ Tool（标准化数据访问接口）
 | **案例必须来自案例库** | 引用案例必须可追溯来源，禁止虚构 |
 | **技术参数必须可验证** | 屏幕参数、施工条件等必须来自技术规则库或人工确认 |
 | **报价/工期必须人工确认** | 涉及金额和交付时间的内容，必须标记"需要进一步确认" |
+| **联网搜索必须受控执行** | `web_search` 采用双触发：① 企业信息输入后**强制触发**，自动收集客观信息并填充画像客观字段；② 后续阶段内部知识不足时**补充触发**。搜索失败不阻断流程，降级标记「未核实」。主观信息、商业承诺、私有内容禁止外搜，禁止自由浏览和无边界抓取。详见 `docs/superpowers/specs/2026-06-25-web-search-tool-boundary.md` |
 
 ---
 
@@ -79,6 +80,7 @@ Tool（标准化数据访问接口）
 
 - 引用了哪些案例（case_id）
 - 引用了哪些文档和 chunk（document_id, chunk_id）
+- 引用了哪些外部来源（source_title, url, domain, published_at, snippet）
 - 使用了哪个 SOP 版本（sop_workflow_id, version）
 - 使用了哪个 Prompt 模板（prompt_template_id）
 - 使用了哪个方案模板（proposal_template_id）
@@ -113,6 +115,7 @@ Tool（标准化数据访问接口）
 | 5 | 承诺最终投屏效果 | 效果受现场条件影响，不能保证 |
 | 6 | 未经审核直接导出 | 所有 AI 生成内容必须经过人工审核 |
 | 7 | 将内部 SOP/Prompt 暴露给外部客户 | 内部运营数据不可外泄 |
+| 8 | 无边界联网搜索或抓取私有/需登录内容 | 外部搜索仅限公开网页和白名单域名，且必须保留来源 |
 
 ---
 
@@ -137,6 +140,8 @@ Tool（标准化数据访问接口）
 - `used_cases` — 引用的案例列表
 - `used_documents` — 引用的文档列表
 - `used_chunks` — 引用的 chunk 列表
+- `used_external_sources` — 引用的外部来源列表
+- `external_search_summary` — 对外部检索结果的归纳摘要与待确认项
 - `used_sop_version` — 使用的 SOP 版本
 - `used_prompt_templates` — 使用的 Prompt 模板
 - `status` — 执行状态
@@ -178,6 +183,46 @@ Tool（标准化数据访问接口）
 - 视觉概念图：支持完整的版本树（分支、回滚、对比），每次修改/重新生成产生新版本
 - 策划案：每次人工编辑或 AI 重新生成时保存版本快照，支持查看历史版本
 - 企业解析：重新生成时覆盖旧数据，不保留版本历史
+- 无限画布：每次节点编辑确认、手动保存、AI 重新生成都会产生新版本快照；版本详情记录关联资料/SOP/案例/模板；历史版本只读，恢复时分支为新当前版本（不覆盖现有版本）
+
+### 6.7 内部知识库（PRD §12）
+
+管理后台维护以下可复用知识资产，AI 在生成方案时通过 Tool 检索引用：
+
+| 知识库 | 说明 | 关键约束 |
+|--------|------|---------|
+| SOP 库 | 售前/策划/定调/UI 输出等标准作业流程 | 步骤可编辑、可绑定 Agent |
+| 历史案例库 | 已成交/未成交/行业标杆案例 | 支持行业/项目类型/风格标签、脱敏 |
+| 方案模板库 | 按行业/场景分类的方案模板 | 支持章节编辑 |
+| UI 视觉资料库 | 颜色预设/UI 规范/大屏设计/3D 参考/动效参考 | 按子库类型区分 |
+| 行业资料库 | 行业趋势、政策解读、对标分析 | 可按行业/分类过滤 |
+| 话术库 | 按场景（首次接洽/异议处理等）沉淀售前话术 | 保持对外表达一致可追溯 |
+| 报价经验库 | 历史报价参考（金额/工期） | **仅供参考，禁止对外承诺，正式报价必须人工确认** |
+
+### 6.8 Agent 层运行时规则
+
+Agent 层架构遵循以下运行时约束（2026-07 架构修复后确立）：
+
+**注册与初始化**
+- Skill 和 Tool 在应用启动时（`main.py` lifespan）统一注册，不再懒加载
+- 注册采用 `pkgutil` 自动发现，新增 Skill/Tool 无需改注册代码
+- `required_services` 声明在启动时校验，缺失的工具会记 `logger.error`（不阻断启动）
+
+**并发与状态**
+- 每个会话有应用层锁（`conversation_locks` 表），同一会话的并发消息会串行化（409 拒绝第二条），防止 `fill_canvas` / `ProposalAgent` 并发执行导致节点数据冲突
+- Agent 状态通过 metadata 信封存储：`{"_agent": "proposal", "ctx": {...}}`，防止 key 碰撞
+- 状态恢复按 thread_id 过滤，不会跨 thread 误恢复
+- `ANALYZING`/`GENERATING` 崩溃后恢复时重置为 `COLLECTING` 并记日志
+
+**会话隔离**
+- SSE 流的 request session 只负责消息读写；LLM/检索/填充的长耗时段使用独立 session（避免阻塞其他写操作）
+
+**Skill 层一致性**
+- VisualConceptAgent 通过 SkillRunner 调用 `image_generation` 和 `visual_prompt`（获得 SkillExecution 日志 + ReAct 重试），不再直接调 image_service
+- `validate_input` 做类型校验（不只查 key 存在）
+- ReAct `fallback_skill` 切换前校验目标 skill 的输入 schema
+- web_search 统一走 `acquire_web_context` helper（不再两套路径）
+- `ChatRequest.force_intent` / `force_skill_id` 允许客户端覆盖意图检测
 
 ---
 
@@ -201,9 +246,11 @@ Tool（标准化数据访问接口）
 | `case_search` | 案例检索 | 按行业、场景、风格检索案例库 |
 | `sop_load` | SOP 加载 | 按行业/场景加载对应的 SOP 工作流 |
 | `template_load` | 方案模板加载 | 加载策划案/方案模板 |
-| `prompt_template` | Prompt 模板检索 | 按任务类型和视觉风格检索 Prompt 模板 |
+| `prompt_template_load` | Prompt 模板检索 | 按任务类型和视觉风格检索 Prompt 模板 |
 | `visual_style_match` | 视觉风格匹配 | 匹配视觉风格库中的风格方案 |
-| `tech_rule_check` | 技术规则校验 | 校验技术参数是否符合规则库 |
-| `quality_check` | 质量标准评估 | 按质量标准评估生成内容 |
+| `tech_rule_query` | 技术规则查询 | 查询活跃技术规则以校验技术参数 |
+| `quality_rule_query` | 质量标准查询 | 查询活跃质量标准以评估生成内容 |
+| `company_profile_load` | 企业画像加载 | 按 company_id 加载已生成的企业画像 |
 | `knowledge_search` | 知识检索 | RAG 语义检索知识库（文档、chunk） |
-| `image_generate` | 图片生成 | 调用图片生成服务 |
+| `web_search` | 联网搜索 | 在受控边界内检索公开网页信息，并返回可追溯来源与摘要 |
+| `image_generate` | 图片生成 | 调用图片生成服务，失败不阻断流程（降级返回占位图） |

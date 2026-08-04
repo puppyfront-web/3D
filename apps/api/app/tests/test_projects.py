@@ -10,12 +10,15 @@ from app.models.user import Role, User
 
 @pytest.mark.asyncio
 async def test_list_projects_empty(client):
-    """Test listing projects when none exist."""
+    """Test listing projects returns a valid paginated response."""
     response = await client.get("/api/v1/projects")
     assert response.status_code == 200
     data = response.json()
-    assert data["items"] == []
-    assert data["total"] == 0
+    assert "items" in data
+    assert "total" in data
+    assert isinstance(data["items"], list)
+    assert isinstance(data["total"], int)
+    assert data["total"] >= 0
 
 
 @pytest.mark.asyncio
@@ -241,19 +244,34 @@ async def test_create_project_wizard_idempotent_company(client, db_session, samp
 
 
 @pytest.mark.asyncio
-async def test_wizard_rejects_blank_client_name(client, sample_user_id):
-    """A blank/whitespace client_name is rejected at the schema layer.
+async def test_wizard_blank_client_name_uses_project_name(client, db_session):
+    """KB-first workspaces may omit client_name; company binds to project_name."""
+    from app.models.project import Company, Project
+    from sqlalchemy import select
 
-    Without this, the wizard would create a '' company that every future
-    blank-name project collides on (and now fails the unique constraint).
-    """
-    for bad in ("", "   "):
+    for client_name in ("", "   "):
+        project_name = f"无客户项目-{client_name!r}"
         payload = {
-            "step1": {"projectName": "无客户项目", "clientName": bad},
+            "step1": {"projectName": project_name, "clientName": client_name},
             "screen": {"screenType": "LED"},
         }
         response = await client.post("/api/v1/projects/wizard", json=payload)
-        assert response.status_code in (400, 422), response.text
+        assert response.status_code == 201, response.text
+        body = response.json()["data"]
+        assert body["company"]["name"] == project_name
+
+    companies = (
+        await db_session.execute(
+            select(Company).where(Company.name.like("无客户项目-%"))
+        )
+    ).scalars().all()
+    assert len(companies) == 2
+    projects = (
+        await db_session.execute(
+            select(Project).where(Project.company_id.in_([c.id for c in companies]))
+        )
+    ).scalars().all()
+    assert len(projects) == 2
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,7 @@ from app.schemas.rule import (
 )
 from app.services.config_export_service import ConfigExportService
 from app.services.import_service import ImportService
+from app.services.revision_service import build_snapshot, create_snapshot
 
 _CONFLICT_MODE = Query(
     "skip",
@@ -129,6 +130,10 @@ async def update_technical_rule(
     rule = await db.get(TechnicalRule, rule_id)
     if not rule:
         raise NotFoundException("TechnicalRule", str(rule_id))
+    # Snapshot the current (pre-edit) state for version history
+    await create_snapshot(
+        db, "technical_rule", rule.id, build_snapshot(rule), change_summary="编辑前快照"
+    )
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(rule, field, value)
     await db.flush()
@@ -238,6 +243,10 @@ async def update_quality_rule(
     rule = await db.get(QualityRule, rule_id)
     if not rule:
         raise NotFoundException("QualityRule", str(rule_id))
+    # Snapshot the current (pre-edit) state for version history
+    await create_snapshot(
+        db, "quality_rule", rule.id, build_snapshot(rule), change_summary="编辑前快照"
+    )
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(rule, field, value)
     await db.flush()

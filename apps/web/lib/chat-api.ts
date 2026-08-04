@@ -1,89 +1,30 @@
 "use client";
 
 /**
- * Chat API client — handles SSE streaming and conversation CRUD.
- * Separate from the main api.ts to keep concerns isolated.
+ * Chat API client — SSE streaming + file upload for the canvas left-rail
+ * conversation. Conversation CRUD used to live here for the legacy global
+ * chat workspace; that page was removed and the canvas now talks to the
+ * project-scoped conversation via lib/canvas-api.ts, so only the streaming
+ * and upload primitives remain.
  */
 
 import type {
-  Conversation,
-  ConversationDetail,
   ChatMessage,
   ContentBlock,
   StreamChunk,
   ApiResponse,
 } from "@/types";
 import { toast } from "sonner";
+import { getToken } from "@/lib/auth";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-// ─── Conversation CRUD ──────────────────────────────────────────
-
-export async function getConversations(
-  status?: string
-): Promise<ApiResponse<Conversation[]>> {
-  const params = status ? `?status=${status}` : "";
-  const res = await fetch(`${API_BASE_URL}/api/v1/conversations${params}`);
-  if (!res.ok) throw new Error(`Failed to fetch conversations: ${res.status}`);
-  return res.json();
-}
-
-export async function createConversation(data: {
-  projectId?: string;
-  title?: string;
-}): Promise<ApiResponse<Conversation>> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/conversations`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok)
-    throw new Error(`Failed to create conversation: ${res.status}`);
-  return res.json();
-}
-
-export async function getConversation(
-  id: string
-): Promise<ApiResponse<ConversationDetail>> {
-  const res = await fetch(
-    `${API_BASE_URL}/api/v1/conversations/${id}`
-  );
-  if (!res.ok) throw new Error(`Conversation not found: ${res.status}`);
-  return res.json();
-}
-
-export async function archiveConversation(
-  id: string
-): Promise<ApiResponse<null>> {
-  const res = await fetch(
-    `${API_BASE_URL}/api/v1/conversations/${id}`,
-    { method: "DELETE" }
-  );
-  if (!res.ok) throw new Error(`Failed to archive: ${res.status}`);
-  return res.json();
-}
-
-export async function updateConversation(
-  id: string,
-  data: { title?: string }
-): Promise<ApiResponse<Conversation>> {
-  const res = await fetch(
-    `${API_BASE_URL}/api/v1/conversations/${id}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }
-  );
-  if (!res.ok) throw new Error(`Failed to update: ${res.status}`);
-  return res.json();
-}
 
 // ─── SSE Streaming Chat ─────────────────────────────────────────
 
 export interface StreamCallbacks {
   onTextDelta: (text: string) => void;
+  onThinkingDelta?: (text: string) => void;
   onContentBlockStart?: (data: Record<string, unknown>) => void;
   onContentBlockData?: (data: Record<string, unknown>) => void;
   onContentBlockEnd?: () => void;
@@ -104,19 +45,25 @@ let _streamSeq = 0;
 export function streamChat(
   conversationId: string,
   message: string,
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  extraBody?: Record<string, unknown>
 ): AbortController {
   const controller = new AbortController();
   let fullText = "";
   const collectedBlocks: ContentBlock[] = [];
   const streamId = `stream-${Date.now()}-${++_streamSeq}`;
 
+  // Inject JWT as Bearer token if available.
+  const token = getToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   fetch(
     `${API_BASE_URL}/api/v1/conversations/${conversationId}/chat/stream`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      headers,
+      body: JSON.stringify({ message, ...(extraBody ?? {}) }),
       signal: controller.signal,
     }
   )
@@ -157,6 +104,10 @@ export function streamChat(
               case "text_delta":
                 fullText += chunk.text || "";
                 callbacks.onTextDelta(chunk.text || "");
+                break;
+
+              case "thinking_delta":
+                callbacks.onThinkingDelta?.(chunk.text || "");
                 break;
 
               case "content_block_start":
@@ -230,53 +181,36 @@ export function streamChat(
   return controller;
 }
 
-// ─── Actions ─────────────────────────────────────────────────────
-
-export async function executeAction(
-  conversationId: string,
-  action: string,
-  data?: {
-    skillId?: string;
-    formData?: Record<string, unknown>;
-    targetMessageId?: string;
-  }
-): Promise<ApiResponse<ChatMessage>> {
-  const res = await fetch(
-    `${API_BASE_URL}/api/v1/conversations/${conversationId}/actions`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        skill_id: data?.skillId,
-        form_data: data?.formData,
-        target_message_id: data?.targetMessageId,
-      }),
-    }
-  );
-  if (!res.ok) throw new Error(`Action failed: ${res.status}`);
-  return res.json();
-}
-
 // ─── File Upload ─────────────────────────────────────────────────
 
 export async function uploadChatFile(
   conversationId: string,
   file: File,
-  caption?: string
+  caption?: string,
+  opts?: { projectId?: string; category?: string }
 ): Promise<ApiResponse<ChatMessage>> {
   const formData = new FormData();
   formData.append("file", file);
 
   const params = new URLSearchParams();
   if (caption) params.set("caption", caption);
+  // Binds the attachment to the project so a chat upload lands in the same
+  // knowledge base as an /admin/assets upload instead of as an orphan.
+  if (opts?.projectId) params.set("project_id", opts.projectId);
+  if (opts?.category) params.set("category", opts.category);
+
+  // Inject JWT as Bearer token if available. Do NOT set Content-Type — the
+  // browser sets the multipart boundary automatically.
+  const token = getToken();
+  const reqHeaders: Record<string, string> = {};
+  if (token) reqHeaders["Authorization"] = `Bearer ${token}`;
 
   const res = await fetch(
     `${API_BASE_URL}/api/v1/conversations/${conversationId}/upload?${params.toString()}`,
     {
       method: "POST",
+      headers: reqHeaders,
       body: formData,
-      // Do NOT set Content-Type — browser sets multipart boundary automatically
     }
   );
   if (!res.ok) {

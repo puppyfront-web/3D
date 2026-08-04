@@ -43,15 +43,33 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def setup_database():
-    """Create all tables once for the test session."""
-    # Register JSON type override for SQLite
+    """Create all tables once for the test session.
+
+    Also redirects the *production* session factory/engine in
+    ``app.db.session`` onto the in-memory test engine. Several service paths
+    (e.g. ``conversation_service._handle_skill_execution``) open their own
+    session via ``async_session_factory`` to dodge SQLite write-lock
+    contention — without this redirect they would hit the file-based
+    ``dev.db`` (stale schema, no test isolation) instead of the test DB.
+    Doing the swap at session scope means every code path, DI or otherwise,
+    resolves to the same in-memory database.
+    """
     from sqlalchemy import event
+
+    import app.db.session as db_session_module
 
     @event.listens_for(test_engine.sync_engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
+    # Redirect production engine + session factory → test engine.
+    # `get_db` still resolves through dependency_overrides in the `client`
+    # fixture, but any `async with async_session_factory()` call site now
+    # binds to the test engine too.
+    db_session_module.engine = test_engine
+    db_session_module.async_session_factory = TestSessionLocal
 
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -60,6 +78,74 @@ async def setup_database():
 
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _isolate_db_state():
+    """Wipe all rows before AND after every test.
+
+    Why: the test DB is a single shared in-memory SQLite (``cache=shared``).
+    Some service paths (e.g. ``conversation_service._handle_skill_execution``)
+    open their OWN session via ``async_session_factory`` and COMMIT writes to
+    that shared DB — those commits survive the per-test ``db_session``
+    rollback and leak into the next test (the root cause of
+    ``test_list_projects_empty`` flakiness). Flushing every table around each
+    test makes the suite order-independent regardless of which session a code
+    path writes through.
+    """
+    async with test_engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
+    yield
+    async with test_engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
+
+
+@pytest.fixture(autouse=True)
+def _inject_mock_llm(monkeypatch):
+    """Test-only LLM injection (production keeps failing loudly).
+
+    The production ``get_llm_service`` factory RAISES when no real provider is
+    configured (mock mode was removed so misconfiguration surfaces instead of
+    serving fabricated output). Business-logic tests don't exercise a real LLM
+    though, so this fixture injects ``MockLLMService`` across every module that
+    imported ``get_llm_service`` — restoring the pre-removal test convenience
+    without weakening the production contract.
+
+    A test that wants to assert the "no provider" failure path can override
+    this by monkeypatching the same attributes itself (later patches win), or
+    by monkeypatching to a stub LLM as the canvas-orchestrator tests do.
+    """
+    import importlib
+
+    from app.services.llm_service import MockLLMService
+
+    async def _fake_get_llm(db=None):
+        return MockLLMService()
+
+    # Patch the source module + every module that did `from ... import
+    # get_llm_service` at top level (they hold their own reference). Modules
+    # that import it locally inside a function re-resolve on each call, so the
+    # source patch covers them.
+    _MODULES = [
+        "app.services.llm_service",
+        "app.routers.skills",
+        "app.routers.agents",
+        "app.services.conversation_service",
+        "app.services.canvas_agent_orchestrator",
+        "app.services.canvas_research_service",
+        "app.services.search_helper",
+        "app.services.auto_tagger",
+        "app.services.intent_service",
+    ]
+    for mod_name in _MODULES:
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError:
+            continue
+        if hasattr(mod, "get_llm_service"):
+            monkeypatch.setattr(mod, "get_llm_service", _fake_get_llm)
 
 
 @pytest_asyncio.fixture
@@ -72,9 +158,16 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest_asyncio.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
-    """Provide an HTTP test client with the test database session injected."""
+    """Provide an HTTP test client with the test database session injected.
+
+    Also bypasses JWT auth: the test client has no access token, so we
+    override ``get_current_user`` with a mock that returns a seeded admin
+    user. Production still enforces auth — this override only affects tests.
+    """
+    from app.core.security import get_current_user
     from app.db.session import get_db
     from app.main import create_app
+    from app.models.user import Role, User
 
     app = create_app()
 
@@ -83,11 +176,53 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides[get_db] = override_get_db
 
+    # Seed an admin user + role and return it from the auth dependency so
+    # every protected endpoint sees an authenticated admin in tests.
+    admin_role = Role(
+        id=uuid.uuid4(),
+        name="admin",
+        description="Test admin role",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(admin_role)
+    await db_session.flush()
+
+    admin_user = User(
+        id=uuid.uuid4(),
+        email="test-admin@example.com",
+        name="Test Admin",
+        role_id=admin_role.id,
+        is_active=True,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(admin_user)
+    await db_session.flush()
+
+    async def override_get_current_user():
+        # Refresh role relationship so require_admin-style checks pass.
+        await db_session.refresh(admin_user, ["role"])
+        return admin_user
+
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def seeded_conversation(db_session: AsyncSession):
+    """Create and return a Conversation row for lock tests."""
+    from app.models.conversation import Conversation
+
+    conv = Conversation(title="test conv", status="active")
+    db_session.add(conv)
+    await db_session.flush()
+    return conv
 
 
 @pytest_asyncio.fixture

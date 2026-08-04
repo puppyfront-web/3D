@@ -2,12 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-import { Sidebar } from "@/components/layout/sidebar";
-import { ChatProvider } from "@/lib/chat-context";
 
 export const metadata: Metadata = {
-  title: "花生ONE",
-  description: "展厅·文旅 AI 专家工作台 — 企业展厅、科技文旅、多媒体展项方案生成与管理平台",
+  title: "企业知识助手",
+  description: "内部知识库与可追溯问答 — 资料入库、检索测试、多轮问答",
 };
 
 export default function RootLayout({
@@ -15,21 +13,21 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Font: --font-inter is defined in globals.css as a system font stack
+  // (Inter → ui-sans-serif → system-ui → …). We intentionally do NOT use
+  // next/font/google here — that fetches Google Fonts at build time, which
+  // fails in CN environments without Google access and breaks the build.
   return (
-    <html
-      lang="zh-CN"
-      className="h-full antialiased"
-    >
+    <html lang="zh-CN" className="h-full antialiased">
       <body className="min-h-full h-full">
         <TooltipProvider>
-          <ChatProvider>
-            <div className="flex h-screen">
-              <Sidebar />
-              <main className="flex-1 h-full bg-[#F5F7FA] overflow-hidden">
-                {children}
-              </main>
-            </div>
-          </ChatProvider>
+          {/*
+            Layout chrome is intentionally bare here — each route group
+            (marketing / workspace / admin) renders its own TopNav in its
+            group layout. The global dark sidebar was removed per the
+            Enterprise Blueprint redesign (every page owns its own top nav).
+          */}
+          {children}
           <Toaster position="top-right" richColors closeButton duration={6000} />
         </TooltipProvider>
       </body>

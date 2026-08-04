@@ -3,6 +3,7 @@
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -44,25 +45,108 @@ async def _get_task_output(generation_id: uuid.UUID, db: AsyncSession):
     return task, output
 
 
-def _check_export_eligibility(output: GenerationOutput) -> tuple[bool, list[str]]:
-    """Check if a proposal is eligible for export (all sections approved).
+async def _mark_project_exported(db: AsyncSession, task: GenerationTask) -> None:
+    """Stamp the project lifecycle to `exported` after a successful export.
 
-    Returns (is_eligible, list_of_blocker_messages).
+    PRESALE_DELIVERY_SPEC §4.2 / F5 — every successful DOCX/PDF/PPTX export
+    advances the project so the workspace status chip reflects reality. Runs
+    in the request session and commits there; failures only log (export itself
+    already succeeded, we must not surface a 500 for a status flip).
     """
-    blockers: list[str] = []
-    meta = output.sections_meta
+    try:
+        from app.models.project import Project
 
-    if not meta:
-        # No sections_meta means proposal was generated before HITL was added — allow export
-        return True, []
+        project = await db.get(Project, task.project_id)
+        if project is not None:
+            project.status = "exported"
+            await db.commit()
+    except Exception:
+        # Don't fail the export over a status update — log and move on.
+        import logging
 
-    for section in meta:
-        if section.get("status") != "approved":
-            blockers.append(f"章节「{section.get('title', '?')}」未审核通过")
-        if section.get("require_human_review") and not section.get("human_confirmed"):
-            blockers.append(f"章节「{section.get('title', '?')}」需人工确认")
+        logging.getLogger(__name__).exception(
+            "export: failed to mark project %s as exported", task.project_id
+        )
+        await db.rollback()
 
-    return len(blockers) == 0, blockers
+
+async def _resolve_project_industry(
+    db: AsyncSession, project_id: uuid.UUID
+) -> Optional[str]:
+    """Return ``Project.company.industry`` for SOP matching, or None.
+
+    Soft-fail: a missing project / company / industry is treated as "no
+    industry signal" so the matcher falls back to the default SOP rather than
+    refusing export. Project.company is selectin-loaded by the ORM.
+    """
+    try:
+        from app.models.project import Project
+
+        project = await db.get(Project, project_id)
+        if project is None:
+            return None
+        company = project.company  # selectin-loaded
+        return getattr(company, "industry", None)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "export: failed to load project industry for %s", project_id
+        )
+        return None
+
+
+async def _enforce_export_gate(
+    db: AsyncSession, task: GenerationTask, output: GenerationOutput
+) -> None:
+    """Run the configurable export gate; raise 403 with blockers if it fails.
+
+    PRESALE_DELIVERY_SPEC §9.2 (配置化) — the SOP-aware gate is the single
+    source of truth for export eligibility. The matched SOP (resolved against
+    the project's company.industry when available) surfaces its quality_review
+    checklist as advisory items; canvas-node fill state is enforced for the
+    three default boards.
+    """
+    from app.services.export_gate_service import export_gate_service
+
+    # Resolve the matched SOP (best-effort; missing SOP → legacy behaviour).
+    # Match against the project's company.industry so industry-specific SOPs
+    # (Phase 3) actually fire on the export path — previously this always
+    # passed project_type=None and silently used the default SOP.
+    sop = None
+    canvas_boards = None
+    try:
+        from app.services.sop_matcher_service import sop_matcher_service
+
+        industry = await _resolve_project_industry(db, task.project_id)
+        sop = await sop_matcher_service.match(db, industry=industry)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("export: SOP match failed; continuing")
+    try:
+        from app.services.project_memory_service import project_memory_service
+
+        digest = await project_memory_service.get_project_memory(
+            db, task.project_id, "canvas_digest"
+        )
+        if digest:
+            canvas_boards = digest.get("boards")
+    except Exception:
+        pass
+
+    result = await export_gate_service.check(
+        db, output, sop=sop, canvas_boards=canvas_boards
+    )
+    if not result["eligible"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": "导出前需完成审核",
+                "blockers": result["blocking"],
+                "advisory": result.get("advisory") or [],
+            },
+        )
 
 
 @router.post("/word/{task_id}")
@@ -73,12 +157,7 @@ async def export_to_word(
     """Export a generation task's output as a Word document."""
     task, output = await _get_task_output(task_id, db)
 
-    eligible, blockers = _check_export_eligibility(output)
-    if not eligible:
-        raise HTTPException(
-            status_code=403,
-            detail={"message": "导出前需完成审核", "blockers": blockers},
-        )
+    await _enforce_export_gate(db, task, output)
 
     try:
         from docx import Document as DocxDocument
@@ -137,6 +216,8 @@ async def export_to_word(
     filepath = os.path.join(storage_dir, filename)
     doc.save(filepath)
 
+    await _mark_project_exported(db, task)
+
     return FileResponse(
         path=filepath,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -152,12 +233,7 @@ async def export_to_pdf(
     """Export a generation task's output as a PDF document."""
     task, output = await _get_task_output(task_id, db)
 
-    eligible, blockers = _check_export_eligibility(output)
-    if not eligible:
-        raise HTTPException(
-            status_code=403,
-            detail={"message": "导出前需完成审核", "blockers": blockers},
-        )
+    await _enforce_export_gate(db, task, output)
 
     try:
         from reportlab.lib.pagesizes import A4
@@ -223,6 +299,8 @@ async def export_to_pdf(
 
     doc.build(story)
 
+    await _mark_project_exported(db, task)
+
     return FileResponse(
         path=filepath,
         media_type="application/pdf",
@@ -238,12 +316,7 @@ async def export_to_pptx(
     """Export a generation task's output as a PowerPoint presentation."""
     task, output = await _get_task_output(task_id, db)
 
-    eligible, blockers = _check_export_eligibility(output)
-    if not eligible:
-        raise HTTPException(
-            status_code=403,
-            detail={"message": "导出前需完成审核", "blockers": blockers},
-        )
+    await _enforce_export_gate(db, task, output)
 
     try:
         from app.exporters.pptx_exporter import PPTXExporter
@@ -262,4 +335,88 @@ async def export_to_pptx(
         path=filepath,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         filename=f"proposal_{task.type}.pptx",
+    )
+
+
+# ─── Canvas-version export (PRD §20, reads ProjectVersion → CanvasNode) ────
+
+
+async def _load_version_canvas(version_id: uuid.UUID, db: AsyncSession):
+    """Load a ProjectVersion and its Canvas with groups/nodes/sources eagerly
+    loaded, ready for markdown flattening. Returns (version, canvas)."""
+    from app.models.canvas import ProjectVersion, Canvas, CanvasNode, NodeSource
+    from sqlalchemy.orm import selectinload
+
+    version = await db.get(ProjectVersion, version_id)
+    if version is None:
+        raise NotFoundException("ProjectVersion", str(version_id))
+
+    result = await db.execute(
+        select(Canvas)
+        .where(Canvas.project_version_id == version_id)
+        .options(
+            selectinload(Canvas.groups),
+            selectinload(Canvas.nodes).selectinload(CanvasNode.sources),
+        )
+    )
+    canvas = result.scalar_one_or_none()
+    if canvas is None:
+        raise NotFoundException("Canvas for version", str(version_id))
+    return version, canvas
+
+
+@router.post("/word/version/{version_id}")
+async def export_version_to_word(
+    version_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a canvas version's nodes as a Word document (PRD §20).
+
+    Source of truth is the ProjectVersion → Canvas → CanvasNode tree, not the
+    legacy GenerationOutput. Soft gate: draft/pending nodes are flagged inline
+    rather than blocked.
+    """
+    from app.exporters.canvas_to_markdown import canvas_to_markdown
+    from app.exporters.word_exporter import WordExporter
+
+    version, canvas = await _load_version_canvas(version_id, db)
+    md = canvas_to_markdown(version, canvas)
+
+    exporter = WordExporter()
+    version_name = version.version_name or f"V{version.version_no}"
+    filepath = await exporter.export(
+        content=md,
+        filename=f"canvas_{version_id}.docx",
+        title=f"企业3D数字化整体解决方案（{version_name}）",
+    )
+    return FileResponse(
+        path=filepath,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"proposal_{version_name}.docx",
+    )
+
+
+@router.post("/pdf/version/{version_id}")
+async def export_version_to_pdf(
+    version_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a canvas version's nodes as a PDF document (PRD §20)."""
+    from app.exporters.canvas_to_markdown import canvas_to_markdown
+    from app.exporters.pdf_exporter import PDFExporter
+
+    version, canvas = await _load_version_canvas(version_id, db)
+    md = canvas_to_markdown(version, canvas)
+
+    exporter = PDFExporter()
+    version_name = version.version_name or f"V{version.version_no}"
+    filepath = await exporter.export(
+        content=md,
+        filename=f"canvas_{version_id}.pdf",
+        title=f"企业3D数字化整体解决方案（{version_name}）",
+    )
+    return FileResponse(
+        path=filepath,
+        media_type="application/pdf",
+        filename=f"proposal_{version_name}.pdf",
     )

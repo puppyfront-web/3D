@@ -60,8 +60,11 @@ export function FileUploadButton({
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (file) await ingestFile(file);
+  };
 
+  // Shared upload path so the drop handler and the file picker stay in sync.
+  const ingestFile = async (file: File) => {
     setUploading(true);
     setResult(null);
     setError(null);
@@ -76,6 +79,20 @@ export function FileUploadButton({
       // Reset file input so same file can be re-selected
       if (fileRef.current) fileRef.current.value = "";
     }
+  };
+
+  // Drag-and-drop the dropzone advertises (PRD §12 — admin import UX).
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (uploading) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) await ingestFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const handleClose = (isOpen: boolean) => {
@@ -125,6 +142,8 @@ export function FileUploadButton({
           <div
             className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center cursor-pointer hover:border-[#1E3A5F]/30 hover:bg-[#1E3A5F]/5 transition-colors"
             onClick={() => fileRef.current?.click()}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
           >
             <input
               ref={fileRef}

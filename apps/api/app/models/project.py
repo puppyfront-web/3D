@@ -67,6 +67,12 @@ class Project(Base):
     shared_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_for_external: Mapped[bool] = mapped_column(default=False, nullable=False)
 
+    # Infinite-canvas workspace: pointer to the current ProjectVersion.
+    # Stored as a plain UUID (not a FK) to avoid a circular FK with
+    # project_versions.project_id; integrity is enforced in the application
+    # layer by canvas_service when promoting a version to current.
+    current_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -83,6 +89,12 @@ class Project(Base):
         back_populates="project", lazy="selectin"
     )
     feedback: Mapped[List["Feedback"]] = relationship(back_populates="project", lazy="selectin")
+    versions: Mapped[List["ProjectVersion"]] = relationship(
+        back_populates="project",
+        lazy="selectin",
+        order_by="ProjectVersion.version_no",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Project {self.name}>"

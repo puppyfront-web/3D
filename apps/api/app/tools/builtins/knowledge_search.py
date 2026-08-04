@@ -1,40 +1,12 @@
 """Knowledge Search Tool — RAG semantic + keyword hybrid retrieval."""
 
-import re
 import uuid
 from typing import Any, Dict, List, Optional
 
+from app.rag.tokenizer import tokenize_query as _tokenize_query
 from app.tools.base import BaseTool, ToolContext, ToolManifest, ToolResult
 
-# CJK (common + extension A) runs vs ASCII alphanumeric runs. CJK text has no
-# word spacing, so str.split() returns the whole query as one token and ILIKE
-# matches nothing useful — split CJK into per-character search units instead.
-_TOKEN_RE = re.compile(r"[一-鿿\s]+|[A-Za-z0-9]+")
-
-
-def _tokenize_query(query: str, max_tokens: int = 8) -> List[str]:
-    """Split a query into ILIKE keyword tokens.
-
-    CJK characters are emitted one-per-token (each is a meaningful search unit);
-    ASCII alphanumeric runs are kept as whole words. Tokens shorter than 2 chars
-    are dropped (single ASCII letters match too broadly; single CJK chars are
-    kept because each carries meaning).
-    """
-    if not query:
-        return []
-    tokens: List[str] = []
-    for m in _TOKEN_RE.finditer(query):
-        s = m.group(0).strip()
-        if not s:
-            continue
-        if s[0].isascii():
-            if len(s) > 1:
-                tokens.append(s)
-        else:
-            tokens.extend(list(s))
-        if len(tokens) >= max_tokens:
-            break
-    return tokens[:max_tokens]
+__all__ = ["KnowledgeSearchTool", "_tokenize_query", "_escape_like", "_parse_project_id"]
 
 
 def _escape_like(s: str) -> str:
@@ -109,6 +81,7 @@ class KnowledgeSearchTool(BaseTool):
             top_k=top_k,
             project_id=project_uuid,
             db=context.db,
+            triggered_by="knowledge_search",
         )
 
         chunks = [

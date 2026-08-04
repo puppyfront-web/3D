@@ -1,4 +1,4 @@
-"""Conversation and Message models for chat-style interaction."""
+"""Conversation, thread, and message models for chat-style interaction."""
 
 import uuid
 from datetime import datetime
@@ -41,9 +41,47 @@ class Conversation(Base):
         cascade="all, delete-orphan",
     )
     project: Mapped[Optional["Project"]] = relationship(lazy="raise")
+    threads: Mapped[List["ConversationThread"]] = relationship(
+        back_populates="conversation",
+        lazy="raise",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Conversation {self.title}>"
+
+
+class ConversationThread(Base):
+    """A scoped message thread within a conversation."""
+
+    __tablename__ = "conversation_threads"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scope_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    scope_ref_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="active", index=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="threads")
+    messages: Mapped[List["Message"]] = relationship(
+        back_populates="thread",
+        lazy="raise",
+        order_by="Message.created_at",
+    )
+
+    def __repr__(self) -> str:
+        return f"<ConversationThread {self.scope_type}:{self.scope_ref_id or '-'}>"
 
 
 class Message(Base):
@@ -55,6 +93,11 @@ class Message(Base):
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+    thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("conversation_threads.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # user | assistant | system
@@ -85,6 +128,7 @@ class Message(Base):
 
     # Relationships
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+    thread: Mapped[Optional["ConversationThread"]] = relationship(back_populates="messages")
     skill_execution: Mapped[Optional["SkillExecution"]] = relationship(lazy="raise")
 
     def __repr__(self) -> str:

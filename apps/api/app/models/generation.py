@@ -58,6 +58,21 @@ class GenerationOutput(Base):
     used_cases: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
     used_documents: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
     used_chunks: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
+    used_external_sources: Mapped[Optional[list]] = mapped_column(
+        JSON, nullable=True, default=list,
+        comment=(
+            "[{title,url,domain,snippet,published_at,source_type,confidence}] — "
+            "external web sources cited by web_search. Required for traceability "
+            "of any non-internal information (see AGENT_SPEC §2.3)."
+        ),
+    )
+    external_search_summary: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True,
+        comment=(
+            "{status,provider,degraded_reason,key_points,conflicts,missing_info,"
+            "recommended_usage} — normalised summary of web_search results."
+        ),
+    )
     used_sop_version: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Section-level metadata for human-in-the-loop review
@@ -67,7 +82,7 @@ class GenerationOutput(Base):
             "[{id, title, order, status, reviewed_by, reviewed_at, "
             "require_human_review, human_confirmed}] — sections flagged "
             "require_human_review block export until human_confirmed is set "
-            "(see routers/exports._check_export_eligibility)."
+            "(see app.services.export_gate_service)."
         ),
     )
     version: Mapped[int] = mapped_column(default=1, server_default="1", nullable=False)

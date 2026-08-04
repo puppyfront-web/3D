@@ -296,7 +296,56 @@ cd apps/web && npx next lint
 
 ---
 
-## 9. 目标覆盖率
+## 9. 售前主链测试（PRESALE_DELIVERY_SPEC §13 / §14）
+
+> 验收规格:[PRESALE_DELIVERY_SPEC.md](./PRESALE_DELIVERY_SPEC.md) §13 P0 清单。
+> 实施计划:[superpowers/plans/2026-07-18-presale-delivery.md](./superpowers/plans/2026-07-18-presale-delivery.md)。
+
+### 9.1 主链 E2E 测试文件
+
+| 文件 | 覆盖阶段 |
+|------|----------|
+| `apps/api/app/tests/test_presale_main_flow.py` | 向导 → auto-fill → 记忆 → 审核 → 导出 全链 |
+| `apps/api/app/tests/test_project_memory.py` | ProjectMemory / ConversationState 模型 + service |
+| `apps/api/app/tests/test_sop_matcher.py` | SOP 匹配 + default_presale_sop 回退 |
+| `apps/api/app/tests/test_export_gate.py` | 配置化导出门控(SOP checklist + canvas 板块) |
+
+### 9.2 P0 验收项 ↔ 测试映射
+
+| Spec §13.1 P0 项 | 测试 |
+|------------------|------|
+| **A1** 向导创建 + 必填校验 | `test_wizard_creates_project_with_canvas_v1` |
+| **A2** Canvas V1 + 绑定对话 | `test_wizard_creates_project_with_canvas_v1` |
+| **B1** 首条消息触发 auto-fill | `test_first_message_triggers_auto_fill_with_proposal_blocks` |
+| **B2** canvas_fill_proposal 可见 | `test_first_message_triggers_auto_fill_with_proposal_blocks` |
+| **B3** 三大板块 planning 写入 | `test_first_message_triggers_auto_fill_with_proposal_blocks` |
+| **B4** proposal_section 初稿 | `test_auto_fill_persists_generation_output` / `test_first_message_triggers_auto_fill_with_proposal_blocks` |
+| **B6** 上传资料进入上下文 | `test_auto_fill_passes_uploaded_document_context_to_fill_canvas` |
+| **C1** 追问不失忆 | `test_follow_up_question_sees_canvas_digest` / `test_auto_fill_writes_canvas_digest_memory` |
+| **C5** 刷新后历史保留 | `test_conversation_history_persisted_after_reload` |
+| **D3** used_sop_version | `test_proposal_records_used_sop_version` / `test_sop_matcher.py` |
+| **F1/F2** 章节审核门控 | `test_export_blocked_until_sections_approved_via_main_flow` / `test_export_gate.py` |
+| **F3** 全审核通过可导出 | `test_export_succeeds_after_all_sections_approved` |
+| **F5** 项目状态推进 | `test_project_status_advances_through_main_flow` |
+
+### 9.3 标准 UAT 剧本(人工)
+
+按 PRESALE_DELIVERY_SPEC §14.1「华为裸眼 3D 发布方案」十步剧本,在 staging
+走一遍并录屏存档。剧本覆盖:向导创建 → 首轮 auto-fill → 画布检查 → 追问 →
+节点编辑 + 采纳 → 策划案章节审核 → 全 approved → 导出 PDF → 引用追溯。
+
+### 9.4 运行命令
+
+```bash
+cd apps/api && pytest app/tests/test_presale_main_flow.py \
+  app/tests/test_project_memory.py \
+  app/tests/test_sop_matcher.py \
+  app/tests/test_export_gate.py -v
+```
+
+---
+
+## 10. 目标覆盖率
 
 | 阶段 | 新增用例 | 总用例 | 覆盖重点 |
 |------|----------|--------|----------|

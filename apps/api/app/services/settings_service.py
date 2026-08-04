@@ -1,67 +1,142 @@
-"""Settings service — runtime configuration from database with .env fallback."""
+"""Settings service — runtime configuration sourced exclusively from the database.
 
+All provider/web-search configuration is managed via the admin settings UI and
+persisted in the app_settings table. There is NO .env fallback: a setting not in
+the database is treated as unset (callers receive "" or a supplied default).
+"""
+
+import logging
 import re
 from typing import Dict, Iterable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.models.app_setting import AppSetting
 
-# All known setting keys and their .env fallback field names
-_SETTING_KEYS: Dict[str, str] = {
-    "llm_provider": "llm_provider",
-    "llm_api_key": "llm_api_key",
-    "llm_base_url": "llm_base_url",
-    "llm_model": "llm_model",
-    "embedding_provider": "embedding_provider",
-    "embedding_api_key": "embedding_api_key",
-    "embedding_base_url": "embedding_base_url",
-    "embedding_model": "embedding_model",
-    "image_provider": "image_provider",
-    "image_api_key": "image_api_key",
-    "image_base_url": "image_base_url",
-    "image_model": "image_model",
-    "image_quality": "image_quality",
-    "embedding_dimensions": "embedding_dimensions",
+logger = logging.getLogger(__name__)
+
+# All known setting keys — the whitelist for get_all enumeration and update
+# validation. Only these keys are accepted by PUT /settings and returned by
+# GET /settings (everything else is ignored).
+_SETTING_KEYS = {
+    "llm_provider",
+    "llm_api_key",
+    "llm_base_url",
+    "llm_model",
+    "embedding_provider",
+    "embedding_api_key",
+    "embedding_base_url",
+    "embedding_model",
+    "image_provider",
+    "image_api_key",
+    "image_base_url",
+    "image_model",
+    "image_quality",
+    "embedding_dimensions",
+    # Web search — Tavily-first, LLM-native fallback, degraded-notice last resort.
+    "web_search_enabled",
+    "web_search_mode",
+    "web_search_tavily_api_key",
+    "web_search_max_results",
+    "web_search_timeout",
+    "web_search_min_confidence",
+    # Retrieval provider (local pgvector vs FastGPT external search)
+    "retrieval_provider",
+    "fastgpt_base_url",
+    "fastgpt_api_key",
+    "fastgpt_dataset_id",
+    "fastgpt_search_mode",
 }
 
 # Keys that contain sensitive data
-_SENSITIVE_KEYS = {"llm_api_key", "embedding_api_key", "image_api_key"}
+_SENSITIVE_KEYS = {"llm_api_key", "embedding_api_key", "image_api_key", "web_search_tavily_api_key", "fastgpt_api_key"}
+
+# Built-in defaults for non-sensitive settings. These are NOT read from .env —
+# they are sensible code-level fallbacks shown in the admin UI before the user
+# first persists a value. Once a setting is saved to the database, the DB value
+# always wins. Sensitive keys (API keys) have no default (empty until configured).
+#
+# Provider defaults are EMPTY by design, but each factory treats an empty
+# provider DIFFERENTLY — only the LLM factory fails loudly:
+#   - llm_provider: empty/unsupported → get_llm_service RAISES (mock fallback
+#     was removed so misconfiguration surfaces instead of fabricated text).
+#     A real provider+key MUST be set before any AI feature runs.
+#   - embedding_provider / image_provider: empty still DEGRADES to the Mock
+#     services (hash vectors / SVG placeholders) in their factories — retrieval
+#     and visuals limp on instead of crashing. Intentional; flip those to a
+#     hard RuntimeError too if you want symmetric loudness.
+_BUILTIN_DEFAULTS: Dict[str, str] = {
+    "llm_provider": "",
+    "llm_model": "gpt-4o",
+    "embedding_provider": "",
+    "embedding_model": "text-embedding-3-small",
+    "embedding_dimensions": "1536",
+    "image_provider": "",
+    "image_model": "dall-e-3",
+    "image_quality": "high",
+    "web_search_enabled": "true",
+    "web_search_mode": "auto",
+    "web_search_max_results": "5",
+    "web_search_timeout": "15",
+    "web_search_min_confidence": "0.5",
+    "retrieval_provider": "local",
+    "fastgpt_base_url": "",
+    "fastgpt_dataset_id": "",
+    "fastgpt_search_mode": "embedding",
+}
 
 _MASK_PATTERN = re.compile(r"^\*{4}")
 
 
 class SettingsService:
-    """Read/write application settings with DB-first, .env-fallback strategy."""
+    """Read/write application settings sourced exclusively from the database."""
 
     @staticmethod
     async def get(db: AsyncSession, key: str, default: Optional[str] = None) -> str:
-        """Get a single setting value. DB -> .env -> default."""
+        """Get a single setting value from the database only.
+
+        No .env fallback — all configuration is managed via the admin settings UI
+        and persisted in app_settings. Missing keys return the provided default.
+        """
         result = await db.execute(select(AppSetting).where(AppSetting.key == key))
         row = result.scalar_one_or_none()
         if row is not None:
             return row.value
-        # Fallback to .env
-        fallback = getattr(settings, key, None)
-        if fallback is not None:
-            return str(fallback)
         return default or ""
 
     @staticmethod
+    async def get_safe(db: AsyncSession, key: str, default: str = "") -> str:
+        """Read a setting, falling back to ``default`` if the store is unreachable.
+
+        For feature toggles and provider routing, an unreadable settings store
+        must degrade to the default rather than abort the caller mid-answer.
+        """
+        try:
+            return await SettingsService.get(db, key, default)
+        except Exception:  # noqa: BLE001 — a toggle read must never break callers
+            logger.warning("Settings read failed for %r; using default", key, exc_info=True)
+            return default
+
+    @staticmethod
     async def get_all(db: AsyncSession) -> Dict[str, str]:
-        """Get all known settings with DB-first, .env-fallback. Masks sensitive keys."""
+        """Get all known settings from the database only. Masks sensitive keys.
+
+        No .env fallback — only persisted values are returned. Keys with no DB
+        row are omitted (the frontend treats absent keys as unset).
+        """
         # Load all DB rows at once
         result = await db.execute(select(AppSetting))
         db_map = {row.key: row.value for row in result.scalars().all()}
 
         output: Dict[str, str] = {}
-        for key, env_attr in _SETTING_KEYS.items():
+        for key in _SETTING_KEYS:
             if key in db_map:
                 value = db_map[key]
             else:
-                value = str(getattr(settings, env_attr, ""))
+                # No DB row → built-in default (empty string if none).
+                # This is a code-level default, NOT a .env read.
+                value = _BUILTIN_DEFAULTS.get(key, "")
             # Mask sensitive values
             if key in _SENSITIVE_KEYS and value and len(value) > 4:
                 output[key] = "****" + value[-4:]
@@ -71,14 +146,11 @@ class SettingsService:
 
     @staticmethod
     async def get_raw(db: AsyncSession, key: str, default: Optional[str] = None) -> str:
-        """Get raw (unmasked) value. Used internally by service factories."""
+        """Get raw (unmasked) value from the database only. Used by service factories."""
         result = await db.execute(select(AppSetting).where(AppSetting.key == key))
         row = result.scalar_one_or_none()
         if row is not None:
             return row.value
-        fallback = getattr(settings, key, None)
-        if fallback is not None:
-            return str(fallback)
         return default or ""
 
     @staticmethod
@@ -87,10 +159,10 @@ class SettingsService:
         keys: Iterable[str],
         defaults: Optional[Dict[str, str]] = None,
     ) -> Dict[str, str]:
-        """Get multiple raw (unmasked) values in a single DB round-trip.
+        """Get multiple raw (unmasked) values from the database in a single round-trip.
 
-        DB-first with .env fallback (via _SETTING_KEYS mapping). Used by service
-        factories to batch-read config instead of N serial get_raw calls.
+        No .env fallback — only persisted values are returned. Missing keys fall
+        back to the per-key defaults passed by the caller.
         """
         defaults = defaults or {}
         key_list = list(keys)
@@ -102,9 +174,8 @@ class SettingsService:
             if key in db_map:
                 output[key] = db_map[key]
             else:
-                env_attr = _SETTING_KEYS.get(key, key)
-                fallback = getattr(settings, env_attr, None)
-                output[key] = str(fallback) if fallback is not None else defaults.get(key, "")
+                # DB miss → caller default, else built-in default, else "".
+                output[key] = defaults.get(key, _BUILTIN_DEFAULTS.get(key, ""))
         return output
 
     @staticmethod

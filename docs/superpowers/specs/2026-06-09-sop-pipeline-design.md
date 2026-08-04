@@ -37,8 +37,26 @@ MVP 阶段只做一条标准管线，后续再扩展为 SOP 引擎。
 Stage 1: company_analysis（企业解析）
 ─────────────────────────────────────
 输入: 用户消息中提取的企业信息 + 项目需求
-输出: 企业画像卡片 (company_analysis_card) + action_buttons
-暂停: ✅ 等待用户确认企业画像
+  │
+  ├─ 强制调用 web_search 收集企业客观信息（模式 A）
+  │   - 检索目标：主营业务 / 产品线 / 行业定位 / 公开动态 / 品牌官网信息
+  │   - 失败/降级 → 客观字段标记「未核实」，不阻断流程
+  │
+  ├─ web_search 结果归一化（key_points / conflicts / missing_info / sources）
+  │
+  ├─ 自动填充客观字段（标注来源 + 置信度）：
+  │   industry / business_type / core_products / market_position / public_news
+  │
+  └─ 主观字段留待用户确认：
+      brand_keywords / target_audience / communication_goal / visual_preferences
+
+输出: 企业画像卡片 (company_analysis_card)
+  - 客观字段已填充（verified + source）
+  - 主观字段 + 未核实客观字段汇总进 missing_info
+  - action_buttons
+  - 外部来源写入 used_external_sources / external_search_summary
+
+暂停: ✅ 等待用户确认企业画像（仅确认主观字段 + 未核实项）
 确认: action:confirm → 推进到 Stage 2
 微调: 用户输入修改意见 → 重新执行 Stage 1
 

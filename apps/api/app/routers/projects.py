@@ -4,6 +4,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,9 +21,53 @@ from app.schemas.project import (
 )
 from app.services.project_service import project_service
 
+# Project-conversation linking (canvas workspace chat). Imported lazily-bound here
+# because the endpoint lives under /projects/{id}/conversation, but the logic
+# belongs to the conversation domain.
+from app.services.conversation_service import ConversationService
+from app.models.conversation import Message
+from app.schemas.conversation import ConversationDetail, MessageOut
+
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-VALID_STATUSES = {"draft", "in_progress", "review", "completed", "archived"}
+_conv_service = ConversationService()
+
+
+def _message_to_out(m: Message) -> MessageOut:
+    """Convert a Message ORM object to MessageOut schema (mirrors conversations router)."""
+    return MessageOut(
+        id=str(m.id),
+        conversation_id=str(m.conversation_id),
+        thread_id=str(m.thread_id) if m.thread_id else None,
+        role=m.role,
+        content=m.content,
+        content_type=m.content_type,
+        rich_content=m.rich_content,
+        skill_execution_id=str(m.skill_execution_id) if m.skill_execution_id else None,
+        metadata=m.metadata_json,
+        created_at=m.created_at,
+    )
+
+# Project lifecycle statuses. The first four are manual milestones; the rest
+# are auto-set by the presale main flow (PRESALE_DELIVERY_SPEC §4.2 / F5):
+#   proposal_generated — auto-fill produced a Brief (set in _handle_auto_fill)
+#   pending_review     — all Brief sections approved, ready to export
+#   exported           — at least one format exported successfully
+# proposal_draft / visual_design are legacy skill-stamped values kept for
+# backward compatibility with rows written before this lifecycle landed.
+VALID_STATUSES = {
+    "draft",
+    "in_progress",
+    "review",
+    "completed",
+    "archived",
+    "proposal_generated",
+    "pending_review",
+    "exported",
+    # legacy (skill-stamped, kept so PATCH /status doesn't reject old rows)
+    "proposal_draft",
+    "visual_design",
+}
 
 
 @router.get("", response_model=PaginatedResponse[ProjectOut])
@@ -150,3 +195,135 @@ async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_d
     await db.delete(project)
     await db.flush()
     return Response(message="Project deleted")
+
+
+@router.get(
+    "/{project_id}/conversation",
+    response_model=Response[ConversationDetail],
+)
+async def get_project_conversation(
+    project_id: uuid.UUID,
+    node_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get-or-create the conversation bound to a project.
+
+    Used by the canvas workspace to load its left-rail chat panel with a real,
+    project-scoped conversation (history included). The underlying
+    Conversation.project_id FK already exists; this endpoint just exposes the
+    get-or-create path that the service already supports.
+    """
+    # Verify the project exists (404 if not).
+    project = await db.get(Project, project_id)
+    if not project:
+        raise NotFoundException("Project", str(project_id))
+
+    conv = await _conv_service.get_or_create_conversation(
+        db, project_id=str(project_id)
+    )
+    thread = await _conv_service.get_or_create_thread(
+        db,
+        conv.id,
+        scope_type="node" if node_id else "project",
+        scope_ref_id=node_id,
+    )
+    messages = await _conv_service.get_thread_history(db, thread.id)
+
+    # Backward compatibility: before thread-scoped persistence landed, node
+    # turns lived in the project thread and were separated only by metadata.
+    # Keep those histories visible during the migration window.
+    project_thread = await _conv_service.get_or_create_thread(
+        db,
+        conv.id,
+        scope_type="project",
+    )
+    project_messages = await _conv_service.get_thread_history(db, project_thread.id)
+    legacy_messages = _conv_service.filter_messages_for_scope(
+        project_messages,
+        node_id=node_id,
+    )
+
+    if node_id:
+        combined: list[Message] = []
+        seen_ids: set[str] = set()
+        for message in [*legacy_messages, *messages]:
+            message_id = str(message.id)
+            if message_id in seen_ids:
+                continue
+            seen_ids.add(message_id)
+            combined.append(message)
+        combined.sort(key=lambda msg: msg.created_at)
+        scoped_messages = combined
+    else:
+        scoped_messages = legacy_messages
+
+    msg_outs = [_message_to_out(m) for m in scoped_messages]
+
+    detail = ConversationDetail(
+        id=str(conv.id),
+        thread_id=str(thread.id),
+        project_id=str(conv.project_id) if conv.project_id else None,
+        title=conv.title,
+        status=conv.status,
+        last_message=msg_outs[-1] if msg_outs else None,
+        message_count=len(msg_outs),
+        created_at=conv.created_at,
+        updated_at=conv.updated_at,
+        messages=msg_outs,
+    )
+    return Response(data=detail, message="Project conversation")
+
+
+@router.get("/{project_id}/proposal-output", response_model=Response)
+async def get_latest_proposal_output(
+    project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+):
+    """Return the latest proposal_generation output (设计 Brief) for a project.
+
+    Used by the Canvas workspace's Proposal editor panel and the export
+    dropdown to resolve the ``output_id`` + ``sections_meta`` that drive
+    章节 review + 导出门控 (PRESALE_DELIVERY_SPEC §6.1 / §10.2).
+
+    Returns 404 when no Brief exists yet — the frontend uses that to hide the
+    Proposal entry until auto-fill has produced one.
+    """
+    from app.models.generation import GenerationOutput, GenerationTask
+    from app.schemas.generation import ProposalOutputOut
+
+    project = await db.get(Project, project_id)
+    if not project:
+        raise NotFoundException("Project", str(project_id))
+
+    result = await db.execute(
+        select(GenerationOutput)
+        .join(GenerationTask, GenerationTask.id == GenerationOutput.task_id)
+        .where(
+            GenerationTask.project_id == project_id,
+            # The proposal_generation skill stamps its task as type="proposal"
+            # (skills/builtins/proposal_generation.py:433); the auto-fill
+            # fallback path uses "proposal_generation". Accept both so the
+            # editor / export dropdown resolves the Brief regardless of which
+            # code path persisted it.
+            GenerationTask.type.in_(["proposal_generation", "proposal"]),
+        )
+        .order_by(GenerationOutput.created_at.desc())
+        .limit(1)
+    )
+    output = result.scalar_one_or_none()
+    if output is None:
+        raise NotFoundException("GenerationOutput", f"project={project_id}")
+
+    return Response(
+        data=ProposalOutputOut(
+            output_id=str(output.id),
+            task_id=str(output.task_id),
+            sections_meta=output.sections_meta or [],
+            used_cases=output.used_cases or [],
+            used_documents=output.used_documents or [],
+            used_chunks=output.used_chunks or [],
+            used_external_sources=output.used_external_sources or [],
+            used_sop_version=output.used_sop_version,
+            created_at=output.created_at.isoformat() if output.created_at else None,
+        ),
+        message="Latest proposal output",
+    )

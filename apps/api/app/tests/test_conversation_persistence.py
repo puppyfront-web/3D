@@ -180,33 +180,6 @@ async def _drain(gen):
     return out
 
 
-class _StubProposalAgent:
-    """Yields a representative proposal generate turn.
-
-    Deliberately does NOT advance ctx to COMPLETED, so the auto-chain to the
-    visual agent is skipped — this test isolates the proposal save path.
-    """
-
-    def __init__(self, *args, **kwargs):
-        pass
-
-    async def handle_message(self, message, ctx, db, project_id=None):
-        from app.agents.proposal import _sse_chunk
-
-        yield _sse_chunk("text_delta", text="正在生成策划案…")
-        yield _sse_chunk("content_block_start", data={"block_type": "proposal_section"})
-        yield _sse_chunk(
-            "content_block_data",
-            data={
-                "type": "proposal_section",
-                "data": {"content": "# 策划案正文", "used_cases": ["case-1"]},
-            },
-        )
-        yield _sse_chunk("content_block_end")
-        yield _sse_chunk("action_buttons", data={"buttons": [{"label": "确认策划案"}]})
-        yield _sse_chunk("done")
-
-
 class _StubVisualAgent:
     def __init__(self, *args, **kwargs):
         pass
@@ -218,41 +191,6 @@ class _StubVisualAgent:
         yield _sse_chunk("visual_result", data={"image_url": "https://img/x.png"})
         yield _sse_chunk("action_buttons", data={"buttons": []})
         yield _sse_chunk("done")
-
-
-@pytest.mark.asyncio
-async def test_proposal_handler_persists_real_content(db_session, monkeypatch):
-    """The proposal agent handler must persist streamed text + proposal_section
-    block (with 引用来源 used_cases), not '[proposal context saved]'."""
-    import uuid as _uuid
-
-    from app.models.conversation import Conversation
-    from app.services.conversation_service import ConversationService
-
-    monkeypatch.setattr("app.agents.proposal.ProposalAgent", _StubProposalAgent)
-
-    conv = Conversation(id=_uuid.uuid4(), title="策划案测试")
-    db_session.add(conv)
-    await db_session.commit()
-
-    service = ConversationService()
-    await _drain(service._handle_proposal_agent(db_session, conv.id, "帮我设计一套完整的展示方案"))
-
-    # RELOAD path — get_history is what the frontend reads after switching back
-    messages = await service.get_history(db_session, conv.id)
-    assistants = [m for m in messages if m.role == "assistant"]
-    assert len(assistants) == 1
-    msg = assistants[0]
-
-    assert msg.content == "正在生成策划案…"
-    assert msg.content != "[proposal context saved]"
-    assert msg.content_type == "rich"
-    assert msg.rich_content is not None
-    types = [b.get("type") for b in msg.rich_content.get("blocks", [])]
-    assert "proposal_section" in types
-    assert "action_buttons" in types
-    proposal = next(b for b in msg.rich_content["blocks"] if b.get("type") == "proposal_section")
-    assert proposal["data"]["used_cases"] == ["case-1"]
 
 
 @pytest.mark.asyncio

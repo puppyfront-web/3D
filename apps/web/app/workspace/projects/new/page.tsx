@@ -19,12 +19,8 @@ import { createProject } from "@/lib/api";
 import type { ProjectWizardData, Priority } from "@/types";
 
 const wizardSteps = [
-  { title: "基本信息", description: "项目名称与客户信息" },
-  { title: "企业调研", description: "目标企业背景资料" },
-  { title: "场地与屏幕", description: "屏幕参数与安装环境" },
-  { title: "方案风格", description: "方案撰写风格要求" },
-  { title: "视觉要求", description: "视觉素材设计规范" },
-  { title: "审核与导出", description: "质量标准与输出格式" },
+  { title: "基本信息", description: "工作区名称与问题描述" },
+  { title: "补充说明", description: "可选的背景资料与备注" },
 ];
 
 const initialData: ProjectWizardData = {
@@ -90,7 +86,7 @@ export default function NewProjectPage() {
     setIsSubmitting(true);
     const result = await createProject(data);
     if (result.success && result.data) {
-      router.push(`/workspace/projects/${result.data.id}`);
+      router.push(`/workspace/chat/${result.data.id}`);
     }
     setIsSubmitting(false);
   };
@@ -106,12 +102,12 @@ export default function NewProjectPage() {
       >
         {currentStep === 0 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">基本信息</h2>
-            <p className="text-sm text-gray-500">填写项目名称、客户信息和基本描述</p>
+            <h2 className="text-lg font-semibold text-on-surface">基本信息</h2>
+            <p className="text-sm text-gray-500">填写工作区名称与问题描述，无需绑定特定企业</p>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>项目名称 *</Label>
+              <div className="space-y-2 col-span-2">
+                <Label>工作区名称 *</Label>
                 <Input
                   value={data.step1.projectName}
                   onChange={(e) =>
@@ -120,11 +116,11 @@ export default function NewProjectPage() {
                       step1: { ...prev.step1, projectName: e.target.value },
                     }))
                   }
-                  placeholder="例如：智慧城市数字化展厅方案"
+                  placeholder="例如：裸眼3D选型问答、产品手册检索"
                 />
               </div>
               <div className="space-y-2">
-                <Label>客户名称 *</Label>
+                <Label>主题标签（可选）</Label>
                 <Input
                   value={data.step1.clientName}
                   onChange={(e) =>
@@ -133,14 +129,14 @@ export default function NewProjectPage() {
                       step1: { ...prev.step1, clientName: e.target.value },
                     }))
                   }
-                  placeholder="例如：深圳市科技创新委员会"
+                  placeholder="例如：数字化展示、内部制度"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>所属行业 *</Label>
+                <Label>所属行业（可选）</Label>
                 <Select
                   value={data.step1.industry}
                   onValueChange={(v) =>
@@ -170,8 +166,8 @@ export default function NewProjectPage() {
                 >
                   <SelectTrigger><SelectValue placeholder="选择类型" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="3D可视化">3D可视化方案</SelectItem>
-                    <SelectItem value="数字化转型">数字化转型方案</SelectItem>
+                    <SelectItem value="解决方案">解决方案</SelectItem>
+                    <SelectItem value="咨询服务">咨询服务</SelectItem>
                     <SelectItem value="AI应用">AI应用方案</SelectItem>
                     <SelectItem value="平台建设">平台建设方案</SelectItem>
                   </SelectContent>
@@ -226,12 +222,12 @@ export default function NewProjectPage() {
 
         {currentStep === 1 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">企业调研</h2>
-            <p className="text-sm text-gray-500">提供目标企业的背景资料，帮助AI生成更精准的分析</p>
+            <h2 className="text-lg font-semibold text-on-surface">补充说明</h2>
+            <p className="text-sm text-gray-500">可选的背景资料与参考链接，帮助问答更精准（均非必填）</p>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>企业官网</Label>
+                <Label>参考链接</Label>
                 <Input
                   value={data.step2.companyWebsite}
                   onChange={(e) =>
@@ -253,26 +249,26 @@ export default function NewProjectPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>企业简介</Label>
+              <Label>背景说明</Label>
               <Textarea
                 value={data.step2.companyDescription}
                 onChange={(e) =>
                   setData((prev) => ({ ...prev, step2: { ...prev.step2, companyDescription: e.target.value } }))
                 }
                 rows={4}
-                placeholder="简要描述目标企业的基本情况..."
+                placeholder="补充问题背景、使用场景或已有资料摘要…"
               />
             </div>
 
             <div className="space-y-2">
-              <Label>主要竞争对手</Label>
+              <Label>相关对比对象（可选）</Label>
               <Textarea
                 value={data.step2.competitors}
                 onChange={(e) =>
                   setData((prev) => ({ ...prev, step2: { ...prev.step2, competitors: e.target.value } }))
                 }
                 rows={3}
-                placeholder="列出主要竞争对手，每行一个..."
+                placeholder="列出需要对比的方案、产品或选项，每行一个…"
               />
             </div>
 
@@ -308,7 +304,7 @@ export default function NewProjectPage() {
 
         {currentStep === 2 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">场地与屏幕信息</h2>
+            <h2 className="text-lg font-semibold text-on-surface">场地与屏幕信息</h2>
             <p className="text-sm text-gray-500">
               屏幕参数是 3D 幕墙方案的关键输入，将直接影响策划案与视觉生成的准确性
             </p>
@@ -424,7 +420,7 @@ export default function NewProjectPage() {
 
         {currentStep === 3 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">方案风格</h2>
+            <h2 className="text-lg font-semibold text-on-surface">方案风格</h2>
             <p className="text-sm text-gray-500">定义方案的撰写风格、语言和核心卖点</p>
 
             <div className="grid grid-cols-3 gap-4">
@@ -538,7 +534,7 @@ export default function NewProjectPage() {
 
         {currentStep === 4 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">视觉要求</h2>
+            <h2 className="text-lg font-semibold text-on-surface">视觉要求</h2>
             <p className="text-sm text-gray-500">定义视觉素材的设计规范和生成要求</p>
 
             <div className="grid grid-cols-2 gap-4">
@@ -652,7 +648,7 @@ export default function NewProjectPage() {
 
         {currentStep === 5 && (
           <div className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#1A1A2E]">审核与导出</h2>
+            <h2 className="text-lg font-semibold text-on-surface">审核与导出</h2>
             <p className="text-sm text-gray-500">设置质量审核标准和输出格式</p>
 
             <div className="grid grid-cols-2 gap-4">
@@ -753,12 +749,12 @@ export default function NewProjectPage() {
             </div>
 
             {/* Summary */}
-            <Card className="bg-[#1E3A5F]/5 border-[#1E3A5F]/10 mt-6">
+            <Card className="bg-primary-fixed border-primary-fixed mt-6">
               <CardContent className="p-4">
-                <h3 className="text-sm font-medium text-[#1E3A5F] mb-3">项目创建摘要</h3>
+                <h3 className="text-sm font-medium text-primary mb-3">项目创建摘要</h3>
                 <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                  <div>项目名称：{data.step1.projectName || "未填写"}</div>
-                  <div>客户名称：{data.step1.clientName || "未填写"}</div>
+                  <div>工作区名称：{data.step1.projectName || "未填写"}</div>
+                  <div>主题标签：{data.step1.clientName || "未填写"}</div>
                   <div>所属行业：{data.step1.industry || "未选择"}</div>
                   <div>优先级：{data.step1.priority === "high" ? "高" : data.step1.priority === "medium" ? "中" : "低"}</div>
                   <div>屏幕类型：{data.screen.screenType || "未填写"}</div>

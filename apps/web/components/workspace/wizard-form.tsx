@@ -41,7 +41,7 @@ export function WizardForm({
                     index < currentStep
                       ? "bg-[#10B981] text-white"
                       : index === currentStep
-                      ? "bg-[#1E3A5F] text-white"
+                      ? "bg-primary text-white"
                       : "bg-gray-100 text-gray-400"
                   }`}
                 >
@@ -54,7 +54,7 @@ export function WizardForm({
                 <div className="hidden sm:block">
                   <p
                     className={`text-xs font-medium ${
-                      index <= currentStep ? "text-[#1A1A2E]" : "text-gray-400"
+                      index <= currentStep ? "text-on-surface" : "text-gray-400"
                     }`}
                   >
                     {step.title}
@@ -98,7 +98,7 @@ export function WizardForm({
             <Button
               onClick={onSubmit}
               disabled={isSubmitting}
-              className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-1"
+              className="bg-primary hover:bg-primary gap-1"
             >
               {isSubmitting ? "创建中..." : "创建项目"}
               <Check className="h-4 w-4" />
@@ -106,7 +106,7 @@ export function WizardForm({
           ) : (
             <Button
               onClick={() => onStepChange(currentStep + 1)}
-              className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-1"
+              className="bg-primary hover:bg-primary gap-1"
             >
               下一步
               <ChevronRight className="h-4 w-4" />

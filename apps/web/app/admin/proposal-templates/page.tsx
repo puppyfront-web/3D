@@ -193,7 +193,7 @@ export default function ProposalTemplatesPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-[#1E3A5F]" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -202,7 +202,7 @@ export default function ProposalTemplatesPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#1A1A2E]">方案模板管理</h1>
+          <h1 className="text-xl font-semibold text-on-surface">方案模板管理</h1>
           <p className="text-sm text-gray-500 mt-1">管理方案文档模板和章节结构</p>
         </div>
         <div className="flex items-center gap-2">
@@ -216,7 +216,7 @@ export default function ProposalTemplatesPage() {
             <Download className="h-3.5 w-3.5" />
             导出
           </Button>
-          <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2" onClick={openCreate}>
+          <Button className="bg-primary hover:bg-primary gap-2" onClick={openCreate}>
             <Plus className="h-4 w-4" /> 新建模板
           </Button>
         </div>
@@ -253,8 +253,8 @@ export default function ProposalTemplatesPage() {
                   <TableRow key={tpl.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-[#1E3A5F]" />
-                        <span className="text-sm font-medium text-[#1A1A2E]">{tpl.name}</span>
+                        <FileText className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium text-on-surface">{tpl.name}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -273,7 +273,7 @@ export default function ProposalTemplatesPage() {
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Eye className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(tpl)}><Edit3 className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleCopy(tpl)}><Copy className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]" onClick={() => openDelete(tpl)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-error" onClick={() => openDelete(tpl)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -323,7 +323,7 @@ export default function ProposalTemplatesPage() {
           </div>
           <DialogFooter className="mt-4 gap-2">
             <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
-            <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E]" onClick={handleCreate} disabled={saving || !formName.trim()}>
+            <Button className="bg-primary hover:bg-primary" onClick={handleCreate} disabled={saving || !formName.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 创建模板
             </Button>
           </DialogFooter>
@@ -369,7 +369,7 @@ export default function ProposalTemplatesPage() {
           </div>
           <DialogFooter className="mt-4 gap-2">
             <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
-            <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E]" onClick={handleUpdate} disabled={saving || !formName.trim()}>
+            <Button className="bg-primary hover:bg-primary" onClick={handleUpdate} disabled={saving || !formName.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 保存
             </Button>
           </DialogFooter>

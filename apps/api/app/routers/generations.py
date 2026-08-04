@@ -222,8 +222,8 @@ async def update_section_status(
                 section["reviewed_by"] = body.reviewed_by or "unknown"
                 section["reviewed_at"] = datetime.now(timezone.utc).isoformat()
                 # Approving a HITL-gated section confirms it for export — flips
-                # the export_gate check (routers/exports._check_export_eligibility)
-                # from blocked to allowed for this section.
+                # the export gate (app.services.export_gate_service) from blocked
+                # to allowed for this section.
                 section["human_confirmed"] = True
             else:
                 section["reviewed_by"] = None
@@ -234,5 +234,53 @@ async def update_section_status(
     output.sections_meta = sections_meta
     flag_modified(output, "sections_meta")
     await db.flush()
+    await _maybe_advance_to_pending_review(db, output)
     await db.refresh(output)
     return Response(data=GenerationOutputOut.model_validate(output), message="Section status updated")
+
+
+async def _maybe_advance_to_pending_review(
+    db: AsyncSession, output: GenerationOutput
+) -> None:
+    """Roll section statuses up to the project lifecycle.
+
+    PRESALE_DELIVERY_SPEC §4.2 / F5 — once every section is ``approved`` and
+    every HITL-gated section has ``human_confirmed=True``, the project moves
+    from ``proposal_generated`` to ``pending_review`` so the workspace status
+    chip signals "ready to export". Soft-fail: any error only logs (the section
+    PATCH itself already succeeded; we must not surface a 500 over a status
+    flip). Never overwrites ``exported`` (a later lifecycle state).
+    """
+    import logging
+
+    meta = output.sections_meta or []
+    if not meta:
+        return
+    try:
+        if not all(s.get("status") == "approved" for s in meta):
+            return
+        if not all(
+            (not s.get("require_human_review")) or s.get("human_confirmed")
+            for s in meta
+        ):
+            return
+        task = await db.get(GenerationTask, output.task_id)
+        if task is None:
+            return
+        project = await db.get(Project, task.project_id)
+        if project is None:
+            return
+        if project.status == "exported":
+            # A later lifecycle state — don't regress it.
+            return
+        project.status = "pending_review"
+        # Flush so the PATCH endpoint's subsequent `db.refresh(output)` (and
+        # any caller that re-reads the project) sees the flipped status — the
+        # change lives in this session's pending state until commit, but
+        # refresh would otherwise re-read the stale committed value.
+        await db.flush()
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "generations: pending_review roll-up failed for output %s; continuing",
+            output.id,
+        )

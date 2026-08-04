@@ -1,95 +1,15 @@
-"""Integration tests for SOP pipeline flow."""
+"""Tests for the (ReAct-first) intent detector.
+
+The legacy SOP-pipeline executor (``pipeline_state``, ``execution_plan``,
+``plan_executor``) was removed when the canvas + ReAct architecture took over
+the orchestration that those modules used to drive. The ``TestBuildStepInput``
+and ``TestPipelineState`` classes that exercised them were removed with it;
+what remains here covers ``IntentDetector`` itself, which is still in use as
+the fast-path / LLM-fallback router in front of the canvas orchestrator.
+"""
 
 import pytest
-from app.services.pipeline_state import PipelineState, STAGE_ORDER, PAUSE_STAGES
 from app.services.intent_service import IntentDetector
-from app.services.execution_plan import ExecutionPlan, PlanStep
-
-
-class TestBuildStepInput:
-    """_build_step_input must thread project_id from plan.context into the
-    proposal_generation / visual_prompt inputs so they run in DB mode (read
-    screen_info, write sections_meta, update project.status)."""
-
-    def test_proposal_generation_gets_project_id(self):
-        from app.services.plan_executor import _build_step_input
-
-        plan = ExecutionPlan(domain="curtain_wall", context={"project_id": "proj-123", "user_message": "hi"})
-        step = PlanStep(skill_id="proposal_generation")
-        data = _build_step_input(step, plan)
-        assert data["project_id"] == "proj-123"
-        assert data["requirement_text"] == "hi"
-
-    def test_visual_prompt_gets_project_id(self):
-        from app.services.plan_executor import _build_step_input
-
-        plan = ExecutionPlan(domain="curtain_wall", context={"project_id": "proj-456"})
-        step = PlanStep(skill_id="visual_prompt")
-        data = _build_step_input(step, plan)
-        assert data["project_id"] == "proj-456"
-
-    def test_no_project_id_when_absent(self):
-        from app.services.plan_executor import _build_step_input
-
-        plan = ExecutionPlan(domain="curtain_wall", context={"user_message": "hi"})
-        step = PlanStep(skill_id="proposal_generation")
-        data = _build_step_input(step, plan)
-        assert "project_id" not in data
-
-
-class TestPipelineState:
-    def test_initial_state(self):
-        state = PipelineState()
-        assert state.status == "running"
-        assert state.current_stage == "company_analysis"
-        assert state.completed_stages == []
-
-    def test_advance(self):
-        state = PipelineState()
-        nxt = state.advance()
-        assert nxt == "proposal_generation"
-        assert "company_analysis" in state.completed_stages
-        assert state.status == "running"
-
-    def test_advance_to_completion(self):
-        state = PipelineState()
-        state.advance()  # → proposal
-        state.advance()  # → visual
-        state.advance()  # → export
-        nxt = state.advance()  # → None (completed)
-        assert nxt is None
-        assert state.status == "completed"
-
-    def test_pause(self):
-        state = PipelineState()
-        state.pause()
-        assert state.status == "paused"
-
-    def test_reset(self):
-        state = PipelineState()
-        state.advance()
-        state.advance()
-        state.reset()
-        assert state.current_stage == "company_analysis"
-        assert state.completed_stages == []
-        assert state.status == "running"
-
-    def test_serialization_roundtrip(self):
-        state = PipelineState()
-        state.project_context = {"company_name": "华为"}
-        state.stage_outputs["company_analysis"] = {"summary": "test"}
-        d = state.to_dict()
-        restored = PipelineState.from_dict(d)
-        assert restored.project_context["company_name"] == "华为"
-        assert restored.stage_outputs["company_analysis"]["summary"] == "test"
-        assert restored.status == state.status
-        assert restored.current_stage == state.current_stage
-
-    def test_pause_stages(self):
-        assert "company_analysis" in PAUSE_STAGES
-        assert "proposal_generation" in PAUSE_STAGES
-        assert "visual_generation" in PAUSE_STAGES
-        assert "export" not in PAUSE_STAGES
 
 
 class TestIntentDetection:

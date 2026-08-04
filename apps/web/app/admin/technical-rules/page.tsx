@@ -19,6 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
+  DialogClose,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,9 +46,9 @@ import { FileUploadButton } from "@/components/admin/file-upload-button";
 import type { TechnicalRule, ImportMode } from "@/types";
 
 const severityColor = {
-  critical: "text-[#EF4444] bg-red-50 border-red-200",
-  warning: "text-[#F59E0B] bg-amber-50 border-amber-200",
-  info: "text-[#3B82F6] bg-blue-50 border-blue-200",
+  critical: "text-error bg-red-50 border-red-200",
+  warning: "text-[#e8740b] bg-amber-50 border-amber-200",
+  info: "text-primary bg-blue-50 border-blue-200",
 };
 
 const severityLabel = {
@@ -60,6 +62,9 @@ export default function TechnicalRulesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selected, setSelected] = useState<TechnicalRule | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Form state
@@ -116,9 +121,9 @@ export default function TechnicalRulesPage() {
       category: formCategory,
       severity: formSeverity,
       description: formDescription,
-      rule: formRule,
+      ruleText: formRule,
       isActive: true,
-    });
+    } as Partial<TechnicalRule> & { ruleText: string });
     setSubmitting(false);
     if (res.success) {
       setDialogOpen(false);
@@ -134,10 +139,57 @@ export default function TechnicalRulesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const res = await deleteTechnicalRule(id);
-    if (res.success) {
-      fetchRules();
+  const openEdit = (rule: TechnicalRule) => {
+    setSelected(rule);
+    setFormName(rule.name);
+    setFormCategory(rule.category || "");
+    setFormSeverity(rule.severity);
+    setFormDescription(rule.description || "");
+    setFormRule(rule.rule || "");
+    setEditOpen(true);
+  };
+
+  const openDelete = (rule: TechnicalRule) => {
+    setSelected(rule);
+    setDeleteOpen(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!selected || !formName.trim()) return;
+    setSubmitting(true);
+    try {
+      // Backend TechnicalRuleUpdate uses camelCase ruleText; frontend type models it as rule.
+      const res = await updateTechnicalRule(selected.id, {
+        name: formName,
+        category: formCategory,
+        description: formDescription,
+        ruleText: formRule,
+        severity: formSeverity,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      if (res.success) {
+        setEditOpen(false);
+        setSelected(null);
+        resetForm();
+        fetchRules();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selected) return;
+    setSubmitting(true);
+    try {
+      const res = await deleteTechnicalRule(selected.id);
+      if (res.success) {
+        setDeleteOpen(false);
+        setSelected(null);
+        fetchRules();
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -151,7 +203,7 @@ export default function TechnicalRulesPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#1A1A2E]">技术规则配置</h1>
+          <h1 className="text-xl font-semibold text-on-surface">技术规则配置</h1>
           <p className="text-sm text-gray-500 mt-1">配置技术方案生成的约束规则和检查标准</p>
         </div>
         <div className="flex items-center gap-2">
@@ -167,7 +219,7 @@ export default function TechnicalRulesPage() {
           </Button>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
-              <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
+              <Button className="bg-primary hover:bg-primary gap-2">
                 <Plus className="h-4 w-4" /> 新建规则
               </Button>
             </DialogTrigger>
@@ -215,7 +267,7 @@ export default function TechnicalRulesPage() {
                 <Label>规则表达式</Label>
                 <Input placeholder="例如：model.faceCount <= 5000000" className="font-mono text-sm" value={formRule} onChange={(e) => setFormRule(e.target.value)} />
               </div>
-              <Button className="w-full bg-[#1E3A5F] hover:bg-[#2D5A8E]" onClick={handleCreate} disabled={submitting}>
+              <Button className="w-full bg-primary hover:bg-primary" onClick={handleCreate} disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 创建规则
               </Button>
@@ -236,7 +288,7 @@ export default function TechnicalRulesPage() {
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-[#1E3A5F]" />
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
               <span className="ml-2 text-sm text-gray-500">加载中...</span>
             </div>
           ) : (
@@ -256,8 +308,8 @@ export default function TechnicalRulesPage() {
                   <TableRow key={rule.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Cpu className="h-4 w-4 text-[#1E3A5F]" />
-                        <span className="text-sm font-medium text-[#1A1A2E]">{rule.name}</span>
+                        <Cpu className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium text-on-surface">{rule.name}</span>
                       </div>
                     </TableCell>
                     <TableCell><Badge variant="secondary" className="text-xs">{rule.category}</Badge></TableCell>
@@ -268,7 +320,7 @@ export default function TechnicalRulesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className={`text-xs ${rule.isActive ? "bg-green-50 text-[#10B981]" : "bg-gray-100 text-gray-500"}`}>
+                      <Badge className={`text-xs ${rule.isActive ? "bg-green-50 text-[#00875a]" : "bg-gray-100 text-gray-500"}`}>
                         {rule.isActive ? "启用" : "停用"}
                       </Badge>
                     </TableCell>
@@ -276,10 +328,10 @@ export default function TechnicalRulesPage() {
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleExportOne(rule)}><Download className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleToggle(rule)}>
-                          {rule.isActive ? <ToggleRight className="h-4 w-4 text-[#10B981]" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                          {rule.isActive ? <ToggleRight className="h-4 w-4 text-[#00875a]" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Edit3 className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]" onClick={() => handleDelete(rule.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(rule)}><Edit3 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-error" onClick={() => openDelete(rule)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -289,6 +341,80 @@ export default function TechnicalRulesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) { resetForm(); setSelected(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑技术规则</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>规则名称</Label>
+                <Input value={formName} onChange={(e) => setFormName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>分类</Label>
+                <Select value={formCategory} onValueChange={setFormCategory}>
+                  <SelectTrigger><SelectValue placeholder="选择分类" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3D渲染">3D渲染</SelectItem>
+                    <SelectItem value="性能">性能</SelectItem>
+                    <SelectItem value="兼容性">兼容性</SelectItem>
+                    <SelectItem value="安全">安全</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>严重程度</Label>
+                <Select value={formSeverity} onValueChange={(v) => setFormSeverity(v as "critical" | "warning" | "info")}>
+                  <SelectTrigger><SelectValue placeholder="选择严重程度" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="critical">严重</SelectItem>
+                    <SelectItem value="warning">警告</SelectItem>
+                    <SelectItem value="info">提示</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>规则描述</Label>
+              <Textarea rows={3} value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>规则表达式</Label>
+              <Textarea rows={3} className="font-mono text-sm" value={formRule} onChange={(e) => setFormRule(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button className="bg-primary hover:bg-primary" onClick={handleUpdate} disabled={submitting || !formName.trim()}>
+              {submitting && <Loader2 className="h-4 w-4 animate-spin mr-1" />} 保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            确定要删除规则「{selected?.name}」吗？此操作不可撤销。
+          </p>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button variant="destructive" onClick={handleDelete} disabled={submitting}>
+              {submitting && <Loader2 className="h-4 w-4 animate-spin mr-1" />} 删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

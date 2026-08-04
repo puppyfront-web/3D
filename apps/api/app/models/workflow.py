@@ -22,6 +22,9 @@ class SOPWorkflow(Base):
     steps: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
     pipeline_stages: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, comment="Pipeline 阶段定义")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    bound_agent: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    version_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

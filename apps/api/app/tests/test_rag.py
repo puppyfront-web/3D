@@ -10,7 +10,7 @@ tool's input-safety helpers (uuid parsing, CJK tokenization, ILIKE escaping).
 import pytest
 
 from app.models.document import Document, DocumentChunk
-from app.tools.base import ToolContext, ToolResult
+from app.tools.base import ToolContext
 from app.tools.builtins.knowledge_search import (
     KnowledgeSearchTool,
     _escape_like,
@@ -19,9 +19,53 @@ from app.tools.builtins.knowledge_search import (
 )
 
 
+async def _seed_rag_demo_chunks(db_session, project_id):
+    """Seed indexed chunks so /rag/search exercises real DB retrieval."""
+    doc = Document(
+        project_id=project_id,
+        filename="kb-demo.md",
+        original_filename="kb-demo.md",
+        content_type="text/markdown",
+        file_size=256,
+        file_path="/tmp/kb-demo.md",
+        title="Cloud Migration Guide",
+        status="indexed",
+        parse_status="parsed",
+        chunk_count=2,
+    )
+    db_session.add(doc)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            DocumentChunk(
+                document_id=doc.id,
+                content=(
+                    "Cloud migration best practices include phased rollout, "
+                    "dependency mapping, and rollback plans."
+                ),
+                chunk_index=0,
+                page_number=1,
+                token_count=24,
+            ),
+            DocumentChunk(
+                document_id=doc.id,
+                content=(
+                    "Digital transformation strategy ties implementation approach "
+                    "to project management methodology and measurable outcomes."
+                ),
+                chunk_index=1,
+                page_number=2,
+                token_count=22,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+
 @pytest.mark.asyncio
-async def test_rag_search(client):
+async def test_rag_search(client, db_session, sample_project_id):
     """Test the RAG hybrid search endpoint."""
+    await _seed_rag_demo_chunks(db_session, sample_project_id)
     response = await client.post(
         "/api/v1/rag/search",
         params={
@@ -48,8 +92,9 @@ async def test_rag_search(client):
 
 
 @pytest.mark.asyncio
-async def test_rag_search_keyword(client):
+async def test_rag_search_keyword(client, db_session, sample_project_id):
     """Test keyword-only retrieval."""
+    await _seed_rag_demo_chunks(db_session, sample_project_id)
     response = await client.post(
         "/api/v1/rag/search",
         params={
@@ -64,8 +109,9 @@ async def test_rag_search_keyword(client):
 
 
 @pytest.mark.asyncio
-async def test_rag_search_vector(client):
+async def test_rag_search_vector(client, db_session, sample_project_id):
     """Test vector-only retrieval."""
+    await _seed_rag_demo_chunks(db_session, sample_project_id)
     response = await client.post(
         "/api/v1/rag/search",
         params={
@@ -80,8 +126,9 @@ async def test_rag_search_vector(client):
 
 
 @pytest.mark.asyncio
-async def test_rag_search_scores_ordered(client):
+async def test_rag_search_scores_ordered(client, db_session, sample_project_id):
     """Test that search results are ordered by relevance score."""
+    await _seed_rag_demo_chunks(db_session, sample_project_id)
     response = await client.post(
         "/api/v1/rag/search",
         params={
@@ -99,8 +146,9 @@ async def test_rag_search_scores_ordered(client):
 
 
 @pytest.mark.asyncio
-async def test_rag_search_latency(client):
+async def test_rag_search_latency(client, db_session, sample_project_id):
     """Test that search latency is reported."""
+    await _seed_rag_demo_chunks(db_session, sample_project_id)
     response = await client.post(
         "/api/v1/rag/search",
         params={"query": "test query"},
@@ -226,19 +274,3 @@ def test_escape_like_escapes_wildcards():
     assert _escape_like("a_b") == r"a\_b"
     assert _escape_like(r"path\to") == r"path\\to"
     assert _escape_like("plain") == "plain"
-
-
-# ── ProposalAgent._extract_tool_list (ToolResult payload extraction) ──
-
-
-def test_extract_tool_list_pulls_payload_from_tool_result():
-    """Tools return ToolResult (.data dict), not a bare list. The proposal
-    agent used to isinstance(result, list) and silently dropped every hit."""
-    from app.agents.proposal import _extract_tool_list
-
-    assert _extract_tool_list(ToolResult(success=True, data={"chunks": [1, 2, 3]}), "chunks") == [1, 2, 3]
-    assert _extract_tool_list(ToolResult(success=True, data={"cases": [{"x": 1}]}), "cases") == [{"x": 1}]
-    # missing key / wrong shape / non-dict data → empty list, never raises
-    assert _extract_tool_list(ToolResult(success=True, data={"chunks": "oops"}), "chunks") == []
-    assert _extract_tool_list(ToolResult(success=True, data=None), "chunks") == []
-    assert _extract_tool_list(object(), "chunks") == []

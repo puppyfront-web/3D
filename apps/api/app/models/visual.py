@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, DateTime, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -30,6 +30,11 @@ class VisualStyle(Base):
     # Design specification fields
     material_spec: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="材质规范参数")
     lighting_spec: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="灯光规范参数")
+    # Classification + lifecycle
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # UI 视觉资料子库区分: ui_spec / large_screen / 3d_ref / motion_ref (NULL = 颜色预设)
+    sub_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

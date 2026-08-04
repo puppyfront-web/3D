@@ -71,11 +71,21 @@ class MockLLMService(LLMService):
         max_tokens: int = 2000,
     ) -> str:
         """Return a mock text completion based on prompt keywords."""
+        # Canvas orchestrator / any caller that pins the contract with
+        # 「请严格返回 JSON」 expects a parseable JSON object. Detect the node
+        # keys the prompt enumerates and emit a {node_key: [...]} stub so the
+        # fill_canvas extract/planning passes produce non-empty `planning`
+        # content under MockLLM (otherwise the whole canvas falls back to
+        # pending_review and the auto-fill E2E becomes a no-op). Match
+        # case-insensitively — prompts use 「JSON」 (uppercase).
+        if "请严格返回 json" in prompt.lower():
+            return self._mock_node_json(prompt)
+
         prompt_lower = prompt.lower()
 
         if "company" in prompt_lower and "analysis" in prompt_lower:
             return self._mock_company_analysis(prompt)
-        elif "proposal" in prompt_lower:
+        elif "proposal" in prompt_lower or "需求理解" in prompt:
             return self._mock_proposal(prompt)
         elif "visual" in prompt_lower or "design" in prompt_lower:
             return self._mock_visual_prompt(prompt)
@@ -240,6 +250,45 @@ The company holds a solid mid-market position with approximately 15-20% market s
 
     @staticmethod
     def _mock_proposal(prompt: str) -> str:
+        # PRESALE_DELIVERY_SPEC §6.3 structured Brief: when the prompt asks for
+        # the canonical 10-section proposal (检测「需求理解」章节名), return a
+        # numbered-headers markdown so _parse_sections_meta produces real
+        # sections_meta — without this the auto-fill Brief has empty
+        # sections_meta and the章节审核 / 导出门控 E2E cannot exercise the
+        # require_human_review path (Task 4 export gate tests would skip).
+        if "需求理解" in prompt:
+            return """# 售前方案（Mock）
+
+## 1. 需求理解
+（Mock）综合六看框架，客户希望基于裸眼3D幕墙实现品牌发布。
+
+## 2. 企业解析摘要
+（Mock）企业为核心行业玩家，技术与品牌力具备落地基础。
+
+## 3. 项目背景
+（Mock）宏观政策、中观行业、微观定位三层递进。
+
+## 4. 项目目标
+（Mock）至少 3 条可衡量目标（待客户确认具体指标）。
+
+## 5. 创意主题
+（Mock）2-3 个方向，结合品牌基因与差异化。
+
+## 6. 方案亮点
+（Mock）差异化卖点 + 视觉冲击。
+
+## 7. 视觉方向
+（Mock）色彩、风格、动效参考。
+
+## 8. 参考案例
+（Mock）引用案例库中的真实案例。
+
+## 9. 实施建议
+（Mock）预算与工期需人工确认：预算区间待客户反馈，工期约 6-8 周。
+
+## 10. 风险与待确认事项
+（Mock）报价、工期、屏幕参数需进一步确认。"""
+
         return """# Project Proposal
 
 ## Executive Summary
@@ -263,6 +312,58 @@ Total project investment: $700K - $1.2M over 6-8 months
 
 ## Next Steps
 We recommend scheduling a detailed discovery session to finalize scope and priorities."""
+
+    @staticmethod
+    def _mock_node_json(prompt: str) -> str:
+        """Stub for canvas-orchestrator extract/planning passes.
+
+        Those prompts ask the model to return ``{"<node_key>": [...]}`` for
+        every node enumerated in the prompt. We extract the node_key list from
+        the embedded JSON spec (``[{"node_key": "...", "title": "..."}]``) and
+        emit one mock bullet per node so the orchestrator's planning pass has
+        real content to write — without that, the auto-fill pipeline produces
+        an all-empty canvas and the E2E assertions in
+        ``test_presale_main_flow`` cannot exercise the visible-blocks path.
+
+        Returns a JSON string (no code fences) matching the prompt contract.
+        """
+        import json as _json
+        import re as _re
+
+        # Find the node-spec list — the prompt embeds it as JSON. Take the
+        # longest bracketed segment we can parse as a list of dicts.
+        candidates = _re.findall(r"\[.*?\]", prompt, flags=_re.DOTALL)
+        node_keys: list[str] = []
+        for seg in sorted(candidates, key=len, reverse=True):
+            try:
+                parsed = _json.loads(seg)
+            except _json.JSONDecodeError:
+                continue
+            if isinstance(parsed, list) and all(isinstance(x, dict) for x in parsed):
+                node_keys = [
+                    str(x.get("node_key") or x.get("title") or "")
+                    for x in parsed
+                    if isinstance(x, dict)
+                ]
+                node_keys = [k for k in node_keys if k]
+                if node_keys:
+                    break
+
+        if not node_keys:
+            # Fallback: a single generic key so callers still see non-empty
+            # JSON rather than a parse error.
+            return '{"company_profile": ["（Mock）企业简介要点"]}'
+
+        # Distinguish extract vs planning by a marker in the prompt — planning
+        # prompts contain 「撰写文案」/「售前文案」, extract prompts contain
+        # 「抽取」/「客观事实」. Copy reads slightly differently but the shape
+        # is identical, which is all the orchestrator parses.
+        is_planning = any(
+            kw in prompt for kw in ("撰写文案", "售前文案", "策划专家")
+        )
+        label = "售前文案" if is_planning else "客观事实"
+        payload = {k: [f"（Mock {label}）{k} 示例要点"] for k in node_keys}
+        return _json.dumps(payload, ensure_ascii=False)
 
     @staticmethod
     def _mock_visual_prompt(prompt: str) -> str:
@@ -310,8 +411,15 @@ We recommend scheduling a detailed discovery session to finalize scope and prior
 async def get_llm_service(db=None) -> LLMService:
     """Factory function to create the appropriate LLM service.
 
-    If db session is provided, reads config from database (priority) then .env fallback.
-    If no db session, falls back to .env only (backward compatible).
+    Reads config from the database when a session is supplied (priority), else
+    from .env. Only ``openai`` / ``custom`` providers are supported — every
+    other value (including the legacy ``mock``) RAISES instead of silently
+    falling back to MockLLMService. A silent mock fallback served fabricated
+    content in production and hid misconfiguration; failing loudly forces the
+    operator to configure a real provider in the admin settings UI.
+
+    MockLLMService is kept as a class for tests to inject explicitly via
+    monkeypatch; production code must never reach it through this factory.
     """
     if db is not None:
         from app.services.settings_service import SettingsService
@@ -319,28 +427,34 @@ async def get_llm_service(db=None) -> LLMService:
             "llm_provider", "llm_api_key", "llm_base_url", "llm_model",
         ])
         provider = cfg["llm_provider"]
+        api_key = cfg["llm_api_key"]
+        base_url = cfg["llm_base_url"]
+        model = cfg["llm_model"]
     else:
         provider = settings.llm_provider
+        api_key = settings.llm_api_key
+        base_url = settings.llm_base_url
+        model = settings.llm_model
 
     if provider in ("openai", "custom"):
+        if not api_key:
+            raise RuntimeError(
+                "LLM provider is set to 'openai'/'custom' but llm_api_key is empty. "
+                "Configure it in Admin → 系统设置 before invoking AI features."
+            )
         # Hard-fail if the OpenAI package is missing rather than silently
-        # downgrading to the mock — a silent downgrade hides a broken install
-        # and serves fake LLM output in production. Set provider to a non-openai
-        # value explicitly to get MockLLMService.
+        # downgrading — a missing dependency must surface, not serve fake output.
         from app.services.llm.openai_provider import OpenAILLMService
-
-        if db is not None:
-            api_key = cfg["llm_api_key"]
-            base_url = cfg["llm_base_url"]
-            model = cfg["llm_model"]
-        else:
-            api_key = settings.llm_api_key
-            base_url = settings.llm_base_url
-            model = settings.llm_model
-
         return OpenAILLMService(
             api_key=api_key,
             base_url=base_url or None,
             model=model,
         )
-    return MockLLMService()
+
+    # No mock fallback: an unconfigured/unsupported provider fails loudly.
+    raise RuntimeError(
+        f"LLM provider '{provider or '(empty)'}' is not configured. "
+        "Set llm_provider to 'openai' or 'custom' and provide llm_api_key in "
+        "Admin → 系统设置. Mock mode was removed — a missing provider now "
+        "fails instead of serving fabricated content."
+    )

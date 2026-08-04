@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from app.schemas.common import APIBaseModel
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 
 # ─── Content Blocks ──────────────────────────────────────────────
@@ -30,7 +30,12 @@ class RichContent(APIBaseModel):
 class MessageCreate(APIBaseModel):
     """Request body for sending a message."""
 
-    content: str = Field(..., min_length=1, max_length=10000)
+    content: str = Field(
+        ...,
+        min_length=1,
+        max_length=10000,
+        validation_alias=AliasChoices("content", "message"),
+    )
     content_type: str = Field(default="text")
 
 
@@ -39,6 +44,7 @@ class MessageOut(APIBaseModel):
 
     id: str
     conversation_id: str
+    thread_id: Optional[str] = None
     role: str
     content: str
     content_type: str = "text"
@@ -80,6 +86,7 @@ class ConversationOut(APIBaseModel):
 class ConversationDetail(ConversationOut):
     """Full conversation with all messages."""
 
+    thread_id: Optional[str] = None
     messages: List[MessageOut] = Field(default_factory=list)
 
 
@@ -91,7 +98,18 @@ class ChatRequest(APIBaseModel):
 
     message: str = Field(..., min_length=1, max_length=10000)
     conversation_id: Optional[str] = None
+    thread_id: Optional[str] = None
     project_id: Optional[str] = None
+    # When set, the message is scoped to a single canvas node: the assistant
+    # routes through the node-edit handler and constrains its reply to that
+    # node (used by the canvas left-rail node-scoped conversation).
+    node_id: Optional[str] = None
+    # Force a specific intent, bypassing the ReAct intent classifier (Defect
+    # #15: previously the client had no way to override intent detection).
+    # Valid values: run_skill | sop_pipeline | visual_concept | conversational.
+    force_intent: Optional[str] = None
+    # When force_intent="run_skill", specifies which skill to run.
+    force_skill_id: Optional[str] = None
 
 
 class StreamChunk(APIBaseModel):
@@ -112,3 +130,9 @@ class ActionRequest(APIBaseModel):
     skill_id: Optional[str] = None
     form_data: Optional[Dict[str, Any]] = None
     target_message_id: Optional[str] = None
+
+
+class ClearConversationRequest(APIBaseModel):
+    """Clear all messages in a scoped thread."""
+
+    thread_id: str = Field(..., description="Thread whose messages should be removed")

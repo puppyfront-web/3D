@@ -39,6 +39,9 @@ class CaseBase(APIBaseModel):
     team_size: Optional[int] = None
     budget_range: Optional[str] = Field(None, max_length=100)
     tags: Optional[str] = None
+    project_type: Optional[str] = Field(None, max_length=100)
+    style_tag: Optional[str] = Field(None, max_length=100)
+    is_desensitized: bool = False
     reference_images: Optional[List[ReferenceImage]] = None
 
 
@@ -61,6 +64,9 @@ class CaseUpdate(APIBaseModel):
     quality_score: Optional[float] = None
     is_published: Optional[bool] = None
     tags: Optional[str] = None
+    project_type: Optional[str] = Field(None, max_length=100)
+    style_tag: Optional[str] = Field(None, max_length=100)
+    is_desensitized: Optional[bool] = None
     reference_images: Optional[List[ReferenceImage]] = None
 
 
@@ -69,6 +75,8 @@ class CaseOut(CaseBase):
     project_id: uuid.UUID
     quality_score: Optional[float] = None
     is_published: bool
+    is_desensitized: bool = False
+    original_client_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

@@ -103,17 +103,32 @@ async def get_embedding_service(db=None) -> EmbeddingService:
             model = settings.embedding_model
             dimensions = settings.embedding_dimensions
 
-        # The document_chunks.embedding column is fixed at Vector(1536) (model
-        # + migration 001). A mismatched model dimension silently breaks vector
-        # indexing/search — warn loudly so the admin catches it (fix = pick a
-        # 1536-dim model or reindex the column).
-        if dimensions != 1536:
-            logger.warning(
+        # ── Dimension-mismatch guard ───────────────────────────────────────
+        # WHY: the document_chunks.embedding column is fixed at Vector(1536) by
+        # the ORM model definition (models/document.py) + Alembic migration 001.
+        # That dimension is baked into the schema at class-definition time and
+        # CANNOT be changed at runtime without a migration. So if an admin picks
+        # a model whose dimension != 1536 (e.g. bge-m3 → 768), every embedding
+        # written would silently violate the column constraint and vector
+        # indexing/search would break with cryptic pgvector errors — or worse,
+        # silently store nothing.
+        #
+        # Rather than serve broken vectors, degrade to MockEmbeddingService so
+        # retrieval falls back to keyword search (no embeddings) instead of
+        # producing dimension-mismatched vectors that can't be stored/searched.
+        # The fix for the admin is to pick a 1536-dim model, or add a migration
+        # that reindexes the column at the new dimension.
+        if dimensions != EMBEDDING_DIMENSION:
+            logger.error(
                 "embedding_dimensions=%s but document_chunks.embedding is "
-                "Vector(1536); vector indexing/search will fail until aligned "
-                "(change the embedding model or reindex the column).",
-                dimensions,
+                "Vector(%s); a dimension-mismatched model cannot store/search "
+                "vectors. Degrading embedding service to MockEmbeddingService "
+                "(retrieval falls back to keyword search). Fix: configure a "
+                "%s-dim embedding model, or add a migration to reindex the "
+                "column at the new dimension.",
+                dimensions, EMBEDDING_DIMENSION, EMBEDDING_DIMENSION,
             )
+            return MockEmbeddingService()
 
         return OpenAIEmbeddingService(
             api_key=api_key,

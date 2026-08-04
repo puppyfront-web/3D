@@ -5,9 +5,18 @@
  */
 
 import type { ApiResponse } from "@/types";
+import { getToken } from "@/lib/auth";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+/** Build auth headers for fetch calls. */
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = getToken();
+  const h: Record<string, string> = { ...(extra || {}) };
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  return h;
+}
 
 // ─── Version Tree ────────────────────────────────────────────────
 
@@ -15,7 +24,8 @@ export async function getVersionTree(
   conversationId: string
 ): Promise<ApiResponse<Record<string, unknown>>> {
   const res = await fetch(
-    `${API_BASE_URL}/api/v1/conversations/${conversationId}/version-tree`
+    `${API_BASE_URL}/api/v1/conversations/${conversationId}/version-tree`,
+    { headers: authHeaders() }
   );
   if (!res.ok)
     throw new Error(`Failed to fetch version tree: ${res.status}`);
@@ -29,7 +39,8 @@ export async function getArtifact(
   nodeId: string
 ): Promise<ApiResponse<Record<string, unknown>>> {
   const res = await fetch(
-    `${API_BASE_URL}/api/v1/conversations/${conversationId}/artifacts/${nodeId}`
+    `${API_BASE_URL}/api/v1/conversations/${conversationId}/artifacts/${nodeId}`,
+    { headers: authHeaders() }
   );
   if (!res.ok)
     throw new Error(`Failed to fetch artifact: ${res.status}`);
@@ -43,7 +54,8 @@ export async function compareArtifacts(
 ): Promise<ApiResponse<Record<string, unknown>>> {
   const params = new URLSearchParams({ node_a: nodeA, node_b: nodeB });
   const res = await fetch(
-    `${API_BASE_URL}/api/v1/conversations/${conversationId}/artifacts/compare?${params.toString()}`
+    `${API_BASE_URL}/api/v1/conversations/${conversationId}/artifacts/compare?${params.toString()}`,
+    { headers: authHeaders() }
   );
   if (!res.ok)
     throw new Error(`Failed to compare artifacts: ${res.status}`);
@@ -61,7 +73,7 @@ export async function executeVisualConceptAction(
     `${API_BASE_URL}/api/v1/conversations/${conversationId}/visual-concept-actions`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         action,
         form_data: formData,

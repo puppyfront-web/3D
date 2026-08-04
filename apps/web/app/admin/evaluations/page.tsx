@@ -13,14 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, ClipboardCheck, TrendingUp, BarChart3, Loader2 } from "lucide-react";
+import { Eye, ClipboardCheck, TrendingUp, BarChart3, Loader2, X } from "lucide-react";
 import { getEvaluations } from "@/lib/api";
 import type { Evaluation } from "@/types";
 
 const statusColor = {
-  completed: "text-[#10B981] bg-green-50",
-  pending: "text-[#F59E0B] bg-amber-50",
-  disputed: "text-[#EF4444] bg-red-50",
+  completed: "text-[#00875a] bg-green-50",
+  pending: "text-[#e8740b] bg-amber-50",
+  disputed: "text-error bg-red-50",
 };
 
 const statusLabel = {
@@ -53,7 +53,7 @@ export default function EvaluationsPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#1A1A2E]">评估记录</h1>
+          <h1 className="text-xl font-semibold text-on-surface">评估记录</h1>
           <p className="text-sm text-gray-500 mt-1">查看方案质量评估历史和详细报告</p>
         </div>
       </div>
@@ -62,23 +62,23 @@ export default function EvaluationsPage() {
       <div className="grid grid-cols-3 gap-4 mb-6">
         <Card className="border-gray-200">
           <CardContent className="p-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg bg-[#1E3A5F]/5 flex items-center justify-center">
-              <ClipboardCheck className="h-5 w-5 text-[#1E3A5F]" />
+            <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
+              <ClipboardCheck className="h-5 w-5 text-primary" />
             </div>
             <div>
               <p className="text-xs text-gray-500">总评估数</p>
-              <p className="text-xl font-bold text-[#1E3A5F]">{evaluations.length}</p>
+              <p className="text-xl font-bold text-primary">{evaluations.length}</p>
             </div>
           </CardContent>
         </Card>
         <Card className="border-gray-200">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
-              <TrendingUp className="h-5 w-5 text-[#10B981]" />
+              <TrendingUp className="h-5 w-5 text-[#00875a]" />
             </div>
             <div>
               <p className="text-xs text-gray-500">平均分</p>
-              <p className="text-xl font-bold text-[#10B981]">
+              <p className="text-xl font-bold text-[#00875a]">
                 {evaluations.length > 0
                   ? Math.round(evaluations.reduce((acc, e) => acc + e.overallScore, 0) / evaluations.length)
                   : 0}
@@ -89,11 +89,11 @@ export default function EvaluationsPage() {
         <Card className="border-gray-200">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
-              <BarChart3 className="h-5 w-5 text-[#F59E0B]" />
+              <BarChart3 className="h-5 w-5 text-[#e8740b]" />
             </div>
             <div>
               <p className="text-xs text-gray-500">已完成</p>
-              <p className="text-xl font-bold text-[#F59E0B]">
+              <p className="text-xl font-bold text-[#e8740b]">
                 {evaluations.filter((e) => e.status === "completed").length}
               </p>
             </div>
@@ -107,7 +107,7 @@ export default function EvaluationsPage() {
           <CardContent className="p-0">
             {loading ? (
               <div className="flex items-center justify-center py-16">
-                <Loader2 className="h-6 w-6 animate-spin text-[#1E3A5F]" />
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 <span className="ml-2 text-sm text-gray-500">加载中...</span>
               </div>
             ) : evaluations.length === 0 ? (
@@ -129,11 +129,11 @@ export default function EvaluationsPage() {
                 </TableHeader>
                 <TableBody>
                   {evaluations.map((evalItem) => (
-                    <TableRow key={evalItem.id} className={selectedEval === evalItem.id ? "bg-[#1E3A5F]/5" : ""}>
-                      <TableCell className="text-sm font-medium text-[#1A1A2E]">{evalItem.projectName}</TableCell>
+                    <TableRow key={evalItem.id} className={selectedEval === evalItem.id ? "bg-primary/5" : ""}>
+                      <TableCell className="text-sm font-medium text-on-surface">{evalItem.projectName}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <span className={`text-sm font-bold ${evalItem.overallScore >= 80 ? "text-[#10B981]" : evalItem.overallScore >= 60 ? "text-[#F59E0B]" : "text-[#EF4444]"}`}>
+                          <span className={`text-sm font-bold ${evalItem.overallScore >= 80 ? "text-[#00875a]" : evalItem.overallScore >= 60 ? "text-[#e8740b]" : "text-error"}`}>
                             {evalItem.overallScore}
                           </span>
                           <Progress value={evalItem.overallScore} className="h-1.5 w-16" />
@@ -166,19 +166,20 @@ export default function EvaluationsPage() {
           </CardContent>
         </Card>
 
-        {/* Detail Panel */}
+        {/* Detail Panel — side card on lg+, full-width overlay on smaller screens
+            (previously `hidden lg:block`, which left small screens blank after a row tap). */}
         {selected && (
-          <Card className="border-gray-200 w-96 hidden lg:block">
+          <Card className="border-gray-200 w-full lg:w-96 shrink-0">
             <CardContent className="p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-[#1A1A2E]">评估详情</h3>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setSelectedEval(null)}>
-                  x
+                <h3 className="text-sm font-semibold text-on-surface">评估详情</h3>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedEval(null)} aria-label="关闭详情">
+                  <X className="h-4 w-4" />
                 </Button>
               </div>
               <div className="text-center mb-4 py-3 bg-gray-50 rounded-lg">
                 <p className="text-xs text-gray-500 mb-1">综合评分</p>
-                <p className={`text-4xl font-bold ${selected.overallScore >= 80 ? "text-[#10B981]" : selected.overallScore >= 60 ? "text-[#F59E0B]" : "text-[#EF4444]"}`}>
+                <p className={`text-4xl font-bold ${selected.overallScore >= 80 ? "text-[#00875a]" : selected.overallScore >= 60 ? "text-[#e8740b]" : "text-error"}`}>
                   {selected.overallScore}
                 </p>
               </div>
@@ -187,7 +188,7 @@ export default function EvaluationsPage() {
                   <div key={i}>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-gray-600">{cat.name}</span>
-                      <span className={`text-xs font-medium ${cat.score >= 80 ? "text-[#10B981]" : cat.score >= 60 ? "text-[#F59E0B]" : "text-[#EF4444]"}`}>
+                      <span className={`text-xs font-medium ${cat.score >= 80 ? "text-[#00875a]" : cat.score >= 60 ? "text-[#e8740b]" : "text-error"}`}>
                         {cat.score}/{cat.maxScore}
                       </span>
                     </div>

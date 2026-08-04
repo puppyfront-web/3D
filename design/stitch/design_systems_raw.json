@@ -1,0 +1,135 @@
+{
+  "designSystems": [
+    {
+      "name": "assets/dbe894d66bd54580b00ea67a4982fdf1",
+      "designSystem": {
+        "displayName": "Enterprise Blueprint",
+        "styleGuidelines": "## Brand & Style\n\nThis design system is engineered for a high-tech enterprise B2B environment, focusing on clarity, efficiency, and professional trust. The brand personality is **authoritative yet enabling**, acting as a sophisticated \"workbench\" for 3D digitalization solutions. \n\nThe visual style follows a **Corporate Modern** movement. It utilizes a structured, high-density layout that organizes complex data and AI-driven workflows into digestible, modular components. The aesthetic is defined by ample \"active\" white space, precise geometry, and a restrained use of color to signal importance and action. It avoids unnecessary decoration, prioritizing functional clarity and a sense of architectural stability.\n\n## Layout & Spacing\n\nThis design system uses a **Fluid-Fixed Hybrid** model. While the top navigation and global container stretch to fill the viewport, the internal workspace follows a structured multi-pane layout.\n\n- **Workspace Structure:** A three-pane architecture is preferred for the workbench: \n  1. Left sidebar (20-25%) for context/chat.\n  2. Center canvas (Flexible) for the infinite blueprint.\n  3. Right panel (280px-320px) for versioning and metadata.\n- **Grid:** A 12-column grid is used for the landing/portal pages. \n- **Spacing Rhythm:** Based on an 8px base unit. Internal card padding is consistently 24px (1.5rem) to provide a premium, airy feel amidst dense information.\n\n## Elevation & Depth\n\nVisual hierarchy is achieved through **Tonal Layering** and **Subtle Ambient Shadows**. \n\n- **Surface Levels:** The primary background is Level 0 (White). Cards and sidebar containers sit on Level 1, defined by a 1px solid neutral border. \n- **Shadows:** We use extra-diffused, low-opacity shadows (e.g., `0 4px 20px rgba(0,0,0,0.05)`) for active elements or \"floating\" panels like tooltips and dropdowns.\n- **Depth Cues:** The canvas uses a light gray background (#F8F9FA) to differentiate the \"work surface\" from the \"interface chrome.\" Active nodes on the canvas use a slightly stronger shadow to indicate they are draggable or interactive.\n\n## Components\n\n- **Buttons:** Primary buttons are solid Blue (#0052D9) with white text. Secondary buttons use a \"Ghost\" style (Blue border, transparent background). All have an 8px radius.\n- **Cards:** White background, 1px border (#DCDFE6). Use a subtle hover state that slightly intensifies the shadow or adds a primary-colored top border.\n- **Input Fields:** Large, 48px height for search/prompt bars. Use placeholder text in Gray-400 and a Blue 2px ring for the focus state.\n- **Nodes/Workflow Boxes:** Within the canvas, use colored borders (Green, Blue, Orange) to signify stages. These should be 2px thick to maintain visibility at lower zoom levels.\n- **Lists:** Clean, un-bulleted lists with 12px vertical spacing between items. Use icons to provide visual cues for file types (PDF, PPT, DOC).\n- **Navigation:** Top-level navigation uses simple text with a bottom-indicator (Blue 3px bar) for the active state. Sidebar navigation uses a subtle background fill (#F2F3F5) for the active item.",
+        "theme": {
+          "colorMode": "LIGHT",
+          "font": "INTER",
+          "roundness": "ROUND_EIGHT",
+          "customColor": "#0052d9",
+          "headlineFont": "INTER",
+          "bodyFont": "INTER",
+          "labelFont": "INTER",
+          "namedColors": {
+            "background": "#f8f9fb",
+            "error": "#ba1a1a",
+            "error_container": "#ffdad6",
+            "inverse_on_surface": "#f0f1f3",
+            "inverse_primary": "#b4c5ff",
+            "inverse_surface": "#2e3132",
+            "on_background": "#191c1e",
+            "on_error": "#ffffff",
+            "on_error_container": "#93000a",
+            "on_primary": "#ffffff",
+            "on_primary_container": "#cbd6ff",
+            "on_primary_fixed": "#00174b",
+            "on_primary_fixed_variant": "#003ea8",
+            "on_secondary": "#ffffff",
+            "on_secondary_container": "#00714a",
+            "on_secondary_fixed": "#002112",
+            "on_secondary_fixed_variant": "#005234",
+            "on_surface": "#191c1e",
+            "on_surface_variant": "#434654",
+            "on_tertiary": "#ffffff",
+            "on_tertiary_container": "#ffcdb0",
+            "on_tertiary_fixed": "#311300",
+            "on_tertiary_fixed_variant": "#743500",
+            "outline": "#737686",
+            "outline_variant": "#c3c6d7",
+            "primary": "#003da6",
+            "primary_container": "#0052d9",
+            "primary_fixed": "#dbe1ff",
+            "primary_fixed_dim": "#b4c5ff",
+            "secondary": "#006c46",
+            "secondary_container": "#84f6bc",
+            "secondary_fixed": "#87f8be",
+            "secondary_fixed_dim": "#6adca4",
+            "surface": "#f8f9fb",
+            "surface_bright": "#f8f9fb",
+            "surface_container": "#edeef0",
+            "surface_container_high": "#e7e8ea",
+            "surface_container_highest": "#e1e2e4",
+            "surface_container_low": "#f3f4f6",
+            "surface_container_lowest": "#ffffff",
+            "surface_dim": "#d9dadc",
+            "surface_tint": "#0353da",
+            "surface_variant": "#e1e2e4",
+            "tertiary": "#733500",
+            "tertiary_container": "#974700",
+            "tertiary_fixed": "#ffdbc8",
+            "tertiary_fixed_dim": "#ffb689"
+          },
+          "designMd": "---\nname: Enterprise Blueprint\ncolors:\n  surface: '#f8f9fb'\n  surface-dim: '#d9dadc'\n  surface-bright: '#f8f9fb'\n  surface-container-lowest: '#ffffff'\n  surface-container-low: '#f3f4f6'\n  surface-container: '#edeef0'\n  surface-container-high: '#e7e8ea'\n  surface-container-highest: '#e1e2e4'\n  on-surface: '#191c1e'\n  on-surface-variant: '#434654'\n  inverse-surface: '#2e3132'\n  inverse-on-surface: '#f0f1f3'\n  outline: '#737686'\n  outline-variant: '#c3c6d7'\n  surface-tint: '#0353da'\n  primary: '#003da6'\n  on-primary: '#ffffff'\n  primary-container: '#0052d9'\n  on-primary-container: '#cbd6ff'\n  inverse-primary: '#b4c5ff'\n  secondary: '#006c46'\n  on-secondary: '#ffffff'\n  secondary-container: '#84f6bc'\n  on-secondary-container: '#00714a'\n  tertiary: '#733500'\n  on-tertiary: '#ffffff'\n  tertiary-container: '#974700'\n  on-tertiary-container: '#ffcdb0'\n  error: '#ba1a1a'\n  on-error: '#ffffff'\n  error-container: '#ffdad6'\n  on-error-container: '#93000a'\n  primary-fixed: '#dbe1ff'\n  primary-fixed-dim: '#b4c5ff'\n  on-primary-fixed: '#00174b'\n  on-primary-fixed-variant: '#003ea8'\n  secondary-fixed: '#87f8be'\n  secondary-fixed-dim: '#6adca4'\n  on-secondary-fixed: '#002112'\n  on-secondary-fixed-variant: '#005234'\n  tertiary-fixed: '#ffdbc8'\n  tertiary-fixed-dim: '#ffb689'\n  on-tertiary-fixed: '#311300'\n  on-tertiary-fixed-variant: '#743500'\n  background: '#f8f9fb'\n  on-background: '#191c1e'\n  surface-variant: '#e1e2e4'\ntypography:\n  headline-xl:\n    fontFamily: Inter\n    fontSize: 32px\n    fontWeight: '700'\n    lineHeight: '1.25'\n    letterSpacing: -0.02em\n  headline-lg:\n    fontFamily: Inter\n    fontSize: 24px\n    fontWeight: '600'\n    lineHeight: '1.3'\n    letterSpacing: -0.01em\n  headline-md:\n    fontFamily: Inter\n    fontSize: 18px\n    fontWeight: '600'\n    lineHeight: '1.4'\n  body-lg:\n    fontFamily: Inter\n    fontSize: 16px\n    fontWeight: '400'\n    lineHeight: '1.6'\n  body-md:\n    fontFamily: Inter\n    fontSize: 14px\n    fontWeight: '400'\n    lineHeight: '1.5'\n  label-md:\n    fontFamily: Inter\n    fontSize: 12px\n    fontWeight: '500'\n    lineHeight: '1.4'\n  headline-lg-mobile:\n    fontFamily: Inter\n    fontSize: 20px\n    fontWeight: '600'\n    lineHeight: '1.3'\nrounded:\n  sm: 0.25rem\n  DEFAULT: 0.5rem\n  md: 0.75rem\n  lg: 1rem\n  xl: 1.5rem\n  full: 9999px\nspacing:\n  container-max: 1440px\n  gutter: 1.5rem\n  margin-mobile: 1rem\n  margin-desktop: 2rem\n  stack-sm: 0.5rem\n  stack-md: 1rem\n  stack-lg: 2rem\n---\n\n## Brand & Style\n\nThis design system is engineered for a high-tech enterprise B2B environment, focusing on clarity, efficiency, and professional trust. The brand personality is **authoritative yet enabling**, acting as a sophisticated \"workbench\" for 3D digitalization solutions. \n\nThe visual style follows a **Corporate Modern** movement. It utilizes a structured, high-density layout that organizes complex data and AI-driven workflows into digestible, modular components. The aesthetic is defined by ample \"active\" white space, precise geometry, and a restrained use of color to signal importance and action. It avoids unnecessary decoration, prioritizing functional clarity and a sense of architectural stability.\n\n## Colors\n\nThe palette is anchored by a vibrant **Enterprise Blue** (#0052D9), representing intelligence and reliability. This is the primary driver for actions and brand identity. \n\n- **Primary:** Used for main call-to-actions, active navigation states, and key interactive elements.\n- **Supportive Accents:** Functional green and orange are utilized sparingly for status indicators and categorizing workflow stages within the canvas.\n- **Neutrals:** A range of cool grays provides structure. Backgrounds remain predominantly pure white to maximize legibility, while subtle grays define container boundaries and non-interactive text.\n- **Borders:** A consistent light gray (#DCDFE6) is used for \"ghost\" borders to separate logical sections without creating visual noise.\n\n## Typography\n\nThe system utilizes **Inter** for its systematic and utilitarian character. It ensures high legibility across data-heavy tables and complex canvas nodes.\n\n- **Hierarchy:** Strong weight differentiation is used to separate content. Headlines use Semibold and Bold weights with tight letter-spacing for a modern \"tech\" feel.\n- **Body Text:** Set with generous line-height (1.5x - 1.6x) to ensure comfortable reading of long-form AI-generated reports.\n- **Labels:** Small, medium-weight labels are used for metadata, timestamps, and secondary details in side panels.\n- **Adaptation:** Large display headings scale down by roughly 20-30% on mobile devices to prevent excessive wrapping while maintaining visual impact.\n\n## Layout & Spacing\n\nThis design system uses a **Fluid-Fixed Hybrid** model. While the top navigation and global container stretch to fill the viewport, the internal workspace follows a structured multi-pane layout.\n\n- **Workspace Structure:** A three-pane architecture is preferred for the workbench: \n  1. Left sidebar (20-25%) for context/chat.\n  2. Center canvas (Flexible) for the infinite blueprint.\n  3. Right panel (280px-320px) for versioning and metadata.\n- **Grid:** A 12-column grid is used for the landing/portal pages. \n- **Spacing Rhythm:** Based on an 8px base unit. Internal card padding is consistently 24px (1.5rem) to provide a premium, airy feel amidst dense information.\n\n## Elevation & Depth\n\nVisual hierarchy is achieved through **Tonal Layering** and **Subtle Ambient Shadows**. \n\n- **Surface Levels:** The primary background is Level 0 (White). Cards and sidebar containers sit on Level 1, defined by a 1px solid neutral border. \n- **Shadows:** We use extra-diffused, low-opacity shadows (e.g., `0 4px 20px rgba(0,0,0,0.05)`) for active elements or \"floating\" panels like tooltips and dropdowns.\n- **Depth Cues:** The canvas uses a light gray background (#F8F9FA) to differentiate the \"work surface\" from the \"interface chrome.\" Active nodes on the canvas use a slightly stronger shadow to indicate they are draggable or interactive.\n\n## Shapes\n\nThe shape language is **Rounded**, striking a balance between approachable and professional.\n\n- **Base Corner Radius:** 8px (0.5rem) is the standard for cards, input fields, and standard buttons.\n- **Large Components:** Sections like the main dashboard containers or large hero sections may use up to 16px (1rem) for a softer, more modern framing.\n- **Small Elements:** Tags, chips, and small utility buttons use a 4px or fully rounded pill-shape depending on the context of the content.\n\n## Components\n\n- **Buttons:** Primary buttons are solid Blue (#0052D9) with white text. Secondary buttons use a \"Ghost\" style (Blue border, transparent background). All have an 8px radius.\n- **Cards:** White background, 1px border (#DCDFE6). Use a subtle hover state that slightly intensifies the shadow or adds a primary-colored top border.\n- **Input Fields:** Large, 48px height for search/prompt bars. Use placeholder text in Gray-400 and a Blue 2px ring for the focus state.\n- **Nodes/Workflow Boxes:** Within the canvas, use colored borders (Green, Blue, Orange) to signify stages. These should be 2px thick to maintain visibility at lower zoom levels.\n- **Lists:** Clean, un-bulleted lists with 12px vertical spacing between items. Use icons to provide visual cues for file types (PDF, PPT, DOC).\n- **Navigation:** Top-level navigation uses simple text with a bottom-indicator (Blue 3px bar) for the active state. Sidebar navigation uses a subtle background fill (#F2F3F5) for the active item.",
+          "colorVariant": "FIDELITY",
+          "overridePrimaryColor": "#0052d9",
+          "overrideSecondaryColor": "#2ba471",
+          "overrideTertiaryColor": "#e37318",
+          "overrideNeutralColor": "#f2f3f5",
+          "spacingScale": 2,
+          "typography": {
+            "body-lg": {
+              "fontFamily": "Inter",
+              "fontSize": "16px",
+              "fontWeight": "400",
+              "lineHeight": "1.6"
+            },
+            "body-md": {
+              "fontFamily": "Inter",
+              "fontSize": "14px",
+              "fontWeight": "400",
+              "lineHeight": "1.5"
+            },
+            "headline-lg": {
+              "fontFamily": "Inter",
+              "fontSize": "24px",
+              "fontWeight": "600",
+              "lineHeight": "1.3",
+              "letterSpacing": "-0.01em"
+            },
+            "headline-lg-mobile": {
+              "fontFamily": "Inter",
+              "fontSize": "20px",
+              "fontWeight": "600",
+              "lineHeight": "1.3"
+            },
+            "headline-md": {
+              "fontFamily": "Inter",
+              "fontSize": "18px",
+              "fontWeight": "600",
+              "lineHeight": "1.4"
+            },
+            "headline-xl": {
+              "fontFamily": "Inter",
+              "fontSize": "32px",
+              "fontWeight": "700",
+              "lineHeight": "1.25",
+              "letterSpacing": "-0.02em"
+            },
+            "label-md": {
+              "fontFamily": "Inter",
+              "fontSize": "12px",
+              "fontWeight": "500",
+              "lineHeight": "1.4"
+            }
+          },
+          "spacing": {
+            "container-max": "1440px",
+            "gutter": "1.5rem",
+            "margin-desktop": "2rem",
+            "margin-mobile": "1rem",
+            "stack-lg": "2rem",
+            "stack-md": "1rem",
+            "stack-sm": "0.5rem"
+          },
+          "headlineFontFamily": "Inter",
+          "bodyFontFamily": "Inter",
+          "labelFontFamily": "Inter"
+        }
+      },
+      "version": "1"
+    }
+  ]
+}

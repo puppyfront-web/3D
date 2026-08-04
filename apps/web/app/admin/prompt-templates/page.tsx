@@ -19,6 +19,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
+  DialogClose,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +28,7 @@ import { Plus, Search, Eye, Edit3, Copy, Trash2, Download, MessageSquareCode, Lo
 import {
   getPromptTemplates,
   createPromptTemplate,
+  updatePromptTemplate,
   deletePromptTemplate,
   importPromptTemplates,
   exportPromptTemplates,
@@ -47,6 +50,16 @@ export default function PromptTemplatesPage() {
     prompt: "",
   });
   const [creating, setCreating] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selected, setSelected] = useState<PromptTemplate | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    category: "",
+    description: "",
+    prompt: "",
+  });
+  const [saving, setSaving] = useState(false);
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -113,16 +126,66 @@ export default function PromptTemplatesPage() {
     await loadTemplates();
   };
 
-  const handleDelete = async (id: string) => {
-    await deletePromptTemplate(id);
-    await loadTemplates();
+  const openEdit = (tpl: PromptTemplate) => {
+    setSelected(tpl);
+    setEditForm({
+      name: tpl.name,
+      category: tpl.category || "",
+      description: tpl.description || "",
+      prompt: tpl.prompt || "",
+    });
+    setEditOpen(true);
+  };
+
+  const openDelete = (tpl: PromptTemplate) => {
+    setSelected(tpl);
+    setDeleteOpen(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!selected || !editForm.name || !editForm.prompt) return;
+    setSaving(true);
+    try {
+      // Backend PromptTemplateUpdate uses camelCase templateText + variables: List[str],
+      // which the frontend PromptTemplate type models as prompt + PromptVariable[].
+      const res = await updatePromptTemplate(selected.id, {
+        name: editForm.name,
+        category: editForm.category,
+        description: editForm.description,
+        templateText: editForm.prompt,
+        variables: (selected.variables || []).map((v) =>
+          typeof v === "string" ? v : v.name
+        ),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      if (res.success) {
+        setEditOpen(false);
+        setSelected(null);
+        await loadTemplates();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      await deletePromptTemplate(selected.id);
+      setDeleteOpen(false);
+      setSelected(null);
+      await loadTemplates();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-[#1A1A2E]">提示词模板管理</h1>
+          <h1 className="text-xl font-semibold text-on-surface">提示词模板管理</h1>
           <p className="text-sm text-gray-500 mt-1">管理AI提示词模板和变量配置</p>
         </div>
         <div className="flex items-center gap-2">
@@ -138,7 +201,7 @@ export default function PromptTemplatesPage() {
           </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-[#1E3A5F] hover:bg-[#2D5A8E] gap-2">
+              <Button className="bg-primary hover:bg-primary gap-2">
                 <Plus className="h-4 w-4" /> 新建提示词
               </Button>
             </DialogTrigger>
@@ -185,7 +248,7 @@ export default function PromptTemplatesPage() {
               </div>
               <p className="text-xs text-gray-400">使用双花括号 {`{{变量名}}`} 标记可替换变量</p>
               <Button
-                className="w-full bg-[#1E3A5F] hover:bg-[#2D5A8E]"
+                className="w-full bg-primary hover:bg-primary"
                 onClick={handleCreate}
                 disabled={creating}
               >
@@ -237,9 +300,9 @@ export default function PromptTemplatesPage() {
                   <TableRow key={tpl.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <MessageSquareCode className="h-4 w-4 text-[#00D4FF]" />
+                        <MessageSquareCode className="h-4 w-4 text-surface-tint" />
                         <div>
-                          <p className="text-sm font-medium text-[#1A1A2E]">{tpl.name}</p>
+                          <p className="text-sm font-medium text-on-surface">{tpl.name}</p>
                           <p className="text-xs text-gray-400 mt-0.5 max-w-xs truncate">{tpl.description}</p>
                         </div>
                       </div>
@@ -251,10 +314,10 @@ export default function PromptTemplatesPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleExportOne(tpl)}><Download className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Eye className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"><Edit3 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(tpl)} title="查看"><Eye className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(tpl)} title="编辑"><Edit3 className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleCopy(tpl)}><Copy className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#EF4444]" onClick={() => handleDelete(tpl.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-error" onClick={() => openDelete(tpl)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -264,6 +327,73 @@ export default function PromptTemplatesPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>编辑提示词模板</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>模板名称</Label>
+                <Input
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>分类</Label>
+                <Input
+                  value={editForm.category}
+                  onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>描述</Label>
+              <Input
+                value={editForm.description}
+                onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>提示词内容</Label>
+              <Textarea
+                rows={8}
+                className="font-mono text-sm"
+                value={editForm.prompt}
+                onChange={(e) => setEditForm((f) => ({ ...f, prompt: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button className="bg-primary hover:bg-primary" onClick={handleUpdate} disabled={saving || !editForm.name || !editForm.prompt}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            确定要删除模板「{selected?.name}」吗？此操作不可撤销。
+          </p>
+          <DialogFooter className="mt-4 gap-2">
+            <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+            <Button variant="destructive" onClick={handleDelete} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

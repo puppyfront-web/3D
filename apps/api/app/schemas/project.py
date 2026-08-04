@@ -71,7 +71,7 @@ class ScreenInfoSchema(APIBaseModel):
 
 class WizardStep1(APIBaseModel):
     project_name: str = Field(..., max_length=255)
-    client_name: str = Field(..., max_length=255)
+    client_name: Optional[str] = Field(default="", max_length=255)
     industry: Optional[str] = None
     project_type: Optional[str] = None
     description: Optional[str] = None
@@ -80,14 +80,10 @@ class WizardStep1(APIBaseModel):
 
     @field_validator("client_name")
     @classmethod
-    def _normalize_client_name(cls, v: str) -> str:
-        # A blank client_name would otherwise create a '' company that every
-        # future blank-name project collides on (and now, with the unique
-        # constraint, fails). Strip and reject empty up front.
-        v = v.strip()
-        if not v:
-            raise ValueError("客户名称不能为空")
-        return v
+    def _normalize_client_name(cls, v: Optional[str]) -> str:
+        # Generic KB workspaces don't need a real company name; the service
+        # layer falls back to project_name when this is blank.
+        return (v or "").strip()
 
 
 class WizardStep2(APIBaseModel):

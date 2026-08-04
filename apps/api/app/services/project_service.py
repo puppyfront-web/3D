@@ -62,6 +62,16 @@ class ProjectService:
         db.add(project)
         await db.flush()
         await db.refresh(project)
+
+        # PRESALE_DELIVERY_SPEC §4.2 S1: the wizard lands the user directly in
+        # the Canvas workspace, so V1 (default topology + conversation) must
+        # exist the moment the project is created — the first paint must not
+        # have to POST /versions to bootstrap.
+        from app.services.canvas_service import canvas_service
+
+        await canvas_service.ensure_initial_version(db, project.id)
+        await db.refresh(project)
+
         logger.info(
             "Created project %s for company %s (owner=%s, screen=%s)",
             project.id, company.id, owner.email, bool(screen_info),
@@ -92,7 +102,13 @@ class ProjectService:
         return user
 
     async def _resolve_or_create_company(self, db: AsyncSession, step1, step2) -> Company:
-        name = step1.client_name.strip()
+        # KB-first workspaces may omit client_name; bind to project_name so each
+        # workspace stays isolated instead of sharing a blank company row.
+        name = (
+            (step1.client_name or "").strip()
+            or (step1.project_name or "").strip()
+            or "通用知识库"
+        )
         company = await self._get_company_by_name(db, name)
         if company is not None:
             return company

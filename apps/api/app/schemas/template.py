@@ -44,6 +44,7 @@ class ProposalTemplateBase(APIBaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
     category: str = Field(..., max_length=100)
+    industry: Optional[str] = Field(None, max_length=100)
     sections: Optional[dict] = Field(default_factory=dict)
     is_default: bool = False
 
@@ -56,6 +57,7 @@ class ProposalTemplateUpdate(APIBaseModel):
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = None
     category: Optional[str] = Field(None, max_length=100)
+    industry: Optional[str] = Field(None, max_length=100)
     sections: Optional[dict] = None
     is_default: Optional[bool] = None
 
