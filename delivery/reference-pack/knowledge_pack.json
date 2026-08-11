@@ -1,0 +1,34 @@
+{
+  "pack_version": "1.0",
+  "name": "reference-b2b-demo",
+  "description": "脱敏 B2B 演示包 — 用于 UAT 与实施导入演练",
+  "documents": [
+    {
+      "relative_path": "files/product-faq.txt",
+      "title": "智汇云产品 FAQ",
+      "doc_category": "product"
+    }
+  ],
+  "talking_points": [
+    {
+      "scene": "首次接洽",
+      "title": "产品介绍开场",
+      "content": "我们提供可私有化部署的企业知识助手，支持混合检索与可追溯问答。"
+    }
+  ],
+  "eval_set": {
+    "name": "reference-smoke",
+    "cases": [
+      {
+        "query": "混合检索",
+        "expected_keywords": ["混合检索"],
+        "notes": "导入后可在 Lab 绑定更精确 chunk"
+      },
+      {
+        "query": "智汇云有哪些能力",
+        "expected_keywords": ["智汇云"],
+        "notes": "依赖 product-faq 文档"
+      }
+    ]
+  }
+}

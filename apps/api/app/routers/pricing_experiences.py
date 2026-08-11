@@ -13,8 +13,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
 from app.models.pricing_experience import PricingExperience
+from app.models.user import User
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.knowledge_base import (
     PricingExperienceCreate,
@@ -32,6 +34,7 @@ async def import_pricing_experiences(
     file: UploadFile = File(...),
     mode: str = Query("skip", pattern="^(skip|overwrite|rename)$"),
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     parsed = await ImportService.parse_file(file, "pricing_experience")
     applied = await ImportService.apply_items(db, "pricing_experience", parsed.items, mode)
@@ -100,7 +103,11 @@ async def get_pricing_experience(experience_id: uuid.UUID, db: AsyncSession = De
 
 
 @router.post("", response_model=Response[PricingExperienceOut], status_code=status.HTTP_201_CREATED)
-async def create_pricing_experience(body: PricingExperienceCreate, db: AsyncSession = Depends(get_db)):
+async def create_pricing_experience(
+    body: PricingExperienceCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     row = PricingExperience(**body.model_dump())
     db.add(row)
     await db.flush()
@@ -110,7 +117,10 @@ async def create_pricing_experience(body: PricingExperienceCreate, db: AsyncSess
 
 @router.put("/{experience_id}", response_model=Response[PricingExperienceOut])
 async def update_pricing_experience(
-    experience_id: uuid.UUID, body: PricingExperienceUpdate, db: AsyncSession = Depends(get_db)
+    experience_id: uuid.UUID,
+    body: PricingExperienceUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     row = await db.get(PricingExperience, experience_id)
     if not row:
@@ -123,7 +133,11 @@ async def update_pricing_experience(
 
 
 @router.delete("/{experience_id}", response_model=Response)
-async def delete_pricing_experience(experience_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_pricing_experience(
+    experience_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     row = await db.get(PricingExperience, experience_id)
     if not row:
         raise NotFoundException("PricingExperience", str(experience_id))

@@ -22,6 +22,7 @@ from app.models.app_setting import AppSetting
 from app.models.industry_material import IndustryMaterial
 from app.models.talking_point import TalkingPoint
 from app.models.pricing_experience import PricingExperience
+from app.models.eval import EvalCase, EvalRun, EvalSet
 from app.models.knowledge_asset_revision import KnowledgeAssetRevision
 from app.models.canvas import (
     Canvas,
@@ -50,6 +51,9 @@ __all__ = [
     "GenerationTask",
     "GenerationOutput",
     "RetrievalLog",
+    "EvalSet",
+    "EvalCase",
+    "EvalRun",
     "Feedback",
     "Skill",
     "SkillExecution",

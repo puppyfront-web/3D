@@ -182,7 +182,7 @@ async def test_retrieve_commercial_naked_eye_3d(db_session: AsyncSession):
     """Scenario 1: 商业综合体裸眼3D → should hit commercial / naked-eye-3D case."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="商业综合体 裸眼3D",
         top_k=5,
         db=db_session,
@@ -205,7 +205,7 @@ async def test_retrieve_automotive_launch(db_session: AsyncSession):
     """Scenario 2: 汽车品牌发布 → should hit automotive / tech-style case."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="汽车品牌发布会 LED视觉方案",
         top_k=5,
         db=db_session,
@@ -229,7 +229,7 @@ async def test_retrieve_outdoor_led(db_session: AsyncSession):
     """Scenario 3: 户外LED大屏 → should hit outdoor / LED case."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="户外LED大屏 广告",
         top_k=5,
         db=db_session,
@@ -253,7 +253,7 @@ async def test_low_quality_case_not_ranked_first(db_session: AsyncSession):
     """Scenario 4: Low-quality cases should NOT rank first."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="商业综合体 裸眼3D",
         top_k=5,
         db=db_session,
@@ -333,7 +333,7 @@ async def test_keyword_only_hits_chunks(db_session: AsyncSession):
     """Keyword-only mode should find document chunks by text match."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="像素间距",
         top_k=5,
         retrieval_type="keyword",

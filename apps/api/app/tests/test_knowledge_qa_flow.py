@@ -81,7 +81,10 @@ async def test_conversational_stream_includes_kb_citations(
     async with client.stream(
         "POST",
         f"/api/v1/conversations/{conversation_id}/chat/stream",
-        json={"message": f"智汇云有哪些能力？是否支持{keyword}？"},
+        json={
+            "message": f"智汇云有哪些能力？是否支持{keyword}？",
+            "forceIntent": "conversational",
+        },
         timeout=60.0,
     ) as response:
         assert response.status_code == 200
@@ -102,6 +105,10 @@ async def test_conversational_stream_includes_kb_citations(
     assistant = result.scalars().first()
     assert assistant is not None
     assert assistant.metadata_json.get("intent") == "conversational"
+    log_ids = assistant.metadata_json.get("retrieval_log_ids") or []
+    assert log_ids, "assistant should link retrieval_log_ids"
+    citations = assistant.metadata_json.get("citations") or []
+    assert citations, "assistant should include KB citations"
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,7 +102,10 @@ class HybridRetriever:
         db: Optional[AsyncSession] = None,
         triggered_by: Optional[str] = None,
         structured_query: Optional[Dict[str, Any]] = None,
-    ) -> List[RetrievalResult]:
+        conversation_id: Optional[uuid.UUID] = None,
+        message_id: Optional[uuid.UUID] = None,
+        eval_run_id: Optional[uuid.UUID] = None,
+    ) -> Tuple[List[RetrievalResult], Optional[uuid.UUID]]:
         """Perform hybrid search over document chunks and cases.
 
         When a database session is provided, queries real data with pgvector.
@@ -132,6 +135,7 @@ class HybridRetriever:
                 results = []
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
+        log_id: Optional[uuid.UUID] = None
 
         # Log the retrieval if we have a db session (PRD §9.4 traceability).
         if db is not None:
@@ -156,6 +160,10 @@ class HybridRetriever:
                 document_ids=list({r.document_id for r in results if r.source == "chunk"}),
                 latency_ms=elapsed_ms,
                 triggered_by=triggered_by or "hybrid_retriever",
+                project_id=project_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                eval_run_id=eval_run_id,
                 structured_query_json={
                     "top_k": top_k,
                     "project_id": str(project_id) if project_id else None,
@@ -166,8 +174,9 @@ class HybridRetriever:
             )
             db.add(log)
             await db.flush()
+            log_id = log.id
 
-        return results
+        return results, log_id
 
     async def _db_search(
         self,

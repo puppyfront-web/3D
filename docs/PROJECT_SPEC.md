@@ -296,12 +296,14 @@ KB-QA 阶段强制要求：
 
 | 文档 | 状态 |
 |------|------|
+| [KB_PRIVATE_DELIVERY_SPEC.md](./KB_PRIVATE_DELIVERY_SPEC.md) | **有效** — 私有化客户案例交付 + Eval 闭环 + 后续预留 |
+| [KB_CONSOLE_UI_SPEC.md](./KB_CONSOLE_UI_SPEC.md) | **有效** — KB 标准版 Admin/Workspace UI |
 | [RAG_SPEC.md](./RAG_SPEC.md) | 有效，随 KB-first 迭代更新检索主链 |
-| [API_SPEC.md](./API_SPEC.md) | 有效 |
-| [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) | 有效，Ontology 表待补充 |
+| [API_SPEC.md](./API_SPEC.md) | 有效（Eval API 待按 KB_PRIVATE_DELIVERY_SPEC 增补） |
+| [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) | 有效，Ontology / Eval 表待补充 |
 | [PRESALE_DELIVERY_SPEC.md](./PRESALE_DELIVERY_SPEC.md) | **冻结** — Canvas 售前验收 |
-| [CUSTOMER_INSTALL.md](./CUSTOMER_INSTALL.md) | 待更新为知识助手演示 |
-| [DEMO.md](./DEMO.md) | 待更新为中性 B2B 剧本 |
+| [CUSTOMER_INSTALL.md](./CUSTOMER_INSTALL.md) | **有效** — 知识助手私有化安装 + 本期交付范围 |
+| [DEMO.md](./DEMO.md) | **有效** — KB UAT 剧本 |
 
 ---
 
@@ -314,4 +316,6 @@ KB-QA 阶段强制要求：
 5. ✅ 检索日志可追溯
 6. ✅ 联网搜索可配置关闭
 7. ✅ Canvas / 3D 垂直能力不阻塞、不暴露主路径
-8. ⬜ GraphRAG / Wiki / Ontology（后续迭代）
+8. ✅ 评测中心 Hit@k 回归（kb-case-v1.0）
+9. ⬜ GraphRAG / Wiki / Ontology（后续迭代）
+10. ⬜ Review 队列 / Analytics（M4 下一期）

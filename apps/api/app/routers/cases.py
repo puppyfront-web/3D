@@ -9,8 +9,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
 from app.models.case import Case
+from app.models.user import User
 from app.schemas.case import CaseCreate, CaseOut, CaseQualityScore, CaseUpdate
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.services.config_export_service import ConfigExportService
@@ -30,6 +32,7 @@ async def import_cases(
         description="冲突策略: skip 跳过已存在 / overwrite 覆盖 / rename 建副本",
     ),
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Import cases from JSON or CSV file."""
     parsed = await ImportService.parse_file(file, "case")
@@ -119,7 +122,11 @@ async def get_case(case_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=Response[CaseOut], status_code=status.HTTP_201_CREATED)
-async def create_case(body: CaseCreate, db: AsyncSession = Depends(get_db)):
+async def create_case(
+    body: CaseCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Create a new case study."""
     case = Case(**body.model_dump())
     db.add(case)
@@ -130,7 +137,10 @@ async def create_case(body: CaseCreate, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{case_id}", response_model=Response[CaseOut])
 async def update_case(
-    case_id: uuid.UUID, body: CaseUpdate, db: AsyncSession = Depends(get_db)
+    case_id: uuid.UUID,
+    body: CaseUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Update a case study."""
     case = await db.get(Case, case_id)
@@ -153,7 +163,10 @@ async def update_case(
 
 @router.patch("/{case_id}/quality-score", response_model=Response[CaseOut])
 async def update_quality_score(
-    case_id: uuid.UUID, body: CaseQualityScore, db: AsyncSession = Depends(get_db)
+    case_id: uuid.UUID,
+    body: CaseQualityScore,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Update the quality score of a case study."""
     case = await db.get(Case, case_id)
@@ -167,7 +180,11 @@ async def update_quality_score(
 
 
 @router.delete("/{case_id}", response_model=Response)
-async def delete_case(case_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_case(
+    case_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Delete a case study."""
     case = await db.get(Case, case_id)
     if not case:
@@ -178,7 +195,11 @@ async def delete_case(case_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{case_id}/auto-tag", response_model=Response[dict])
-async def auto_tag_case(case_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def auto_tag_case(
+    case_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Auto-suggest tags for a case using LLM."""
     from app.services.auto_tagger import suggest_tags
 

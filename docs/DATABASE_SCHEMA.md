@@ -497,3 +497,108 @@ skill_executions.id     ← messages.skill_execution_id
 - `projects.approved_for_external` — 是否允许外部查看
 
 外部客户未来只能访问已审核内容，不能看到 AI 原始输出、内部 Prompt、案例权重等。
+
+---
+
+## 6. KB-Case-Delivery 表（Eval / Review / 扩展）
+
+> 规格：[KB_PRIVATE_DELIVERY_SPEC.md](./KB_PRIVATE_DELIVERY_SPEC.md) §5  
+> 迁移：实现时新增 Alembic revision（建议 `0xx_eval_and_retrieval_trace.py`）
+
+### 6.1 eval_sets
+
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | UUID | PK | |
+| name | String(255) | NOT NULL | |
+| description | Text | | |
+| project_id | UUID | FK → projects.id, NULL, INDEX | null=全库集 |
+| status | String(32) | NOT NULL, default active | active / archived |
+| created_at | DateTime(tz) | NOT NULL | |
+| updated_at | DateTime(tz) | NOT NULL | |
+
+### 6.2 eval_cases
+
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | UUID | PK | |
+| set_id | UUID | FK → eval_sets.id, INDEX, ON DELETE CASCADE | |
+| query | Text | NOT NULL | |
+| expected_chunk_ids | JSON | default [] | UUID 字符串数组 |
+| expected_document_ids | JSON | default [] | |
+| expected_keywords | JSON | default [] | |
+| must_not_keywords | JSON | default [] | |
+| notes | Text | | |
+| source | String(32) | NOT NULL, default manual | hit_test / manual / production |
+| created_at | DateTime(tz) | NOT NULL | |
+| updated_at | DateTime(tz) | NOT NULL | |
+
+### 6.3 eval_runs
+
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | UUID | PK | |
+| set_id | UUID | FK → eval_sets.id, INDEX | |
+| status | String(32) | NOT NULL | running / completed / failed |
+| config_snapshot_json | JSON | | |
+| metrics_json | JSON | | |
+| per_case_results_json | JSON | | |
+| created_at | DateTime(tz) | NOT NULL | |
+| completed_at | DateTime(tz) | NULL | |
+
+索引：`(set_id, created_at DESC)`
+
+### 6.4 retrieval_logs 扩展列
+
+| 列名 | 类型 | 说明 |
+|------|------|------|
+| project_id | UUID NULL, INDEX | |
+| conversation_id | UUID NULL, INDEX | |
+| message_id | UUID NULL, INDEX | |
+| eval_run_id | UUID NULL, INDEX | |
+
+### 6.5 query_synonyms（M4，可延后迁移）
+
+| 列名 | 类型 | 说明 |
+|------|------|------|
+| id | UUID PK | |
+| term | String(255) UNIQUE | 原词 |
+| expansions | JSON | 字符串数组 |
+| is_active | Boolean | |
+| updated_at | DateTime(tz) | |
+
+**预留** §12.1：未来 `organization_id` nullable。
+
+### 6.6 retrieval_profiles（M4）
+
+| 列名 | 类型 | 说明 |
+|------|------|------|
+| id | UUID PK | |
+| name | String(255) UNIQUE | |
+| weights_json | JSON | hybrid 权重等 |
+| is_default | Boolean | |
+| status | String(32) | active / disabled |
+
+### 6.7 review_items（M4）
+
+| 列名 | 类型 | 说明 |
+|------|------|------|
+| id | UUID PK | |
+| message_id | UUID FK → messages.id | |
+| reason | String(64) | zero_hit / bad_citation / stale / user_report |
+| status | String(32) | open / resolved / ignored |
+| payload_json | JSON | 用户备注、log_id |
+| created_at | DateTime(tz) | |
+| resolved_at | DateTime(tz) NULL | |
+
+### 6.8 ER 补充
+
+```text
+projects ──1:N──> eval_sets (optional project_id)
+eval_sets ──1:N──> eval_cases
+eval_sets ──1:N──> eval_runs
+eval_runs ──1:N──> retrieval_logs (eval_run_id)
+conversations ──1:N──> messages
+messages ──1:N──> review_items (optional)
+retrieval_logs.message_id ──> messages.id (soft)
+```

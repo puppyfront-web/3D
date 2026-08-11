@@ -529,6 +529,9 @@ export function normalizeRetrievalLog(raw: any): RetrievalLogItem {
     retrieved_items_json: (pickField(raw, "retrievedItemsJson", "retrieved_items_json") as Array<Record<string, unknown>>) ?? [],
     selected_context_json: (pickField(raw, "selectedContextJson", "selected_context_json") as Record<string, unknown>) ?? {},
     final_output_id: pickField(raw, "finalOutputId", "final_output_id") as string | undefined,
+    message_id: pickField(raw, "messageId", "message_id") as string | undefined,
+    conversation_id: pickField(raw, "conversationId", "conversation_id") as string | undefined,
+    project_id: pickField(raw, "projectId", "project_id") as string | undefined,
     created_at: String(pickField(raw, "createdAt", "created_at") ?? new Date().toISOString()),
   };
 }
@@ -586,6 +589,67 @@ export async function getDocument(id: string): Promise<ApiResponse<Asset>> {
     return { success: true, data: mapDocumentToAsset(result.data) };
   }
   return { success: false, data: null as unknown as Asset, message: result.message };
+}
+
+export interface DocumentChunkItem {
+  id: string;
+  chunk_index: number;
+  chunkIndex?: number;
+  page_number?: number | null;
+  token_count: number;
+  content_preview: string;
+  contentPreview?: string;
+}
+
+export async function getDocumentChunks(
+  documentId: string
+): Promise<ApiResponse<DocumentChunkItem[]>> {
+  return apiFetch<DocumentChunkItem[]>(
+    `/api/v1/documents/${documentId}/chunks?page_size=50`
+  );
+}
+
+export async function importKnowledgePack(
+  file: File,
+  options?: { force?: boolean; projectId?: string }
+): Promise<
+  ApiResponse<{
+    pack_name: string;
+    documents_imported: number;
+    talking_points_imported: number;
+    eval_set_id?: string | null;
+    skipped: boolean;
+    errors: string[];
+  }>
+> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const params = new URLSearchParams();
+  if (options?.force) params.set("force", "true");
+  if (options?.projectId) params.set("project_id", options.projectId);
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const qs = params.toString();
+  const res = await fetch(
+    `${API_BASE_URL}/api/v1/knowledge/packs/import${qs ? `?${qs}` : ""}`,
+    { method: "POST", headers, body: formData }
+  );
+  const json = await res.json();
+  if (res.ok && json.data) {
+    return { success: true, data: json.data, message: json.message };
+  }
+  return {
+    success: false,
+    data: null as unknown as {
+      pack_name: string;
+      documents_imported: number;
+      talking_points_imported: number;
+      skipped: boolean;
+      errors: string[];
+    },
+    message: json.message ?? json.detail ?? "导入失败",
+  };
 }
 
 /**
@@ -904,6 +968,163 @@ export async function getEvaluations(): Promise<ApiResponse<Evaluation[]>> {
 }
 
 // ============================================================
+// Eval Center API
+// ============================================================
+
+export interface EvalSetItem {
+  id: string;
+  name: string;
+  status: string;
+  project_id?: string | null;
+}
+
+export interface EvalRunItem {
+  id: string;
+  set_id: string;
+  setId?: string;
+  status: string;
+  metrics_json?: {
+    hit_at_k_rate?: number;
+    passed?: number;
+    total?: number;
+    empty_rate?: number;
+    latency_ms_p50?: number;
+    latency_ms_p95?: number;
+  };
+  metricsJson?: Record<string, unknown>;
+  per_case_results_json?: Array<{
+    case_id: string;
+    pass: boolean;
+    reason?: string;
+    latency_ms?: number;
+  }>;
+  perCaseResultsJson?: Array<{
+    caseId?: string;
+    case_id?: string;
+    pass: boolean;
+    reason?: string;
+  }>;
+  created_at: string;
+  createdAt?: string;
+}
+
+function evalRunMetrics(r: EvalRunItem) {
+  const m = r.metrics_json ?? r.metricsJson;
+  if (!m) return null;
+  const rate =
+    (m as { hit_at_k_rate?: number }).hit_at_k_rate ??
+    (m as { hitAtKRate?: number }).hitAtKRate;
+  return { ...m, hit_at_k_rate: rate };
+}
+
+export { evalRunMetrics };
+
+export interface EvalCaseItem {
+  id: string;
+  set_id: string;
+  setId?: string;
+  query: string;
+  expected_keywords?: string[];
+  expectedKeywords?: string[];
+  expected_chunk_ids?: string[];
+  notes?: string | null;
+  source: string;
+}
+
+export async function listEvalCases(
+  setId: string
+): Promise<ApiResponse<EvalCaseItem[]>> {
+  return apiFetch<EvalCaseItem[]>(`/api/v1/eval/sets/${setId}/cases`);
+}
+
+export async function createEvalCase(
+  setId: string,
+  body: {
+    query: string;
+    expected_keywords?: string[];
+    expected_chunk_ids?: string[];
+    notes?: string;
+  }
+): Promise<ApiResponse<EvalCaseItem>> {
+  return apiFetch<EvalCaseItem>(`/api/v1/eval/sets/${setId}/cases`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteEvalCase(
+  caseId: string
+): Promise<ApiResponse<{ deleted: boolean; id: string }>> {
+  return apiFetch<{ deleted: boolean; id: string }>(
+    `/api/v1/eval/cases/${caseId}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function saveEvalCaseFromLab(body: {
+  set_id: string;
+  query: string;
+  pick_rank?: number;
+  top_k_snapshot: Array<Record<string, unknown>>;
+}): Promise<ApiResponse<EvalCaseItem>> {
+  return apiFetch<EvalCaseItem>("/api/v1/eval/cases/from-lab", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function importEvalSmokeTemplate(body?: {
+  template_id?: string;
+  name?: string;
+  project_id?: string | null;
+}): Promise<ApiResponse<EvalSetItem>> {
+  return apiFetch<EvalSetItem>("/api/v1/eval/import-template", {
+    method: "POST",
+    body: JSON.stringify({
+      template_id: body?.template_id ?? "b2b-smoke-v1",
+      name: body?.name,
+      project_id: body?.project_id ?? undefined,
+    }),
+  });
+}
+
+export async function listEvalSets(): Promise<
+  ApiResponse<{ items: EvalSetItem[]; total: number }>
+> {
+  return apiFetch<{ items: EvalSetItem[]; total: number }>("/api/v1/eval/sets");
+}
+
+export async function createEvalSet(body: {
+  name: string;
+  project_id?: string | null;
+}): Promise<ApiResponse<EvalSetItem>> {
+  return apiFetch<EvalSetItem>("/api/v1/eval/sets", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function runEvalSet(
+  setId: string
+): Promise<ApiResponse<EvalRunItem>> {
+  return apiFetch<EvalRunItem>("/api/v1/eval/runs", {
+    method: "POST",
+    body: JSON.stringify({ set_id: setId }),
+  });
+}
+
+export async function listEvalRuns(
+  setId?: string
+): Promise<ApiResponse<EvalRunItem[]>> {
+  const q = setId ? `?set_id=${setId}` : "";
+  return apiFetch<EvalRunItem[]>(`/api/v1/eval/runs${q}`);
+}
+
+export async function getEvalRun(runId: string): Promise<ApiResponse<EvalRunItem>> {
+  return apiFetch<EvalRunItem>(`/api/v1/eval/runs/${runId}`);
+}
+
+// ============================================================
 // Retrieval logs API (PRD §9.4 traceability)
 // ============================================================
 
@@ -919,17 +1140,24 @@ export interface RetrievalLogItem {
   retrieved_items_json?: Array<Record<string, unknown>>;
   selected_context_json?: Record<string, unknown>;
   final_output_id?: string;
+  message_id?: string;
+  conversation_id?: string;
+  project_id?: string;
   created_at: string;
 }
 
 export async function getRetrievalLogs(params?: {
   triggered_by?: string;
   retrieval_type?: string;
+  message_id?: string;
+  conversation_id?: string;
   limit?: number;
 }): Promise<ApiResponse<RetrievalLogItem[]>> {
   const qs = new URLSearchParams();
   if (params?.triggered_by) qs.set("triggered_by", params.triggered_by);
   if (params?.retrieval_type) qs.set("retrieval_type", params.retrieval_type);
+  if (params?.message_id) qs.set("message_id", params.message_id);
+  if (params?.conversation_id) qs.set("conversation_id", params.conversation_id);
   if (params?.limit) qs.set("limit", String(params.limit));
   const tail = qs.toString();
   return apiFetch<RetrievalLogItem[]>(`/api/v1/rag/logs${tail ? `?${tail}` : ""}`).then((res) => {
@@ -976,11 +1204,18 @@ export interface RAGSearchResponse {
   total: number;
   latencyMs: number;
   retrievalType: string;
+  logId?: string | null;
+  contextPreviewText?: string | null;
 }
 
 export async function searchKnowledge(
   query: string,
-  options?: { topK?: number; projectId?: string; retrievalType?: string },
+  options?: {
+    topK?: number;
+    projectId?: string;
+    retrievalType?: string;
+    includeContextPreview?: boolean;
+  },
 ): Promise<ApiResponse<RAGSearchResponse>> {
   const params = new URLSearchParams({
     query,
@@ -988,6 +1223,7 @@ export async function searchKnowledge(
     retrieval_type: options?.retrievalType ?? "hybrid",
   });
   if (options?.projectId) params.set("project_id", options.projectId);
+  if (options?.includeContextPreview) params.set("include_context_preview", "true");
   return apiFetch<RAGSearchResponse>(`/api/v1/rag/search?${params.toString()}`, {
     method: "POST",
   });

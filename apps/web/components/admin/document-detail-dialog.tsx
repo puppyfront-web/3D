@@ -10,7 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Loader2, Database, RotateCw } from "lucide-react";
-import { getDocument, indexDocument } from "@/lib/api";
+import { getDocument, getDocumentChunks, indexDocument } from "@/lib/api";
 import type { Asset } from "@/types";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -47,6 +47,9 @@ export function DocumentDetailDialog({
   const [loading, setLoading] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [doc, setDoc] = useState<Asset | null>(null);
+  const [chunks, setChunks] = useState<
+    { id: string; preview: string; index: number; page?: number | null }[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,6 +71,21 @@ export function DocumentDetailDialog({
       }
       setLoading(false);
     });
+    getDocumentChunks(documentId).then((res) => {
+      if (cancelled) return;
+      if (res.success && res.data) {
+        setChunks(
+          res.data.map((c) => ({
+            id: c.id,
+            index: c.chunk_index ?? c.chunkIndex ?? 0,
+            page: c.page_number,
+            preview: c.content_preview ?? c.contentPreview ?? "",
+          }))
+        );
+      } else {
+        setChunks([]);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -82,6 +100,17 @@ export function DocumentDetailDialog({
       if (refreshed.success && refreshed.data) {
         setDoc(refreshed.data);
         onUpdated?.(refreshed.data);
+      }
+      const ch = await getDocumentChunks(doc.id);
+      if (ch.success && ch.data) {
+        setChunks(
+          ch.data.map((c) => ({
+            id: c.id,
+            index: c.chunk_index ?? c.chunkIndex ?? 0,
+            page: c.page_number,
+            preview: c.content_preview ?? c.contentPreview ?? "",
+          }))
+        );
       }
     }
     setIndexing(false);
@@ -153,6 +182,25 @@ export function DocumentDetailDialog({
                 {doc.status === "indexed" ? "重新入库" : "入知识库"}
               </Button>
             </div>
+            {chunks.length > 0 ? (
+              <div className="space-y-2 pt-2 border-t border-outline-variant">
+                <p className="text-xs font-medium text-on-surface">分块预览</p>
+                <ul className="max-h-48 overflow-y-auto space-y-2">
+                  {chunks.map((c) => (
+                    <li
+                      key={c.id}
+                      className="text-xs text-on-surface-variant bg-surface-container-low rounded p-2"
+                    >
+                      <span className="text-outline">
+                        #{c.index + 1}
+                        {c.page != null ? ` · p${c.page}` : ""}
+                      </span>
+                      <p className="mt-1 whitespace-pre-wrap line-clamp-3">{c.preview}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </DialogContent>

@@ -9,7 +9,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
+from app.models.user import User
 from app.models.visual import VisualStyle
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.visual import VisualStyleCreate, VisualStyleOut, VisualStyleUpdate
@@ -29,6 +31,7 @@ async def import_visual_styles(
         description="冲突策略: skip 跳过已存在 / overwrite 覆盖 / rename 建副本",
     ),
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Import visual styles from JSON file."""
     parsed = await ImportService.parse_file(file, "visual_style")

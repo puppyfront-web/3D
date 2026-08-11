@@ -76,7 +76,7 @@ class KnowledgeSearchTool(BaseTool):
 
         retriever = HybridRetriever(embedding_service=context.embedding_service)
         project_uuid = _parse_project_id(project_id)
-        results = await retriever.search(
+        results, _log_id = await retriever.search(
             query=query,
             top_k=top_k,
             project_id=project_uuid,

@@ -15,6 +15,17 @@ from app.models import (
 )
 from app.db.base import Base
 from app.core.security import hash_password
+from app.core.config import settings
+
+
+def _seed_admin_credentials() -> tuple[str, str]:
+    """Resolve initial admin email/password for empty DB seed."""
+    is_prod = (settings.app_env or "").lower() == "production"
+    email = (settings.initial_admin_email or "").strip() or "admin@3dwall.com"
+    pwd = (settings.initial_admin_password or "").strip()
+    if not pwd:
+        pwd = "admin123" if not is_prod else "ChangeMeNow!"
+    return email, pwd
 
 
 async def create_tables() -> None:
@@ -78,27 +89,31 @@ async def seed_database() -> None:
         await session.flush()
 
         # ── Users ──
+        admin_email, admin_password = _seed_admin_credentials()
         admin_user = User(
             id=uuid.uuid4(),
-            email="admin@3dwall.com",
+            email=admin_email,
             name="System Admin",
             role_id=admin_role.id,
             is_active=True,
-            hashed_password=hash_password("admin123"),
+            hashed_password=hash_password(admin_password),
             created_at=now,
             updated_at=now,
         )
-        demo_user = User(
-            id=uuid.uuid4(),
-            email="demo@3dwall.com",
-            name="Demo User",
-            role_id=user_role.id,
-            is_active=True,
-            hashed_password=hash_password("demo123"),
-            created_at=now,
-            updated_at=now,
-        )
-        session.add_all([admin_user, demo_user])
+        users_to_add: list[User] = [admin_user]
+        if settings.seed_demo_content:
+            demo_user = User(
+                id=uuid.uuid4(),
+                email="demo@3dwall.com",
+                name="Demo User",
+                role_id=user_role.id,
+                is_active=True,
+                hashed_password=hash_password("demo123"),
+                created_at=now,
+                updated_at=now,
+            )
+            users_to_add.append(demo_user)
+        session.add_all(users_to_add)
         await session.flush()
 
         # ── Prompt Templates ──
@@ -801,6 +816,10 @@ async def seed_demo_content_if_needed() -> None:
             session.add(_default_presale_sop_payload(now))
             await session.flush()
 
+        if not settings.seed_demo_content:
+            await session.commit()
+            return
+
         # Demo cases — skip if any seed-tagged case already exists
         tagged = await session.execute(
             select(func.count())
@@ -811,8 +830,9 @@ async def seed_demo_content_if_needed() -> None:
             await session.commit()
             return
 
+        admin_email, _ = _seed_admin_credentials()
         admin = await session.execute(
-            select(User).where(User.email == "admin@3dwall.com")
+            select(User).where(User.email == admin_email)
         )
         admin_user = admin.scalar_one_or_none()
         if admin_user is None:

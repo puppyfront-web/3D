@@ -28,24 +28,32 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const ADMIN_LINKS = [
-  { label: "概览", href: "/admin", icon: LayoutDashboard },
-  { label: "资产管理", href: "/admin/assets", icon: Package },
-  { label: "检索测试", href: "/admin/rag-test", icon: FlaskConical },
-  { label: "案例库", href: "/admin/cases", icon: BookOpen },
-  { label: "行业资料", href: "/admin/industry-materials", icon: BookMarked },
-  { label: "SOP 工作流", href: "/admin/sop-workflows", icon: GitBranch },
-  { label: "方案模板", href: "/admin/proposal-templates", icon: FileText },
-  { label: "提示词模板", href: "/admin/prompt-templates", icon: MessageSquareCode },
-  { label: "话术库", href: "/admin/talking-points", icon: MessageSquareQuote },
-  { label: "视觉风格库", href: "/admin/visual-styles", icon: Palette },
-  { label: "技术规则", href: "/admin/technical-rules", icon: Cpu },
-  { label: "质量标准", href: "/admin/quality-rules", icon: ShieldCheck },
-  { label: "报价经验", href: "/admin/pricing-experiences", icon: CircleDollarSign },
-  { label: "评估记录", href: "/admin/evaluations", icon: ClipboardCheck },
-  { label: "检索日志", href: "/admin/retrieval-logs", icon: Search },
-  { label: "系统设置", href: "/admin/settings", icon: Settings },
+const KB_SKU = (process.env.NEXT_PUBLIC_KB_SKU || "standard").toLowerCase();
+
+const ADMIN_LINKS_FULL = [
+  { label: "概览", href: "/admin", icon: LayoutDashboard, sku: "standard" as const },
+  { label: "资产管理", href: "/admin/assets", icon: Package, sku: "standard" as const },
+  { label: "检索测试", href: "/admin/rag-test", icon: FlaskConical, sku: "standard" as const },
+  { label: "评测中心", href: "/admin/eval", icon: ClipboardCheck, sku: "standard" as const },
+  { label: "案例库", href: "/admin/cases", icon: BookOpen, sku: "standard" as const },
+  { label: "话术库", href: "/admin/talking-points", icon: MessageSquareQuote, sku: "standard" as const },
+  { label: "检索日志", href: "/admin/retrieval-logs", icon: Search, sku: "standard" as const },
+  { label: "系统设置", href: "/admin/settings", icon: Settings, sku: "standard" as const },
+  { label: "行业资料", href: "/admin/industry-materials", icon: BookMarked, sku: "full" as const },
+  { label: "SOP 工作流", href: "/admin/sop-workflows", icon: GitBranch, sku: "full" as const },
+  { label: "方案模板", href: "/admin/proposal-templates", icon: FileText, sku: "full" as const },
+  { label: "提示词模板", href: "/admin/prompt-templates", icon: MessageSquareCode, sku: "full" as const },
+  { label: "视觉风格库", href: "/admin/visual-styles", icon: Palette, sku: "full" as const },
+  { label: "技术规则", href: "/admin/technical-rules", icon: Cpu, sku: "full" as const },
+  { label: "质量标准", href: "/admin/quality-rules", icon: ShieldCheck, sku: "full" as const },
+  { label: "报价经验", href: "/admin/pricing-experiences", icon: CircleDollarSign, sku: "full" as const },
+  { label: "评估记录", href: "/admin/evaluations", icon: ClipboardCheck, sku: "full" as const },
 ];
+
+const ADMIN_LINKS =
+  KB_SKU === "full"
+    ? ADMIN_LINKS_FULL
+    : ADMIN_LINKS_FULL.filter((l) => l.sku === "standard");
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

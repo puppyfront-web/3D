@@ -56,6 +56,7 @@ import {
   deleteAsset,
   deleteAssetsBatch,
   exportAssets,
+  importKnowledgePack,
   indexDocument,
   indexBatchDocuments,
 } from "@/lib/api";
@@ -160,7 +161,9 @@ function AssetsPageInner() {
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [packImporting, setPackImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const packInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (docParam) {
@@ -392,6 +395,46 @@ function AssetsPageInner() {
               本页批量入库 ({unindexedOnPage})
             </Button>
           )}
+
+          <input
+            ref={packInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setPackImporting(true);
+              const res = await importKnowledgePack(file);
+              setPackImporting(false);
+              if (packInputRef.current) packInputRef.current.value = "";
+              if (res.success && res.data) {
+                if (res.data.skipped) {
+                  toast.message("该 Pack 已导入过（内容相同）");
+                } else {
+                  toast.success(
+                    `Pack 导入完成：${res.data.documents_imported} 份资料，${res.data.talking_points_imported} 条话术`
+                  );
+                }
+                await loadAssets();
+              } else {
+                toast.error(res.message ?? "Pack 导入失败");
+              }
+            }}
+          />
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={packImporting}
+            onClick={() => packInputRef.current?.click()}
+          >
+            {packImporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Package className="h-4 w-4" />
+            )}
+            导入 Knowledge Pack
+          </Button>
 
           <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
             <DialogTrigger asChild>

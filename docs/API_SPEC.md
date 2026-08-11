@@ -540,3 +540,202 @@ data: {"type": "done", "message_id": "uuid"}
 | Conversations | 14 |
 | Settings | 2 |
 | **合计** | **121** |
+
+---
+
+## 23. Eval — `/api/v1/eval`（KB-Case-Delivery）
+
+> 规格来源：[KB_PRIVATE_DELIVERY_SPEC.md](./KB_PRIVATE_DELIVERY_SPEC.md)  
+> 权限：**全部端点** `require_admin`
+
+### 23.1 EvalSet
+
+**GET /eval/sets**
+
+Query: `page`, `page_size`, `status`, `project_id`
+
+**POST /eval/sets**
+
+```json
+{
+  "name": "smoke-b2b",
+  "description": "交付冒烟",
+  "project_id": null,
+  "status": "active"
+}
+```
+
+**GET /eval/sets/{id}** — 含 `case_count`
+
+**PATCH /eval/sets/{id}** — 部分更新 name/description/status
+
+**DELETE /eval/sets/{id}** — 软删可选；默认 hard delete cases 级联
+
+### 23.2 EvalCase
+
+**GET /eval/sets/{set_id}/cases**
+
+**POST /eval/sets/{set_id}/cases**
+
+```json
+{
+  "query": "核心产品有哪些？",
+  "expected_chunk_ids": ["uuid"],
+  "expected_document_ids": [],
+  "expected_keywords": ["产品"],
+  "must_not_keywords": [],
+  "notes": "",
+  "source": "manual"
+}
+```
+
+**PATCH /eval/cases/{id}**
+
+**DELETE /eval/cases/{id}**
+
+**POST /eval/cases/from-lab** — Lab 保存用例
+
+```json
+{
+  "set_id": "uuid",
+  "query": "...",
+  "top_k_snapshot": [{ "chunk_id": "...", "document_id": "..." }],
+  "pick_rank": 0
+}
+```
+
+服务端将 `pick_rank` 对应项写入 `expected_chunk_ids`。
+
+### 23.3 EvalRun
+
+**POST /eval/runs**
+
+```json
+{
+  "set_id": "uuid",
+  "config_overrides": {
+    "top_k": 8,
+    "scope": "union"
+  }
+}
+```
+
+Response 201：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "status": "running"
+  }
+}
+```
+
+长 run：M2 同步执行；预留 202 + poll（§12.4）。
+
+**GET /eval/runs/{id}**
+
+```json
+{
+  "id": "uuid",
+  "set_id": "uuid",
+  "status": "completed",
+  "config_snapshot_json": { "top_k": 8, "retrieval_provider": "local" },
+  "metrics_json": {
+    "total": 10,
+    "passed": 8,
+    "hit_at_k_rate": 0.8,
+    "empty_rate": 0.0,
+    "latency_ms_p50": 120,
+    "latency_ms_p95": 450
+  },
+  "per_case_results_json": [
+    {
+      "case_id": "uuid",
+      "pass": false,
+      "reason": "miss_hit",
+      "latency_ms": 98,
+      "top_k_ids": ["chunk-uuid"],
+      "retrieval_log_id": "uuid"
+    }
+  ],
+  "created_at": "...",
+  "completed_at": "..."
+}
+```
+
+**GET /eval/runs** — Query: `set_id`, `page`, `page_size`
+
+### 23.4 模板
+
+**POST /eval/import-template**
+
+Body: `{ "template_id": "b2b-smoke-v1" }` 或上传 JSON body（与 Pack 内 eval_set 同 schema）
+
+---
+
+## 24. RAG 扩展 — `/api/v1/rag`
+
+### 24.1 POST /rag/search（扩展 Query）
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| scope | string | union | union \| global_only \| project_only |
+| include_context_preview | bool | false | true 时返回 `context_preview_text`（M2 Lab） |
+
+Response 增加可选字段：
+
+```json
+{
+  "log_id": "uuid",
+  "context_preview_text": "..."
+}
+```
+
+### 24.2 GET /rag/logs（扩展 Query）
+
+| 参数 | 说明 |
+|------|------|
+| message_id | UUID |
+| conversation_id | UUID |
+| eval_run_id | UUID |
+| project_id | UUID |
+
+**GET /rag/logs/{id}** — 单条详情（M2）
+
+---
+
+## 25. Knowledge Pack — `/api/v1/knowledge/packs`
+
+**POST /knowledge/packs/import**
+
+- Content-Type: `multipart/form-data`，file=`.zip`  
+- Query: `force=false`  
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "documents_imported": 3,
+    "cases_imported": 2,
+    "talking_points_imported": 1,
+    "eval_set_id": "uuid",
+    "errors": []
+  }
+}
+```
+
+**GET /knowledge/packs/templates** — 列出内置 template_id（M3）
+
+---
+
+## 26. API 端点统计（KB 增量）
+
+| 模块 | 新增端点约 |
+|------|------------|
+| Eval | 12 |
+| RAG 扩展 | 2 |
+| Knowledge Pack | 2 |

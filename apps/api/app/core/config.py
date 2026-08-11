@@ -21,8 +21,16 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "Enterprise Knowledge Assistant API"
-    app_version: str = "0.1.0"
+    app_version: str = "1.0.0-kb-case"
     debug: bool = False
+    app_env: str = "development"
+    kb_sku: str = "standard"
+    canvas_enabled: bool = False
+
+    # Private deployment seed (KB_PRIVATE_DELIVERY_SPEC M1-1)
+    initial_admin_email: str = ""
+    initial_admin_password: str = ""
+    seed_demo_content: bool = True
 
     # Database
     database_url: str = (

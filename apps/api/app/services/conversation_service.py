@@ -1332,6 +1332,7 @@ class ConversationService:
             try:
                 kb_citations, kb_block, kb_meta = await acquire_kb_context(
                     db, msg, project_id=project_id, top_k=8,
+                    conversation_id=conversation_id,
                 )
             except Exception:
                 logger.exception("conversational: kb retrieval failed; continuing.")
@@ -1495,7 +1496,8 @@ class ConversationService:
         rich_content = (
             {"blocks": [citation_block]} if citation_block else None
         )
-        await self.save_message(
+        log_id_raw = kb_meta.get("retrieval_log_id")
+        assistant_msg = await self.save_message(
             db, conversation_id, "assistant",
             content=full_text,
             content_type="text",
@@ -1504,9 +1506,31 @@ class ConversationService:
                 "intent": "conversational",
                 "kb_hit_count": kb_meta.get("total", 0),
                 "web_hit_count": len(web_hits),
+                "retrieval_log_ids": [log_id_raw] if log_id_raw else [],
+                "citations": kb_citations,
             },
             auto_commit=True,
         )
+        if log_id_raw:
+            try:
+                from app.services.retrieval_trace_service import link_message_to_retrieval_log
+
+                proj_uuid = None
+                if project_id:
+                    try:
+                        proj_uuid = uuid.UUID(project_id)
+                    except (ValueError, TypeError):
+                        proj_uuid = None
+                await link_message_to_retrieval_log(
+                    db,
+                    uuid.UUID(log_id_raw),
+                    assistant_msg.id,
+                    conversation_id,
+                    project_id=proj_uuid,
+                )
+                await db.commit()
+            except Exception:
+                logger.exception("conversational: link retrieval log to message failed")
 
     async def _handle_node_edit(
         self,

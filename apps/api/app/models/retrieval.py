@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -52,6 +52,11 @@ class RetrievalLog(Base):
     # Which agent / tool triggered the retrieval (knowledge_search,
     # case_search, planner, …) for filtering the admin log view.
     triggered_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(), nullable=True, index=True)
+    conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(), nullable=True, index=True)
+    message_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(), nullable=True, index=True)
+    eval_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

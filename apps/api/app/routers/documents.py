@@ -13,8 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
-from app.models.document import Document
+from app.models.document import Document, DocumentChunk
+from app.models.user import User
 from app.schemas.common import PaginatedResponse, Response
 from app.schemas.document import (
     DocumentBatchDeleteRequest,
@@ -26,6 +28,7 @@ from app.schemas.document import (
     DocumentUpdate,
     DocumentUploadResponse,
 )
+from app.schemas.knowledge_pack import DocumentChunkOut
 from app.services.document_service import DocumentService
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -80,6 +83,7 @@ async def _remove_document(document: Document, db: AsyncSession) -> None:
 async def index_batch(
     body: DocumentBatchIndexRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Batch index documents by IDs, by project, or all un-indexed."""
     service = _get_service()
@@ -102,6 +106,7 @@ async def index_batch(
 async def delete_batch(
     body: DocumentBatchDeleteRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Delete multiple documents (and their chunks + stored files) at once."""
     documents = (
@@ -203,6 +208,7 @@ async def upload_document(
     project_id: Optional[uuid.UUID] = Query(None),
     auto_index: bool = Query(True, description="Automatically index after upload"),
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Upload a document and optionally auto-index it into the knowledge base."""
     service = _get_service()
@@ -276,6 +282,46 @@ async def list_documents(
     )
 
 
+@router.get("/{document_id}/chunks", response_model=Response[List[DocumentChunkOut]])
+async def list_document_chunks(
+    document_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """List parsed chunks for a document (M3 chunk preview)."""
+    document = await db.get(Document, document_id)
+    if not document:
+        raise NotFoundException("Document", str(document_id))
+
+    offset = (page - 1) * page_size
+    rows = (
+        await db.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == document_id)
+            .order_by(DocumentChunk.chunk_index)
+            .offset(offset)
+            .limit(page_size)
+        )
+    ).scalars().all()
+
+    preview_len = 400
+    items = [
+        DocumentChunkOut(
+            id=c.id,
+            chunk_index=c.chunk_index,
+            page_number=c.page_number,
+            token_count=c.token_count,
+            content_preview=(
+                c.content[:preview_len] + ("…" if len(c.content) > preview_len else "")
+            ),
+            metadata_json=c.metadata_json,
+        )
+        for c in rows
+    ]
+    return Response(data=items)
+
+
 @router.get("/{document_id}", response_model=Response[DocumentOut])
 async def get_document(document_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Get a document by ID."""
@@ -289,6 +335,7 @@ async def get_document(document_id: uuid.UUID, db: AsyncSession = Depends(get_db
 async def index_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Manually trigger (re-)indexing of a single document into the knowledge base."""
     service = _get_service()
@@ -310,7 +357,10 @@ async def index_document(
 
 @router.put("/{document_id}", response_model=Response[DocumentOut])
 async def update_document(
-    document_id: uuid.UUID, body: DocumentUpdate, db: AsyncSession = Depends(get_db)
+    document_id: uuid.UUID,
+    body: DocumentUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Update a document's metadata."""
     document = await db.get(Document, document_id)
@@ -327,7 +377,11 @@ async def update_document(
 
 
 @router.delete("/{document_id}", response_model=Response)
-async def delete_document(document_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Delete a document and its chunks."""
     document = await db.get(Document, document_id)
     if not document:
@@ -338,16 +392,17 @@ async def delete_document(document_id: uuid.UUID, db: AsyncSession = Depends(get
 
 
 @router.post("/{document_id}/auto-tag", response_model=Response[dict])
-async def auto_tag_document(document_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def auto_tag_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Auto-suggest category for a document using LLM."""
     from app.services.auto_tagger import suggest_tags
 
     doc = await db.get(Document, document_id)
     if not doc:
         raise NotFoundException("Document", str(document_id))
-    # Use the first chunk as content sample
-    from app.models.document import DocumentChunk
-
     chunks = (
         await db.execute(
             select(DocumentChunk.content)

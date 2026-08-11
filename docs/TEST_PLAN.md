@@ -354,3 +354,50 @@ cd apps/api && pytest app/tests/test_presale_main_flow.py \
 | Phase 2 完成后 | +30 | ~139 | Document + CompanyProfile + Conversation + Skills |
 | Phase 3 完成后 | +25 | ~164 | Templates + Workflows + Rules + VisualStyles |
 | Phase 4 完成后 | +8 | ~172 | 导出质量 |
+
+---
+
+## 11. KB-Case-Delivery 测试（私有化交付）
+
+> 规格：[KB_PRIVATE_DELIVERY_SPEC.md](./KB_PRIVATE_DELIVERY_SPEC.md)  
+> 任务 ID 见该文档 §21
+
+### 11.1 新增用例清单
+
+| ID | 测试文件/用例 | 里程碑 | 断言要点 |
+|----|----------------|--------|----------|
+| KB-E2E-01 | `test_knowledge_qa_flow` | M1 | 上传 PDF/text → index → POST message → citations 非空且 id ∈ log |
+| KB-E2E-02 | `test_retrieval_log_message_link` | M1 | message.metadata.retrieval_log_ids 可 GET log |
+| KB-SEC-01 | `test_settings_require_admin` | M1 | user 角色 PUT /settings → 403 |
+| KB-SEC-02 | `test_seed_demo_disabled` | M1 | SEED_DEMO_CONTENT=false 无 demo 案例 tag |
+| KB-EVAL-01 | `test_eval_scoring_hit_at_k` | M2 | 纯 scoring 单测 |
+| KB-EVAL-02 | `test_eval_run_completed` | M2 | 2 cases mock retriever → metrics 正确 |
+| KB-EVAL-03 | `test_eval_from_lab_case` | M2 | from-lab API 写入 expected_chunk_ids |
+| KB-RAG-01 | `test_rag_search_scope_project_only` | M2 | scope 过滤 |
+| KB-RAG-02 | `test_rag_context_preview` | M2 | include_context_preview=true |
+| KB-PACK-01 | `test_knowledge_pack_import` | M3 | 最小 zip → documents + eval_set |
+| KB-REV-01 | `test_review_enqueue_zero_hit` | M4 | metadata 零命中 → review_items |
+
+### 11.2 回归集（每次 PR）
+
+```bash
+cd apps/api && pytest app/tests/test_rag.py app/tests/test_knowledge_qa_flow.py \
+  app/tests/test_eval_run_hit_at_k.py -v
+```
+
+### 11.3 UAT（人工，替代 Canvas 十步）
+
+按 [PROJECT_SPEC.md](./PROJECT_SPEC.md) §9.1 与更新后的 [DEMO.md](./DEMO.md) KB 剧本：
+
+1. Admin 上传资料 → indexed  
+2. 检索测试命中  
+3. 创建项目 → chat  
+4. 提问有引用  
+5. 多轮追问  
+6. 关 web_search 重复  
+7. Eval Run 通过率达标  
+8. 界面无 Canvas 主入口  
+
+### 11.4 Mock 策略调整
+
+KB E2E 可使用 **真实 Embedding mock + 固定 chunk 入库**（test fixture），不调用外部 LLM；对话层可 mock LLM 返回固定 JSON 含 citations 字段，或断言 pipeline 到 retrieval 为止（分层 E2E）。

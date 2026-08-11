@@ -5,7 +5,9 @@ from typing import Dict
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import require_admin
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.common import Response
 from app.services.settings_service import SettingsService
 
@@ -23,6 +25,7 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
 async def update_settings(
     body: Dict[str, str],
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Update application settings. Masked API keys are skipped."""
     data = await SettingsService.update_many(db, body)

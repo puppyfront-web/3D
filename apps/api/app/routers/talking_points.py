@@ -9,8 +9,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
 from app.models.talking_point import TalkingPoint
+from app.models.user import User
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.knowledge_base import TalkingPointCreate, TalkingPointOut, TalkingPointUpdate
 from app.services.config_export_service import ConfigExportService
@@ -24,6 +26,7 @@ async def import_talking_points(
     file: UploadFile = File(...),
     mode: str = Query("skip", pattern="^(skip|overwrite|rename)$"),
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     parsed = await ImportService.parse_file(file, "talking_point")
     applied = await ImportService.apply_items(db, "talking_point", parsed.items, mode)
@@ -92,7 +95,11 @@ async def get_talking_point(point_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 
 @router.post("", response_model=Response[TalkingPointOut], status_code=status.HTTP_201_CREATED)
-async def create_talking_point(body: TalkingPointCreate, db: AsyncSession = Depends(get_db)):
+async def create_talking_point(
+    body: TalkingPointCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     row = TalkingPoint(**body.model_dump())
     db.add(row)
     await db.flush()
@@ -102,7 +109,10 @@ async def create_talking_point(body: TalkingPointCreate, db: AsyncSession = Depe
 
 @router.put("/{point_id}", response_model=Response[TalkingPointOut])
 async def update_talking_point(
-    point_id: uuid.UUID, body: TalkingPointUpdate, db: AsyncSession = Depends(get_db)
+    point_id: uuid.UUID,
+    body: TalkingPointUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     row = await db.get(TalkingPoint, point_id)
     if not row:
@@ -115,7 +125,11 @@ async def update_talking_point(
 
 
 @router.delete("/{point_id}", response_model=Response)
-async def delete_talking_point(point_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_talking_point(
+    point_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     row = await db.get(TalkingPoint, point_id)
     if not row:
         raise NotFoundException("TalkingPoint", str(point_id))
