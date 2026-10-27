@@ -73,7 +73,7 @@ function RagTestInner() {
         latencyMs: res.data.latencyMs ?? (res.data as { latency_ms?: number }).latency_ms ?? 0,
         retrievalType: res.data.retrievalType ?? (res.data as { retrieval_type?: string }).retrieval_type ?? "hybrid",
       });
-      const raw = res.data as Record<string, unknown>;
+      const raw = res.data as unknown as Record<string, unknown>;
       setContextPreview(
         (res.data.contextPreviewText as string | undefined) ??
           (raw.context_preview_text as string | undefined) ??

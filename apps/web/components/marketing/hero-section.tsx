@@ -3,7 +3,7 @@
 // HeroSection — split hero (Linear-style): left = display copy + CTAs,
 // right = the REAL task-input panel (the product protagonist) with a live
 // "AI 大脑调度预览" strip. The input flow is unchanged: upload asset (if any)
-// → POST /projects/wizard → redirect to canvas with init_prompt.
+// → POST /projects/wizard → redirect to chat with init_prompt.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -94,7 +94,7 @@ export function HeroSection() {
       }
     }
 
-    // Compose the initial message that the canvas conversation will auto-send
+    // Compose the initial message that the chat conversation will auto-send
     // once the project conversation resolves. Kept in sync with the project
     // description so backend IntentDetector / ProposalAgent can pick up the
     // `[ref_doc:...]` reference for RAG.
@@ -130,7 +130,7 @@ export function HeroSection() {
       const json = await res.json();
       const projectId = json?.data?.id;
       if (!projectId) throw new Error("未返回项目 ID");
-      // Carry the original prompt to the canvas; the left-rail conversation
+      // Carry the original prompt to the chat; the left-rail conversation
       // panel will auto-send it as the first message.
       const target = initialMessage.trim()
         ? `/workspace/chat/${projectId}?init_prompt=${encodeURIComponent(initialMessage.trim())}`
