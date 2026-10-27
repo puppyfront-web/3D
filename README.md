@@ -1,6 +1,6 @@
-# 企业知识库与方案问答助手
+# AI 团队平台
 
-面向企业私有化部署的**知识库运营 + 可追溯问答**平台：资料上传入库、混合检索、项目级问答，输出带引用的结论与方案建议。
+自建 AI 团队 · AI 大脑（CEO）统一调度的多 Agent 协作平台，内置展厅·文旅 / 3D 展示幕墙售前策划团队。
 
 ## 产品形态
 
@@ -34,9 +34,9 @@
 docker compose up -d
 
 # 访问
-# 前端：http://localhost:3000
-# 后端 API：http://localhost:8000
-# API 文档：http://localhost:8000/docs
+# 前端：http://localhost:13700
+# 后端 API：http://localhost:13800
+# API 文档：http://localhost:13800/docs
 ```
 
 ### 生产部署（国内服务器）
@@ -52,7 +52,7 @@ sudo ./scripts/setup-docker-mirror.sh
 ./deploy.sh
 ```
 
-部署后访问前端 `http://<服务器IP>:3000`、API `http://<服务器IP>:8000`。
+部署后访问前端 `http://<服务器IP>:13700`、API `http://<服务器IP>:13800`。
 常用运维：`./scripts/backup.sh` 备份、`docker compose -f docker-compose.prod.yml logs -f api` 看日志。
 
 ### 本地开发
@@ -65,7 +65,7 @@ docker compose up -d db
 cd apps/api
 cp ../../.env.example .env
 pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 13800
 
 # 3. 启动前端
 cd apps/web

@@ -8,6 +8,7 @@
 // retrieval type. Clicking a row expands the structured query + retrieved
 // items JSON for traceability.
 
+import Link from "next/link";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,8 @@ const TRIGGER_LABEL: Record<string, string> = {
   case_search: "案例检索",
   hybrid_retriever: "混合检索",
   rag_search_api: "检索测试",
+  rag_hit_test: "检索实验室",
+  eval_replay: "评测回放",
   retrieval_orchestrator: "检索编排",
 };
 
@@ -118,9 +121,9 @@ export default function RetrievalLogsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部来源</SelectItem>
+                <SelectItem value="rag_hit_test">检索实验室</SelectItem>
+                <SelectItem value="eval_replay">评测回放</SelectItem>
                 <SelectItem value="knowledge_qa">问答检索</SelectItem>
-                <SelectItem value="knowledge_search">知识库检索</SelectItem>
-                <SelectItem value="rag_search_api">检索测试</SelectItem>
                 <SelectItem value="case_search">案例检索</SelectItem>
                 <SelectItem value="hybrid_retriever">混合检索</SelectItem>
                 <SelectItem value="retrieval_orchestrator">检索编排</SelectItem>
@@ -276,6 +279,24 @@ export default function RetrievalLogsPage() {
                                 <p className="text-[10px] text-outline">
                                   关联输出：{log.final_output_id}
                                 </p>
+                              )}
+                              {(log.conversation_id || log.project_id) && (
+                                <div className="flex flex-wrap gap-3 text-xs">
+                                  {log.project_id ? (
+                                    <Link
+                                      href={`/workspace/chat/${log.project_id}`}
+                                      className="text-primary hover:underline"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      打开项目问答
+                                    </Link>
+                                  ) : null}
+                                  {log.message_id ? (
+                                    <span className="text-outline">
+                                      message={String(log.message_id).slice(0, 8)}…
+                                    </span>
+                                  ) : null}
+                                </div>
                               )}
                             </div>
                           </TableCell>

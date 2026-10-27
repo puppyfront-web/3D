@@ -192,7 +192,7 @@ export default function PricingExperiencesPage() {
               </div>
               <div className="space-y-2">
                 <Label>项目类型</Label>
-                <Input placeholder="如 企业3D数字化展示" value={form.projectType} onChange={(e) => setForm({ ...form, projectType: e.target.value })} />
+                <Input placeholder="如 企业展厅数字化展示" value={form.projectType} onChange={(e) => setForm({ ...form, projectType: e.target.value })} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

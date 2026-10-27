@@ -9,8 +9,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
 from app.models.industry_material import IndustryMaterial
+from app.models.user import User
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.knowledge_base import (
     IndustryMaterialCreate,
@@ -28,6 +30,7 @@ async def import_industry_materials(
     file: UploadFile = File(...),
     mode: str = Query("skip", pattern="^(skip|overwrite|rename)$"),
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     parsed = await ImportService.parse_file(file, "industry_material")
     applied = await ImportService.apply_items(db, "industry_material", parsed.items, mode)
@@ -96,7 +99,11 @@ async def get_industry_material(material_id: uuid.UUID, db: AsyncSession = Depen
 
 
 @router.post("", response_model=Response[IndustryMaterialOut], status_code=status.HTTP_201_CREATED)
-async def create_industry_material(body: IndustryMaterialCreate, db: AsyncSession = Depends(get_db)):
+async def create_industry_material(
+    body: IndustryMaterialCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     row = IndustryMaterial(**body.model_dump())
     db.add(row)
     await db.flush()
@@ -106,7 +113,10 @@ async def create_industry_material(body: IndustryMaterialCreate, db: AsyncSessio
 
 @router.put("/{material_id}", response_model=Response[IndustryMaterialOut])
 async def update_industry_material(
-    material_id: uuid.UUID, body: IndustryMaterialUpdate, db: AsyncSession = Depends(get_db)
+    material_id: uuid.UUID,
+    body: IndustryMaterialUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     row = await db.get(IndustryMaterial, material_id)
     if not row:
@@ -119,7 +129,11 @@ async def update_industry_material(
 
 
 @router.delete("/{material_id}", response_model=Response)
-async def delete_industry_material(material_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_industry_material(
+    material_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     row = await db.get(IndustryMaterial, material_id)
     if not row:
         raise NotFoundException("IndustryMaterial", str(material_id))

@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
 from app.models.user import Role, User
 from app.schemas.common import PaginatedResponse, Response
@@ -65,7 +66,11 @@ async def get_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=Response[UserOut], status_code=status.HTTP_201_CREATED)
-async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
+async def create_user(
+    body: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Create a new user."""
     role = await db.get(Role, body.role_id)
     if not role:
@@ -84,7 +89,10 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{user_id}", response_model=Response[UserOut])
 async def update_user(
-    user_id: uuid.UUID, body: UserUpdate, db: AsyncSession = Depends(get_db)
+    user_id: uuid.UUID,
+    body: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Update an existing user."""
     user = await db.get(User, user_id)
@@ -101,7 +109,11 @@ async def update_user(
 
 
 @router.delete("/{user_id}", response_model=Response)
-async def delete_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Delete a user."""
     user = await db.get(User, user_id)
     if not user:

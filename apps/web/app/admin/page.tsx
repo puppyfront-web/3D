@@ -36,6 +36,8 @@ interface StatItem {
   color: string;
 }
 
+const KB_SKU = (process.env.NEXT_PUBLIC_KB_SKU || "standard").toLowerCase();
+
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<StatItem[]>([
     { label: "活跃项目", value: "-", loading: true, icon: <FolderKanban className="h-5 w-5" />, color: "text-primary" },
@@ -83,6 +85,20 @@ export default function AdminDashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const kbQuickLinks = [
+    { label: "资料上传", href: "/admin/assets", desc: "上传并入库企业文档" },
+    { label: "检索实验室", href: "/admin/rag-test", desc: "验证混合检索与保存用例" },
+    { label: "评测中心", href: "/admin/eval", desc: "Hit@k 回归与冒烟模板" },
+    { label: "检索日志", href: "/admin/retrieval-logs", desc: "问答与 Eval 追溯" },
+  ];
+
+  const onboardingSteps = [
+    { step: 1, title: "配置 LLM / Embedding", href: "/admin/settings" },
+    { step: 2, title: "上传资料或导入 Pack", href: "/admin/assets" },
+    { step: 3, title: "检索实验室测 1 条", href: "/admin/rag-test" },
+    { step: 4, title: "创建项目并开始问答", href: "/workspace/projects/new" },
+  ];
+
   const adminLinks = [
     { label: "资产管理", desc: "管理3D模型、图片、视频等素材资源", href: "/admin/assets", icon: <Package className="h-5 w-5 text-primary" /> },
     { label: "案例库", desc: "管理成功案例，用于方案参考和素材复用", href: "/admin/cases", icon: <BookOpen className="h-5 w-5 text-[#00875a]" /> },
@@ -105,6 +121,45 @@ export default function AdminDashboardPage() {
         <h1 className="text-xl font-semibold text-on-surface">系统管理</h1>
         <p className="text-sm text-gray-500 mt-1">管理平台配置、模板、规则和资产资源</p>
       </div>
+
+      {KB_SKU !== "full" ? (
+        <>
+          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">
+            交付验收快捷入口
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {kbQuickLinks.map((link) => (
+              <Link key={link.href} href={link.href}>
+                <Card className="border-primary/20 hover:border-primary/40 h-full">
+                  <CardContent className="p-4">
+                    <p className="text-sm font-medium text-on-surface">{link.label}</p>
+                    <p className="text-xs text-gray-500 mt-1">{link.desc}</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3 mt-2">
+            首次交付引导
+          </h2>
+          <ol className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-8">
+            {onboardingSteps.map((s) => (
+              <li key={s.step}>
+                <Link href={s.href}>
+                  <Card className="h-full hover:border-primary/30">
+                    <CardContent className="p-4 flex gap-3 items-start">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
+                        {s.step}
+                      </span>
+                      <span className="text-sm text-on-surface">{s.title}</span>
+                    </CardContent>
+                  </Card>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : null}
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">

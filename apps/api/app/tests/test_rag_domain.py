@@ -67,7 +67,7 @@ async def _ensure_seed_data(db: AsyncSession):
 
     project = Project(
         id=uuid.uuid4(),
-        name="Test 3D Wall Project",
+        name="Test Team Project",
         description="A test project for RAG validation",
         company_id=company.id,
         owner_id=user.id,
@@ -182,7 +182,7 @@ async def test_retrieve_commercial_naked_eye_3d(db_session: AsyncSession):
     """Scenario 1: 商业综合体裸眼3D → should hit commercial / naked-eye-3D case."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="商业综合体 裸眼3D",
         top_k=5,
         db=db_session,
@@ -205,7 +205,7 @@ async def test_retrieve_automotive_launch(db_session: AsyncSession):
     """Scenario 2: 汽车品牌发布 → should hit automotive / tech-style case."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="汽车品牌发布会 LED视觉方案",
         top_k=5,
         db=db_session,
@@ -229,7 +229,7 @@ async def test_retrieve_outdoor_led(db_session: AsyncSession):
     """Scenario 3: 户外LED大屏 → should hit outdoor / LED case."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="户外LED大屏 广告",
         top_k=5,
         db=db_session,
@@ -253,7 +253,7 @@ async def test_low_quality_case_not_ranked_first(db_session: AsyncSession):
     """Scenario 4: Low-quality cases should NOT rank first."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="商业综合体 裸眼3D",
         top_k=5,
         db=db_session,
@@ -333,7 +333,7 @@ async def test_keyword_only_hits_chunks(db_session: AsyncSession):
     """Keyword-only mode should find document chunks by text match."""
     await _ensure_seed_data(db_session)
     retriever = HybridRetriever()
-    results = await retriever.search(
+    results, _ = await retriever.search(
         query="像素间距",
         top_k=5,
         retrieval_type="keyword",
@@ -358,11 +358,11 @@ async def test_talking_points_and_pricing_search_log(db_session: AsyncSession):
 
     db_session.add(TalkingPoint(
         id=uuid.uuid4(), scenario="首次接洽", title="开场话术",
-        content="您好，我们是售前方案团队…", industry="制造业", is_active=True,
+        content="您好，我们是示例科技公司…", industry="制造业", is_active=True,
     ))
     db_session.add(PricingExperience(
         id=uuid.uuid4(), title="制造业展厅报价参考", industry="制造业",
-        project_type="企业3D数字化展示", budget_range="50-150万",
+        project_type="展厅·文旅数字化展示", budget_range="50-150万",
         duration="4-8周", is_active=True,
     ))
     await db_session.commit()

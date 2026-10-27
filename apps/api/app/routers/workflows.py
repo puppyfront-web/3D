@@ -9,7 +9,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
+from app.models.user import User
 from app.models.workflow import SOPWorkflow
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.workflow import SOPWorkflowCreate, SOPWorkflowOut, SOPWorkflowUpdate
@@ -29,6 +31,7 @@ async def import_workflows(
         description="冲突策略: skip 跳过已存在 / overwrite 覆盖 / rename 建副本",
     ),
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Import SOP workflows from JSON file."""
     parsed = await ImportService.parse_file(file, "sop_workflow")
@@ -99,7 +102,11 @@ async def get_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db
 
 
 @router.post("", response_model=Response[SOPWorkflowOut], status_code=status.HTTP_201_CREATED)
-async def create_workflow(body: SOPWorkflowCreate, db: AsyncSession = Depends(get_db)):
+async def create_workflow(
+    body: SOPWorkflowCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Create a new SOP workflow."""
     wf = SOPWorkflow(**body.model_dump())
     db.add(wf)
@@ -110,7 +117,10 @@ async def create_workflow(body: SOPWorkflowCreate, db: AsyncSession = Depends(ge
 
 @router.put("/{workflow_id}", response_model=Response[SOPWorkflowOut])
 async def update_workflow(
-    workflow_id: uuid.UUID, body: SOPWorkflowUpdate, db: AsyncSession = Depends(get_db)
+    workflow_id: uuid.UUID,
+    body: SOPWorkflowUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Update a workflow."""
     wf = await db.get(SOPWorkflow, workflow_id)
@@ -128,7 +138,11 @@ async def update_workflow(
 
 
 @router.delete("/{workflow_id}", response_model=Response)
-async def delete_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_workflow(
+    workflow_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
     """Delete a workflow."""
     wf = await db.get(SOPWorkflow, workflow_id)
     if not wf:

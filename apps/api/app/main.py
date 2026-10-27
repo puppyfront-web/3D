@@ -77,10 +77,12 @@ def _register_routers(app: FastAPI) -> None:
         company_profiles,
         conversations,
         documents,
+        eval,
         exports,
         feedback,
         generations,
         industry_materials,
+        knowledge_packs,
         pricing_experiences,
         projects,
         rag,
@@ -117,6 +119,8 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(rules.router, prefix=prefix, dependencies=auth_deps)
     app.include_router(generations.router, prefix=prefix, dependencies=auth_deps)
     app.include_router(rag.router, prefix=prefix, dependencies=auth_deps)
+    app.include_router(eval.router, prefix=prefix, dependencies=auth_deps)
+    app.include_router(knowledge_packs.router, prefix=prefix, dependencies=auth_deps)
     app.include_router(agents.router, prefix=prefix, dependencies=auth_deps)
     app.include_router(feedback.router, prefix=prefix, dependencies=auth_deps)
     app.include_router(exports.router, prefix=prefix, dependencies=auth_deps)

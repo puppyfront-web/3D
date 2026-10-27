@@ -9,7 +9,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.security import require_admin
 from app.db.session import get_db
+from app.models.user import User
 from app.models.rule import QualityRule, TechnicalRule
 from app.schemas.common import ImportResponse, PaginatedResponse, Response
 from app.schemas.rule import (
@@ -42,6 +44,7 @@ async def import_technical_rules(
     file: UploadFile = File(...),
     mode: str = _CONFLICT_MODE,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Import technical rules from JSON or TXT file."""
     parsed = await ImportService.parse_file(file, "technical_rule")
@@ -159,6 +162,7 @@ async def import_quality_rules(
     file: UploadFile = File(...),
     mode: str = _CONFLICT_MODE,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ):
     """Import quality rules from JSON or TXT file."""
     parsed = await ImportService.parse_file(file, "quality_rule")

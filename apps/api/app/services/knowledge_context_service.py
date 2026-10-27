@@ -53,6 +53,31 @@ def _chunk_to_citation(item: Dict[str, Any], index: int) -> Dict[str, Any]:
     }
 
 
+def build_context_preview_text(hits: List[Any], top_k: int = 8) -> str:
+    """Format hits the same way as QA context pack (M2 Lab preview)."""
+    lines: List[str] = [
+        "【企业内部知识库命中】（回答时必须优先依据以下内容，并在正文标注引用序号如 [1]）"
+    ]
+    if not hits:
+        lines.append(
+            "（未命中内部资料 — 请基于已有对话上下文作答；若无依据须明确说明「资料中未找到」，禁止编造。）"
+        )
+        return "\n\n" + "\n".join(lines) + "\n"
+
+    for i, h in enumerate(hits[:top_k], start=1):
+        if hasattr(h, "to_dict"):
+            item = h.to_dict()
+        elif isinstance(h, dict):
+            item = h
+        else:
+            continue
+        snippet = (item.get("content") or "").strip().replace("\n", " ")[:300]
+        title = item.get("title") or "文档片段"
+        provider_tag = f" [{item.get('provider')}]" if item.get("provider") not in (None, "local") else ""
+        lines.append(f"[{i}] {title}{provider_tag}：{snippet}")
+    return "\n\n" + "\n".join(lines) + "\n"
+
+
 async def is_web_search_enabled(db: AsyncSession) -> bool:
     raw = await SettingsService.get_safe(db, "web_search_enabled", "true")
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
@@ -65,6 +90,7 @@ async def acquire_kb_context(
     project_id: Optional[str] = None,
     top_k: int = 8,
     include_talking_points: bool = True,
+    conversation_id: Optional[uuid.UUID] = None,
 ) -> Tuple[List[Dict[str, Any]], str, Dict[str, Any]]:
     """Retrieve internal knowledge for a user question.
 
@@ -86,6 +112,7 @@ async def acquire_kb_context(
     proj_uuid = _parse_project_id(project_id)
     citations: List[Dict[str, Any]] = []
     lines: List[str] = ["【企业内部知识库命中】（回答时必须优先依据以下内容，并在正文标注引用序号如 [1]）"]
+    retrieval_log_id: Optional[str] = None
 
     try:
         embedding_service = await get_embedding_service(db)
@@ -98,20 +125,21 @@ async def acquire_kb_context(
     try:
         from app.rag.retrieval_orchestrator import retrieval_orchestrator
 
-        hits = await retrieval_orchestrator.search(
+        traced = await retrieval_orchestrator.search(
             db,
             q,
             top_k=top_k,
             project_id=proj_uuid,
             triggered_by="knowledge_qa",
+            conversation_id=conversation_id,
         )
+        hits = traced.hits
+        retrieval_log_id = str(traced.log_id) if traced.log_id else None
+        preview = build_context_preview_text(hits, top_k=top_k)
         for i, h in enumerate(hits[:top_k], start=1):
             item = h.to_dict()
             citations.append(_chunk_to_citation(item, i))
-            snippet = (item.get("content") or "").strip().replace("\n", " ")[:300]
-            title = item.get("title") or "文档片段"
-            provider_tag = f" [{item.get('provider')}]" if item.get("provider") != "local" else ""
-            lines.append(f"[{i}] {title}{provider_tag}：{snippet}")
+        lines = preview.strip().split("\n")
     except Exception:
         logger.exception("acquire_kb_context: retrieval orchestrator failed")
 
@@ -157,10 +185,24 @@ async def acquire_kb_context(
         "talking_point_count": tp_count,
         "total": len(citations),
         "path": "kb",
+        "retrieval_log_id": retrieval_log_id,
     }
 
+    if citations and retrieval_log_id:
+        try:
+            from app.services.retrieval_trace_service import patch_retrieval_log_context
+
+            await patch_retrieval_log_context(
+                db,
+                uuid.UUID(retrieval_log_id),
+                selected_context={"citations": citations},
+                project_id=proj_uuid,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            logger.exception("acquire_kb_context: patch retrieval log failed")
+
     if not citations:
-        lines.append("（未命中内部资料 — 请基于已有对话上下文作答；若无依据须明确说明「资料中未找到」，禁止编造。）")
-        return [], "\n\n" + "\n".join(lines) + "\n", meta
+        return [], build_context_preview_text([], top_k=top_k), meta
 
     return citations, "\n\n" + "\n".join(lines) + "\n", meta

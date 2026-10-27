@@ -2,6 +2,7 @@
 metadata registry pick them all up."""
 
 from app.models.user import Role, User
+from app.models.verification_code import EmailVerificationCode
 from app.models.project import Company, Project
 from app.models.company_profile import CompanyProfile
 from app.models.document import Document, DocumentChunk
@@ -22,6 +23,7 @@ from app.models.app_setting import AppSetting
 from app.models.industry_material import IndustryMaterial
 from app.models.talking_point import TalkingPoint
 from app.models.pricing_experience import PricingExperience
+from app.models.eval import EvalCase, EvalRun, EvalSet
 from app.models.knowledge_asset_revision import KnowledgeAssetRevision
 from app.models.canvas import (
     Canvas,
@@ -35,6 +37,7 @@ from app.models.canvas import (
 __all__ = [
     "User",
     "Role",
+    "EmailVerificationCode",
     "Company",
     "Project",
     "CompanyProfile",
@@ -50,6 +53,9 @@ __all__ = [
     "GenerationTask",
     "GenerationOutput",
     "RetrievalLog",
+    "EvalSet",
+    "EvalCase",
+    "EvalRun",
     "Feedback",
     "Skill",
     "SkillExecution",

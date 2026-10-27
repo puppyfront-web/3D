@@ -17,7 +17,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.rag.retriever import HybridRetriever, RetrievalResult
+from app.rag.retriever import HybridRetriever
 from app.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,30 @@ class NormalizedHit:
         }
 
 
+@dataclass
+class TracedRetrieval:
+    """Hits plus optional retrieval_logs.id from the local hybrid path."""
+
+    hits: List[NormalizedHit]
+    log_id: Optional[uuid.UUID] = None
+
+
+def _results_to_hits(results: List[Any], provider_id: str) -> List[NormalizedHit]:
+    return [
+        NormalizedHit(
+            chunk_id=r.chunk_id,
+            document_id=r.document_id or "",
+            content=r.content,
+            score=r.score,
+            source=getattr(r, "source", "chunk") or "chunk",
+            title=getattr(r, "title", None),
+            page_number=r.page_number,
+            provider=provider_id,
+        )
+        for r in results
+    ]
+
+
 class BaseRetrievalProvider(ABC):
     @property
     @abstractmethod
@@ -64,7 +88,10 @@ class BaseRetrievalProvider(ABC):
         top_k: int = 8,
         project_id: Optional[uuid.UUID] = None,
         triggered_by: str = "retrieval_orchestrator",
-    ) -> List[NormalizedHit]:
+        conversation_id: Optional[uuid.UUID] = None,
+        message_id: Optional[uuid.UUID] = None,
+        eval_run_id: Optional[uuid.UUID] = None,
+    ) -> TracedRetrieval:
         ...
 
 
@@ -84,7 +111,10 @@ class LocalRetrievalProvider(BaseRetrievalProvider):
         top_k: int = 8,
         project_id: Optional[uuid.UUID] = None,
         triggered_by: str = "retrieval_orchestrator",
-    ) -> List[NormalizedHit]:
+        conversation_id: Optional[uuid.UUID] = None,
+        message_id: Optional[uuid.UUID] = None,
+        eval_run_id: Optional[uuid.UUID] = None,
+    ) -> TracedRetrieval:
         from app.services.embedding_service import get_embedding_service
 
         try:
@@ -93,34 +123,24 @@ class LocalRetrievalProvider(BaseRetrievalProvider):
         except Exception:
             logger.debug("LocalRetrievalProvider: embedding unavailable, keyword path only")
 
-        results = await self._retriever.search(
+        results, log_id = await self._retriever.search(
             query=query,
             top_k=top_k,
             project_id=project_id,
             db=db,
             triggered_by=triggered_by,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            eval_run_id=eval_run_id,
         )
-        return [
-            NormalizedHit(
-                chunk_id=r.chunk_id,
-                document_id=r.document_id or "",
-                content=r.content,
-                score=r.score,
-                source=getattr(r, "source", "chunk") or "chunk",
-                title=getattr(r, "title", None),
-                page_number=r.page_number,
-                provider=self.provider_id,
-            )
-            for r in results
-        ]
+        return TracedRetrieval(
+            hits=_results_to_hits(results, self.provider_id),
+            log_id=log_id,
+        )
 
 
 class FastGPTRetrievalProvider(BaseRetrievalProvider):
-    """External vector search via FastGPT dataset searchTest API.
-
-    Document indexing/sync into FastGPT is managed separately (FastGPT UI or API).
-    This provider only handles retrieval.
-    """
+    """External vector search via FastGPT dataset searchTest API."""
 
     provider_id = "fastgpt"
 
@@ -149,11 +169,15 @@ class FastGPTRetrievalProvider(BaseRetrievalProvider):
         top_k: int = 8,
         project_id: Optional[uuid.UUID] = None,
         triggered_by: str = "retrieval_orchestrator",
-    ) -> List[NormalizedHit]:
+        conversation_id: Optional[uuid.UUID] = None,
+        message_id: Optional[uuid.UUID] = None,
+        eval_run_id: Optional[uuid.UUID] = None,
+    ) -> TracedRetrieval:
+        del conversation_id, message_id, eval_run_id, project_id
         cfg = await self._config(db)
         if not cfg["base_url"] or not cfg["api_key"] or not cfg["dataset_id"]:
             logger.warning("FastGPT retrieval skipped: missing base_url/api_key/dataset_id")
-            return []
+            return TracedRetrieval(hits=[])
 
         url = f"{cfg['base_url']}/api/core/dataset/searchTest"
         payload = {
@@ -177,7 +201,7 @@ class FastGPTRetrievalProvider(BaseRetrievalProvider):
                 body = resp.json()
         except Exception:
             logger.exception("FastGPT searchTest failed for query=%r", query[:80])
-            return []
+            return TracedRetrieval(hits=[])
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
         items = (body.get("data") or {}).get("list") or []
@@ -214,7 +238,7 @@ class FastGPTRetrievalProvider(BaseRetrievalProvider):
             elapsed_ms,
             triggered_by,
         )
-        return hits
+        return TracedRetrieval(hits=hits)
 
 
 class RetrievalOrchestrator:
@@ -238,36 +262,70 @@ class RetrievalOrchestrator:
         top_k: int = 8,
         project_id: Optional[uuid.UUID] = None,
         triggered_by: str = "knowledge_qa",
-    ) -> List[NormalizedHit]:
+        conversation_id: Optional[uuid.UUID] = None,
+        message_id: Optional[uuid.UUID] = None,
+        eval_run_id: Optional[uuid.UUID] = None,
+    ) -> TracedRetrieval:
+        trace_kw = {
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "eval_run_id": eval_run_id,
+        }
         provider = await self._provider_name(db)
 
         if provider == "fastgpt":
-            hits = await self._fastgpt.search(
-                db, query, top_k=top_k, project_id=project_id, triggered_by=triggered_by
+            traced = await self._fastgpt.search(
+                db,
+                query,
+                top_k=top_k,
+                project_id=project_id,
+                triggered_by=triggered_by,
+                **trace_kw,
             )
-            if hits:
-                return hits
+            if traced.hits:
+                return traced
             logger.info("FastGPT returned no hits; falling back to local retriever")
             return await self._local.search(
-                db, query, top_k=top_k, project_id=project_id, triggered_by=triggered_by
+                db,
+                query,
+                top_k=top_k,
+                project_id=project_id,
+                triggered_by=triggered_by,
+                **trace_kw,
             )
 
         if provider == "dual":
-            local_hits = await self._local.search(
-                db, query, top_k=top_k, project_id=project_id, triggered_by=f"{triggered_by}_local"
+            local_traced = await self._local.search(
+                db,
+                query,
+                top_k=top_k,
+                project_id=project_id,
+                triggered_by=f"{triggered_by}_local",
+                **trace_kw,
             )
-            fg_hits = await self._fastgpt.search(
-                db, query, top_k=top_k, project_id=project_id, triggered_by=f"{triggered_by}_fastgpt"
+            fg_traced = await self._fastgpt.search(
+                db,
+                query,
+                top_k=top_k,
+                project_id=project_id,
+                triggered_by=f"{triggered_by}_fastgpt",
+                **trace_kw,
             )
             merged: Dict[str, NormalizedHit] = {}
-            for h in local_hits + fg_hits:
+            for h in local_traced.hits + fg_traced.hits:
                 key = h.chunk_id or h.content[:80]
                 if key not in merged or h.score > merged[key].score:
                     merged[key] = h
-            return sorted(merged.values(), key=lambda x: x.score, reverse=True)[:top_k]
+            hits = sorted(merged.values(), key=lambda x: x.score, reverse=True)[:top_k]
+            return TracedRetrieval(hits=hits, log_id=local_traced.log_id)
 
         return await self._local.search(
-            db, query, top_k=top_k, project_id=project_id, triggered_by=triggered_by
+            db,
+            query,
+            top_k=top_k,
+            project_id=project_id,
+            triggered_by=triggered_by,
+            **trace_kw,
         )
 
 

@@ -175,7 +175,7 @@ class IntentDetector:
                 f"项目上下文：{json.dumps(project_context, ensure_ascii=False)[:500]}"
             )
 
-        system_prompt = """你是企业知识库问答助手的意图识别模块。
+        system_prompt = """你是 AI 团队平台的意图识别模块。
 根据用户消息判断意图，返回 JSON。
 
 产品定位：通用内部知识库 + 可追溯问答，**不依赖企业名称**也能回答。

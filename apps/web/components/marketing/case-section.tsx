@@ -11,11 +11,12 @@ import { getCases } from "@/lib/api";
 import type { CaseItem } from "@/types";
 import { Loader2, ArrowRight, MoreHorizontal, Box } from "lucide-react";
 
-// Tint rotation for cases without a cover image (Material 3 derived).
+// Tint rotation for cases without a cover image — single-accent (lavender)
+// tones to keep the dark marketing canvas disciplined.
 const FALLBACK_TINTS = [
   "bg-primary-fixed text-primary",
-  "bg-secondary-fixed text-secondary",
-  "bg-tertiary-fixed text-tertiary",
+  "bg-surface-container-high text-on-surface-variant",
+  "bg-primary-fixed text-primary",
 ];
 
 // Designed placeholder cases — mirror Stitch code_home.html "Case Studies".
@@ -100,7 +101,7 @@ export function CaseSection() {
               精选案例
             </h2>
             <p className="text-on-surface-variant text-sm mt-2">
-              行业售前方案实践与参考案例
+              查看 AI 团队平台助力企业数字化展示的成功实践
             </p>
           </div>
           <Link

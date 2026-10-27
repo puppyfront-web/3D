@@ -5,9 +5,12 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Enterprise Blueprint — Material 3 design tokens
- * Source: design/stitch/design_system.md (Stitch project 2205002937190653634)
- * Brand: high-tech enterprise B2B workbench. Primary #0052D9, Inter, 8px radius.
+ * AI 团队平台 — Material 3 design tokens
+ * Base structure: design/stitch/design_system.md (Stitch 2205002937190653634).
+ * Retheme 2026-10 (Linear-style): lavender-blue #5E6AD2 primary across the
+ * light app; `.theme-dark` scope swaps the marketing/auth faces onto a
+ * near-black surface ladder (#010102 canvas, #0F1011 panels, hairline
+ * #23252A borders). Single chromatic accent, no atmospheric gradients.
  * ────────────────────────────────────────────────────────────────────────── */
 
 @theme inline {
@@ -29,7 +32,7 @@
   --color-sidebar: var(--surface-container-lowest);
   --color-chart-5: #ef4444;
   --color-chart-4: #f59e0b;
-  --color-chart-3: #10b981;
+  --color-chart-3: #14b8a6;
   --color-chart-2: var(--surface-tint);
   --color-chart-1: var(--primary);
   --color-ring: var(--primary);
@@ -155,40 +158,40 @@
   --on-surface-variant: #434654;
   --on-background: #191c1e;
 
-  --outline: #737686;
-  --outline-variant: #c3c6d7;
-  --surface-tint: #0353da;
+  --outline: #6e7086;
+  --outline-variant: #c9cbe0;
+  --surface-tint: #6366f1;
 
-  /* Primary — Enterprise Blue */
-  --primary: #003da6;
+  /* Primary — Lavender-blue (Linear accent; shared by light app and dark marketing) */
+  --primary: #5e6ad2;
   --on-primary: #ffffff;
-  --primary-container: #0052d9;
-  --on-primary-container: #cbd6ff;
-  --inverse-primary: #b4c5ff;
-  --primary-fixed: #dbe1ff;
-  --primary-fixed-dim: #b4c5ff;
-  --on-primary-fixed: #00174b;
-  --on-primary-fixed-variant: #003ea8;
+  --primary-container: #6c78e0;
+  --on-primary-container: #ffffff;
+  --inverse-primary: #828fff;
+  --primary-fixed: #e9eafb;
+  --primary-fixed-dim: #cdd3f4;
+  --on-primary-fixed: #3c4399;
+  --on-primary-fixed-variant: #5e6ad2;
 
-  /* Secondary — functional green */
-  --secondary: #006c46;
+  /* Secondary — functional teal */
+  --secondary: #0f766e;
   --on-secondary: #ffffff;
-  --secondary-container: #84f6bc;
-  --on-secondary-container: #00714a;
-  --secondary-fixed: #87f8be;
-  --secondary-fixed-dim: #6adca4;
-  --on-secondary-fixed: #002112;
-  --on-secondary-fixed-variant: #005234;
+  --secondary-container: #99f6e4;
+  --on-secondary-container: #115e59;
+  --secondary-fixed: #99f6e4;
+  --secondary-fixed-dim: #5eead4;
+  --on-secondary-fixed: #042f2e;
+  --on-secondary-fixed-variant: #0f766e;
 
-  /* Tertiary — warm orange */
-  --tertiary: #733500;
+  /* Tertiary — violet */
+  --tertiary: #7c3aed;
   --on-tertiary: #ffffff;
-  --tertiary-container: #974700;
-  --on-tertiary-container: #ffcdb0;
-  --tertiary-fixed: #ffdbc8;
-  --tertiary-fixed-dim: #ffb689;
-  --on-tertiary-fixed: #311300;
-  --on-tertiary-fixed-variant: #743500;
+  --tertiary-container: #8b5cf6;
+  --on-tertiary-container: #ede9fe;
+  --tertiary-fixed: #ede9fe;
+  --tertiary-fixed-dim: #ddd6fe;
+  --on-tertiary-fixed: #2e1065;
+  --on-tertiary-fixed-variant: #6d28d9;
 
   /* Error */
   --error: #ba1a1a;
@@ -229,9 +232,9 @@
   --sidebar-border: var(--outline-variant);
   --sidebar-ring: var(--primary);
 
-  --chart-1: #003da6;
-  --chart-2: #0353da;
-  --chart-3: #10b981;
+  --chart-1: #4338ca;
+  --chart-2: #6366f1;
+  --chart-3: #14b8a6;
   --chart-4: #f59e0b;
   --chart-5: #ef4444;
 }
@@ -257,13 +260,64 @@
   background-size: 24px 24px;
 }
 
-/* Subtle marketing hero radial */
-.hero-radial {
-  background-image: radial-gradient(
-      ellipse at top,
-      var(--primary-fixed) 0%,
-      transparent 60%
-    );
+/* ─── Dark scope — marketing / auth faces (Linear-style ladder) ───────────
+ * Applied via `.theme-dark` on a subtree (landing page, login). Overrides
+ * the same Material3 variable names the utilities resolve against, so every
+ * bg-surface-* / text-on-* / border-outline-* class flips with it. */
+.theme-dark {
+  --surface: #010102;
+  --surface-bright: #0d0e10;
+  --surface-dim: #000000;
+  --surface-variant: #141516;
+  --surface-container-lowest: #0f1011;
+  --surface-container-low: #141516;
+  --surface-container: #18191a;
+  --surface-container-high: #191a1b;
+  --surface-container-highest: #202124;
+
+  --on-surface: #f7f8f8;
+  --on-surface-variant: #d0d6e0;
+  --on-background: #f7f8f8;
+
+  --outline: #3e3e44;
+  --outline-variant: #23252a;
+  --surface-tint: #5e6ad2;
+
+  --primary: #5e6ad2;
+  --on-primary: #ffffff;
+  --primary-container: #6c78e0;
+  --on-primary-container: #ffffff;
+  --inverse-primary: #828fff;
+  --primary-fixed: #262a4a;
+  --primary-fixed-dim: #1e2140;
+  --on-primary-fixed: #c7cdf8;
+  --on-primary-fixed-variant: #a5adf0;
+
+  --secondary: #4ade80;
+  --on-secondary: #052e16;
+  --secondary-container: #14361f;
+  --on-secondary-container: #86efac;
+  --secondary-fixed: #14361f;
+  --secondary-fixed-dim: #0f2919;
+  --on-secondary-fixed: #86efac;
+  --on-secondary-fixed-variant: #4ade80;
+
+  --tertiary: #a78bfa;
+  --on-tertiary: #1e1b4b;
+  --tertiary-container: #2a2450;
+  --on-tertiary-container: #c4b5fd;
+  --tertiary-fixed: #2a2450;
+  --tertiary-fixed-dim: #201b40;
+  --on-tertiary-fixed: #c4b5fd;
+  --on-tertiary-fixed-variant: #a78bfa;
+
+  --error: #f87171;
+  --on-error: #450a0a;
+  --error-container: #3a1d1d;
+  --on-error-container: #fca5a5;
+
+  --inverse-surface: #f5f6f6;
+  --inverse-on-surface: #0f1011;
 }
 
 /* Typewriter cursor for streaming AI responses (Stitch
@@ -286,6 +340,45 @@
   margin-left: 2px;
   vertical-align: middle;
   animation: typewriter-blink 1s step-end infinite;
+}
+
+/* Marketing illustration motion (team-discussion art). Dash-flow on the
+   dispatch lines + gentle float on panels/nodes; disabled for users who
+   prefer reduced motion. */
+@keyframes art-flow {
+  to {
+    stroke-dashoffset: -64;
+  }
+}
+.art-flow {
+  animation: art-flow 2.4s linear infinite;
+}
+@keyframes art-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+.art-float,
+.art-float-slow {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.art-float {
+  animation: art-float 5s ease-in-out infinite;
+}
+.art-float-slow {
+  animation: art-float 7s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .art-flow,
+  .art-float,
+  .art-float-slow {
+    animation: none;
+  }
 }
 
 /* Refined scrollbars for dense panels */

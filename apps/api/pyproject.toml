@@ -1,7 +1,7 @@
 [project]
 name = "3dwall-api"
 version = "0.1.0"
-description = "3D Wall Proposal Generation Platform API"
+description = "AI Team Platform API"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -23,6 +23,7 @@ dependencies = [
     "openai>=1.58.0",
     "httpx>=0.28.0",
     "pyjwt[crypto]>=2.8",
+    "aiosmtplib>=3.0",
     "bcrypt>=4.0",
 ]
 

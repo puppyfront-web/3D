@@ -1,4 +1,4 @@
-"""Skill Runtime system for the 3D Wall AI Expert System."""
+"""Skill Runtime system for the AI Team Platform."""
 
 from app.skills.base import BaseSkill, SkillContext, SkillManifest, SkillResult
 from app.skills.registry import SkillRegistry

@@ -2,6 +2,7 @@
 
 import logging
 import os
+import shutil
 import uuid
 from typing import List, Optional
 
@@ -108,6 +109,72 @@ class DocumentService:
             except Exception as e:
                 logger.error("Auto-index failed for document %s: %s", document.id, e)
                 document.status = "error"
+                await db.flush()
+
+        return document
+
+    async def import_file_from_path(
+        self,
+        source_path: str,
+        *,
+        original_filename: str,
+        db: AsyncSession,
+        project_id: Optional[uuid.UUID] = None,
+        title: Optional[str] = None,
+        category: Optional[str] = None,
+        auto_index: bool = True,
+    ) -> Document:
+        """Copy a file from disk into storage and optionally index (Knowledge Pack)."""
+        _, ext = os.path.splitext(original_filename)
+        ext = ext.lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise ValueError(
+                f"不支持的文件类型 '{ext}'，允许：{', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            )
+
+        with open(source_path, "rb") as src:
+            content = src.read()
+        if len(content) > settings.max_upload_size:
+            raise ValueError(
+                f"文件过大：{len(content)} 字节，上限 {settings.max_upload_size} 字节"
+            )
+
+        stored_name = f"{uuid.uuid4().hex}{ext}"
+        storage_dir = os.path.abspath(self._storage_path)
+        os.makedirs(storage_dir, exist_ok=True)
+        file_path = os.path.join(storage_dir, stored_name)
+        shutil.copy2(source_path, file_path)
+
+        if not validate_real_type(file_path, ext):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            raise ValueError(f"文件内容与扩展名 '{ext}' 不一致")
+
+        document = Document(
+            project_id=project_id,
+            filename=stored_name,
+            original_filename=original_filename,
+            content_type="application/octet-stream",
+            file_size=len(content),
+            file_path=file_path,
+            title=title or original_filename,
+            category=category,
+            status="uploaded",
+        )
+        db.add(document)
+        await db.flush()
+        await db.refresh(document)
+
+        if auto_index:
+            try:
+                await self._run_indexer(document.id, db)
+                await db.refresh(document)
+            except Exception as e:
+                logger.error("Pack auto-index failed for %s: %s", document.id, e)
+                document.status = "error"
+                document.parse_status = "parse_failed"
                 await db.flush()
 
         return document

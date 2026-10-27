@@ -45,12 +45,13 @@ async def test_orchestrator_local_search(db_session, sample_project_id):
     proj = sample_project_id if isinstance(sample_project_id, uuid.UUID) else uuid.UUID(str(sample_project_id))
     await _seed_chunk(db_session, proj, "企业知识库支持混合检索与可追溯问答")
 
-    hits = await retrieval_orchestrator.search(
+    traced = await retrieval_orchestrator.search(
         db_session,
         "混合检索",
         top_k=5,
         project_id=proj,
         triggered_by="test",
     )
+    hits = traced.hits
     assert len(hits) >= 1
     assert hits[0].provider == "local"

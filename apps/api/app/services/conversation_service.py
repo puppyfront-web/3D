@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _REF_DOC_RE = re.compile(r"\[ref_doc:([0-9a-fA-F-]{32,36})\]")
 
 # System prompt for conversational mode — KB-first answers with conclusion + plan.
-_CONVERSATION_SYSTEM_PROMPT = """你是企业知识库与方案问答助手，服务内部业务、销售、策划与项目经理。
+_CONVERSATION_SYSTEM_PROMPT = """你是 AI 团队平台的问答助手，服务内部业务、销售、策划与项目经理。
 
 你的任务是：基于【企业内部知识库命中】与（如有）【网络搜索命中】，给出**可直接使用的结论与方案建议**，而不是空泛建议。
 
@@ -1332,6 +1332,7 @@ class ConversationService:
             try:
                 kb_citations, kb_block, kb_meta = await acquire_kb_context(
                     db, msg, project_id=project_id, top_k=8,
+                    conversation_id=conversation_id,
                 )
             except Exception:
                 logger.exception("conversational: kb retrieval failed; continuing.")
@@ -1495,7 +1496,8 @@ class ConversationService:
         rich_content = (
             {"blocks": [citation_block]} if citation_block else None
         )
-        await self.save_message(
+        log_id_raw = kb_meta.get("retrieval_log_id")
+        assistant_msg = await self.save_message(
             db, conversation_id, "assistant",
             content=full_text,
             content_type="text",
@@ -1504,9 +1506,31 @@ class ConversationService:
                 "intent": "conversational",
                 "kb_hit_count": kb_meta.get("total", 0),
                 "web_hit_count": len(web_hits),
+                "retrieval_log_ids": [log_id_raw] if log_id_raw else [],
+                "citations": kb_citations,
             },
             auto_commit=True,
         )
+        if log_id_raw:
+            try:
+                from app.services.retrieval_trace_service import link_message_to_retrieval_log
+
+                proj_uuid = None
+                if project_id:
+                    try:
+                        proj_uuid = uuid.UUID(project_id)
+                    except (ValueError, TypeError):
+                        proj_uuid = None
+                await link_message_to_retrieval_log(
+                    db,
+                    uuid.UUID(log_id_raw),
+                    assistant_msg.id,
+                    conversation_id,
+                    project_id=proj_uuid,
+                )
+                await db.commit()
+            except Exception:
+                logger.exception("conversational: link retrieval log to message failed")
 
     async def _handle_node_edit(
         self,
@@ -1588,7 +1612,7 @@ class ConversationService:
             f"【网络搜索命中】\n{web_block}\n"
         )
         system_prompt = (
-            "你是售前方案工作台的文案撰写助手。用户正在「节点级对话」中，要你为画布上的单个节点撰写内容。\n"
+            "你是 AI 团队平台的画布节点编辑助手。用户正在「节点级对话」中，要你为画布上的单个节点撰写内容。\n"
             "硬性约束：\n"
             "1. 只为「当前节点」撰写内容，绝不要涉及其它节点。\n"
             "2. 直接输出该节点可用的成品售前文案——也就是用户采纳后能直接写进节点的内容。"
@@ -1730,7 +1754,7 @@ class ConversationService:
         """Courteous fixed reply for social greetings (no LLM, no workflow)."""
         msg = user_message.strip()
         if any(k in msg for k in ("你好", "您好", "嗨", "哈喽", "hi", "hello")):
-            reply = "你好！我是企业知识问答助手。你可以直接提问，或上传资料后基于内部知识库获得可追溯的回答。"
+            reply = "你好！我是 AI 团队平台的问答助手。你可以直接提问，或上传资料后基于内部知识库获得可追溯的回答。"
         elif any(k in msg for k in ("谢谢", "感谢", "thanks")):
             reply = "不客气！如有其他问题，继续提问即可。"
         elif any(k in msg for k in ("再见", "拜拜", "bye")):

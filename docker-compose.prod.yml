@@ -26,7 +26,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT:-13800}:8000"
     environment:
       # Database
       DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@db:5432/3dwall
@@ -38,7 +38,7 @@ services:
       APP_DEBUG: "false"
       API_KEY: ${API_KEY:-}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://3d.puppyfront.com,http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://3d.puppyfront.com,http://localhost:13700}
       # Workers
       API_WORKERS: ${API_WORKERS:-4}
       # LLM Provider
@@ -79,7 +79,7 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://3d.puppyfront.com}
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "${WEB_PORT:-13700}:3000"
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://3d.puppyfront.com}
     depends_on:

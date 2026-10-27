@@ -82,7 +82,7 @@ def canvas_to_markdown(
         nodes_by_group.setdefault(node.group_id, []).append(node)
 
     lines: List[str] = []
-    lines.append(f"# 企业3D数字化整体解决方案（{version_name}）")
+    lines.append(f"# 整体解决方案（{version_name}）")
     lines.append("")
     if change_summary:
         lines.append(f"> {change_summary}")
@@ -145,5 +145,5 @@ def canvas_to_markdown(
 
     lines.append("---")
     lines.append("")
-    lines.append("*本文档由售前方案工作台自动生成，AI 补全内容请人工核实后使用。*")
+    lines.append("*本文档由 AI 团队平台自动生成，AI 补全内容请人工核实后使用。*")
     return "\n".join(lines)

@@ -125,7 +125,7 @@ async def _make_project_with_canvas(db_session) -> Tuple[uuid.UUID, uuid.UUID, u
         company_id=company.id,
         owner_id=user.id,
         status="draft",
-        description="希望生成企业3D数字化展示方案",
+        description="希望生成展厅·文旅数字化展示方案",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
