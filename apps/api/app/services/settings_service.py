@@ -47,10 +47,17 @@ _SETTING_KEYS = {
     "fastgpt_api_key",
     "fastgpt_dataset_id",
     "fastgpt_search_mode",
+    # Email (verification-code login / password reset)
+    "email_provider",
+    "smtp_host",
+    "smtp_port",
+    "smtp_user",
+    "smtp_password",
+    "smtp_from",
 }
 
 # Keys that contain sensitive data
-_SENSITIVE_KEYS = {"llm_api_key", "embedding_api_key", "image_api_key", "web_search_tavily_api_key", "fastgpt_api_key"}
+_SENSITIVE_KEYS = {"llm_api_key", "embedding_api_key", "image_api_key", "web_search_tavily_api_key", "fastgpt_api_key", "smtp_password"}
 
 # Built-in defaults for non-sensitive settings. These are NOT read from .env —
 # they are sensible code-level fallbacks shown in the admin UI before the user
@@ -84,6 +91,8 @@ _BUILTIN_DEFAULTS: Dict[str, str] = {
     "fastgpt_base_url": "",
     "fastgpt_dataset_id": "",
     "fastgpt_search_mode": "embedding",
+    "email_provider": "mock",
+    "smtp_port": "587",
 }
 
 _MASK_PATTERN = re.compile(r"^\*{4}")

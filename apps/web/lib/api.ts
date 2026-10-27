@@ -29,13 +29,13 @@ import {
   PricingExperience,
 } from "@/types";
 import { toast } from "sonner";
-import { getToken } from "@/lib/auth";
+import { clearToken, getToken } from "@/lib/auth";
 
 // ============================================================
 // API Configuration
 // ============================================================
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:13800";
 
 // ============================================================
 // Auth API
@@ -58,6 +58,59 @@ export async function login(email: string, password: string): Promise<{ token: s
   };
 }
 
+/** Send a one-time email verification code (login or password reset). */
+export async function sendEmailCode(
+  email: string,
+  purpose: "login" | "reset",
+): Promise<{ expiresIn: number; devCode?: string | null }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/auth/email-code/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, purpose }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "发送失败" }));
+    throw new Error(err.detail || "发送失败");
+  }
+  const json = await res.json();
+  return { expiresIn: json.data?.expiresIn ?? 600, devCode: json.data?.devCode };
+}
+
+/** Login with email + one-time code (no password). */
+export async function loginWithEmailCode(email: string, code: string): Promise<{ token: string; user: { name?: string; email?: string; id?: string } }> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/auth/login/email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "登录失败" }));
+    throw new Error(err.detail || "登录失败");
+  }
+  const json = await res.json();
+  return {
+    token: json.data?.accessToken ?? json.data?.access_token,
+    user: json.data?.user,
+  };
+}
+
+/** Reset the account password with an emailed one-time code. */
+export async function resetPasswordWithEmailCode(
+  email: string,
+  code: string,
+  newPassword: string,
+): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/auth/password/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, new_password: newPassword }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "重置失败" }));
+    throw new Error(err.detail || "重置失败");
+  }
+}
+
 // Generic fetch wrapper for real API calls
 // Backend wraps responses in { success: bool, data: T, message: string }
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
@@ -75,6 +128,20 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<Api
       ...options,
     });
     if (!res.ok) {
+      // Expired/invalid token → drop local session and bounce to /login.
+      // Auth endpoints are excluded: a failed login must not redirect.
+      if (
+        res.status === 401 &&
+        !endpoint.startsWith("/api/v1/auth/") &&
+        typeof window !== "undefined"
+      ) {
+        clearToken();
+        if (window.location.pathname !== "/login") {
+          toast.error("登录已过期，请重新登录");
+          window.location.href = "/login";
+        }
+        return { data: null as T, success: false, message: "未授权" };
+      }
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       const message = err.detail || err.message || "请求失败";
       toast.error(`API 错误 (${res.status})`, {

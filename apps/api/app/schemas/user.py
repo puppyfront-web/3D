@@ -61,6 +61,28 @@ class LoginRequest(APIBaseModel):
     password: str = Field(..., min_length=1)
 
 
+class EmailCodeSendRequest(APIBaseModel):
+    email: str = Field(..., max_length=255)
+    purpose: str = Field("login", pattern="^(login|reset)$")
+
+
+class EmailCodeLoginRequest(APIBaseModel):
+    email: str = Field(..., max_length=255)
+    code: str = Field(..., min_length=4, max_length=8)
+
+
+class PasswordResetRequest(EmailCodeLoginRequest):
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
+class EmailCodeSendResponse(APIBaseModel):
+    expires_in: int
+    retry_after: Optional[int] = None
+    # Present only when email_provider=mock (no SMTP configured) so internal
+    # deployments can still use code login before SMTP is set up.
+    dev_code: Optional[str] = None
+
+
 class LoginResponse(APIBaseModel):
     access_token: str
     token_type: str = "bearer"

@@ -2,6 +2,7 @@
 metadata registry pick them all up."""
 
 from app.models.user import Role, User
+from app.models.verification_code import EmailVerificationCode
 from app.models.project import Company, Project
 from app.models.company_profile import CompanyProfile
 from app.models.document import Document, DocumentChunk
@@ -36,6 +37,7 @@ from app.models.canvas import (
 __all__ = [
     "User",
     "Role",
+    "EmailVerificationCode",
     "Company",
     "Project",
     "CompanyProfile",
