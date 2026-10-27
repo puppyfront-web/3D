@@ -18,7 +18,7 @@ from app.services.intent_service import IntentResult
 
 logger = logging.getLogger(__name__)
 
-_REACT_SYSTEM_PROMPT = """你是企业知识库问答助手的意图推理引擎。
+_REACT_SYSTEM_PROMPT = """你是 AI 团队平台的意图推理引擎。
 你需要通过多轮推理（Thought-Action-Observation）准确理解用户意图。
 
 ## 业务场景（通用，不限于特定行业）

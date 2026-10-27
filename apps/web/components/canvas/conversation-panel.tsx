@@ -611,7 +611,7 @@ export function ConversationPanel({
               <Bot className="h-4 w-4 text-primary fill" />
             </div>
             <div className="bg-surface-container-lowest p-3 rounded-xl rounded-tl-none border border-outline-variant text-sm shadow-sm text-on-surface-variant">
-              你好！我是企业知识问答助手。你可以直接提问；上传资料后我会基于内部知识库给出<strong className="text-on-surface font-medium">结论、方案建议与引用来源</strong>。
+              你好！我是 AI 团队平台的问答助手。你可以直接提问；上传资料后我会基于内部知识库给出<strong className="text-on-surface font-medium">结论、方案建议与引用来源</strong>。
             </div>
           </div>
         )}

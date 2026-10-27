@@ -20,7 +20,7 @@ services:
       context: ./apps/api
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "13800:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/3dwall
       # AI Providers — set to "openai" to use real APIs
@@ -52,9 +52,9 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "${WEB_PORT:-13700}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: http://localhost:13800
     depends_on:
       - api
 

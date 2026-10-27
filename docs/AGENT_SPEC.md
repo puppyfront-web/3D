@@ -1,6 +1,6 @@
 # Agent 工作流规格说明 (AGENT_SPEC)
 
-> 本文档定义 3D 展示幕墙 AI 专家系统的 Agent 工作流架构和实现规则。
+> 本文档定义 AI 团队平台的 Agent 工作流架构和实现规则。
 
 ---
 
@@ -641,7 +641,7 @@ class LLMService(ABC):
 
 ```python
 # ❌ 错误：硬编码 Prompt
-prompt = f"你是一个3D展示幕墙专家，请分析以下企业：{company_name}"
+prompt = f"你是 AI 团队平台的企业解析专家（3D展示幕墙/展厅·文旅领域），请分析以下企业：{company_name}"
 
 # ✅ 正确：使用模板
 template = await prompt_template_service.get_template(

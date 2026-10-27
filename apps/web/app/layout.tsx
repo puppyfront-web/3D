@@ -1,11 +1,29 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "企业知识助手",
-  description: "内部知识库与可追溯问答 — 资料入库、检索测试、多轮问答",
+  title: {
+    default: "AI 团队平台 — 自建 AI 团队，AI 大脑（CEO）统筹交付",
+    template: "%s · AI 团队平台",
+  },
+  description:
+    "自建 AI 团队 · AI 大脑（CEO）统一调度 — 调研、策划、视觉多 Agent 协作交付，关键节点人工确认，产出全程可追溯。",
+  applicationName: "AI 团队平台",
+  openGraph: {
+    title: "AI 团队平台 — 自建 AI 团队，AI 大脑（CEO）统筹交付",
+    description:
+      "调研、策划、视觉多 Agent 协作交付，关键节点人工确认，产出全程可追溯。",
+    type: "website",
+    locale: "zh_CN",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#010102",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

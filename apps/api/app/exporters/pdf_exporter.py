@@ -15,7 +15,7 @@ class PDFExporter:
         content: str,
         filename: str,
         title: Optional[str] = None,
-        author: str = "3D Wall Platform",
+        author: str = "AI 团队平台",
     ) -> str:
         """Export markdown-like content to a PDF document.
 

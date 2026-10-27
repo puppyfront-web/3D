@@ -1,4 +1,4 @@
-# DATABASE_SCHEMA.md — 3D 展示幕墙 AI 专家系统数据库设计
+# DATABASE_SCHEMA.md — AI 团队平台数据库设计
 
 > Last updated: 2026-06-09
 > Migration version: 010_fix_prompt_templates.py（10 个迁移）

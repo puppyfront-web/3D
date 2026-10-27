@@ -67,7 +67,7 @@ async def _ensure_seed_data(db: AsyncSession):
 
     project = Project(
         id=uuid.uuid4(),
-        name="Test 3D Wall Project",
+        name="Test Team Project",
         description="A test project for RAG validation",
         company_id=company.id,
         owner_id=user.id,
@@ -358,11 +358,11 @@ async def test_talking_points_and_pricing_search_log(db_session: AsyncSession):
 
     db_session.add(TalkingPoint(
         id=uuid.uuid4(), scenario="首次接洽", title="开场话术",
-        content="您好，我们是售前方案团队…", industry="制造业", is_active=True,
+        content="您好，我们是示例科技公司…", industry="制造业", is_active=True,
     ))
     db_session.add(PricingExperience(
         id=uuid.uuid4(), title="制造业展厅报价参考", industry="制造业",
-        project_type="企业3D数字化展示", budget_range="50-150万",
+        project_type="展厅·文旅数字化展示", budget_range="50-150万",
         duration="4-8周", is_active=True,
     ))
     await db_session.commit()

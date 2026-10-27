@@ -2,6 +2,11 @@
 // Centralised so industry lists stay consistent across modules (previously
 // each admin page hard-coded its own divergent list — see PRD §12 review).
 
+/** Product identity — single source of truth for every surface (nav, login, metadata, footer). */
+export const APP_NAME = "AI 团队";
+export const APP_FULL_NAME = "AI 团队平台";
+export const APP_TAGLINE = "自建 AI 团队 · AI 大脑（CEO）统一调度";
+
 /**
  * Canonical industry enumeration used by Cases, ProposalTemplates, and the
  * workspace wizard. Backend stores these as plain String(100), so the union

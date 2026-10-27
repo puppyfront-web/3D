@@ -1,1 +1,1 @@
-"""3D Wall API application package."""
+"""AI Team Platform API application package."""

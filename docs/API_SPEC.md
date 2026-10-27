@@ -1,4 +1,4 @@
-# API_SPEC.md — 3D 展示幕墙 AI 专家系统 API 规格
+# API_SPEC.md — AI 团队平台 API 规格
 
 > Last updated: 2026-06-09
 > Base URL: `/api/v1`

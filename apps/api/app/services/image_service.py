@@ -86,7 +86,7 @@ class MockImageGenerationService(ImageGenerationService):
     </linearGradient>
   </defs>
   <rect width="{width}" height="{height}" fill="url(#bg)" rx="12" />
-  <text x="{width // 2}" y="{height // 2 - 20}" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">3D Wall Generated Image</text>
+  <text x="{width // 2}" y="{height // 2 - 20}" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="24" font-weight="bold">AI Team Generated Image</text>
   <text x="{width // 2}" y="{height // 2 + 20}" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-family="Arial, sans-serif" font-size="14">{truncated}</text>
   <text x="{width // 2}" y="{height - 30}" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-family="Arial, sans-serif" font-size="12">{width}x{height} | {style or 'default'}</text>
 </svg>"""

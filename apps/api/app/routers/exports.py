@@ -203,7 +203,7 @@ async def export_to_word(
     # Add footer
     doc.add_paragraph("")
     footer_para = doc.add_paragraph(
-        f"Generated on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} by 3D Wall Platform"
+        f"Generated on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} by AI Team Platform"
     )
     footer_para.style = doc.styles["Normal"]
     for run in footer_para.runs:
@@ -387,7 +387,7 @@ async def export_version_to_word(
     filepath = await exporter.export(
         content=md,
         filename=f"canvas_{version_id}.docx",
-        title=f"企业3D数字化整体解决方案（{version_name}）",
+        title=f"整体解决方案（{version_name}）",
     )
     return FileResponse(
         path=filepath,
@@ -413,7 +413,7 @@ async def export_version_to_pdf(
     filepath = await exporter.export(
         content=md,
         filename=f"canvas_{version_id}.pdf",
-        title=f"企业3D数字化整体解决方案（{version_name}）",
+        title=f"整体解决方案（{version_name}）",
     )
     return FileResponse(
         path=filepath,

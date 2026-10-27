@@ -1,4 +1,4 @@
-# TEST_PLAN.md — 3D 展示幕墙 AI 专家系统测试计划
+# TEST_PLAN.md — AI 团队平台测试计划
 
 > Last updated: 2026-06-09
 > 现有测试：6 个文件，89 个用例，全部通过

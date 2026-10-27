@@ -10,7 +10,7 @@
 | 内存 | 4GB+（推荐 8GB） |
 | 磁盘 | 40GB+（SSD 推荐） |
 | CPU | 2 核+ |
-| 端口 | 3000（前端）、8000（API）开放 |
+| 端口 | 13700（前端）、13800（API）开放 |
 
 ### 安装 Docker
 
@@ -109,7 +109,7 @@ docker compose -f docker-compose.prod.yml logs -f api
 
 | 配置项 | 值 |
 |--------|-----|
-| 目标 URL | `http://127.0.0.1:3000` |
+| 目标 URL | `http://127.0.0.1:13700` |
 | 发送域名 | `$host` |
 
 **API 代理（添加路径 `/api`）：**
@@ -117,7 +117,7 @@ docker compose -f docker-compose.prod.yml logs -f api
 | 配置项 | 值 |
 |--------|-----|
 | 路径 | `/api` |
-| 目标 URL | `http://127.0.0.1:8000` |
+| 目标 URL | `http://127.0.0.1:13800` |
 | 发送域名 | `$host` |
 
 ### 1Panel / Nginx 手动配置
@@ -135,7 +135,7 @@ server {
 
     # API 反向代理
     location /api/ {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:13800;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -149,20 +149,20 @@ server {
 
     # API 文档
     location /docs {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:13800;
     }
     location /openapi.json {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:13800;
     }
 
     # API 健康检查
     location /health {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:13800;
     }
 
     # 前端
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:13700;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -179,14 +179,14 @@ server {
 
 ### 同源 /api 设计（关键概念，部署前必读）
 
-前端访问后端走的是 **同域 `/api` 反向代理**（nginx 把 `/api/*` 转给 api 容器），不是浏览器直连 8000 端口。理解以下几点可避免 90% 的「前端连不上后端 / CORS 报错」。
+前端访问后端走的是 **同域 `/api` 反向代理**（nginx 把 `/api/*` 转给 api 容器），不是浏览器直连 13800 端口。理解以下几点可避免 90% 的「前端连不上后端 / CORS 报错」。
 
 **请求链路：**
 
 ```
 浏览器页面:   https://yourdomain.com              ← nginx location / → web:3000
 前端发请求:   https://yourdomain.com/api/v1/...   ← NEXT_PUBLIC_API_URL(域名根) + 接口路径(自带 /api/v1)
-nginx 转发:   location /api/ → proxy_pass http://127.0.0.1:8000   （保留 /api 前缀，不要 rewrite 掉）
+nginx 转发:   location /api/ → proxy_pass http://127.0.0.1:13800   （保留 /api 前缀，不要 rewrite 掉）
 FastAPI:      路由统一挂在 /api/v1 下 → 命中 ✅
 ```
 

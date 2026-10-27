@@ -921,7 +921,7 @@ class VisualConceptAgent(BaseAgent):
                 f"需求：{json.dumps(ctx.requirement.to_dict(), ensure_ascii=False)}"
             ),
             system_prompt=(
-                "你是一位 3D 展示幕墙视觉创意专家。"
+                "你是 AI 团队平台的视觉创意专家（3D 展示幕墙 / 裸眼 3D 领域）。"
                 "根据客户需求生成专业的视觉策略方案。"
                 "只返回 JSON。"
                 + GLOBAL_CAPABILITY_CONSTRAINT
@@ -941,7 +941,7 @@ class VisualConceptAgent(BaseAgent):
                 f"原始需求：{json.dumps(ctx.requirement.to_dict(), ensure_ascii=False)}"
             ),
             system_prompt=(
-                "你是一位专业的 AI 绘图 Prompt 工程师，专注于 3D 展示幕墙和裸眼 3D 概念图。\n"
+                "你是 AI 团队平台的 AI 绘图 Prompt 工程师，专注于 3D 展示幕墙和裸眼 3D 概念图。\n"
                 "positive_prompt 应该是英文，详细描述画面内容、构图、光影、色调。\n"
                 "negative_prompt 应该列出需要排除的元素和低质量标记。\n"
                 "只返回 JSON。"

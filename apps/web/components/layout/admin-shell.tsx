@@ -19,7 +19,7 @@ import {
   ClipboardCheck,
   Settings,
   LayoutDashboard,
-  CloudCog,
+  BrainCircuit,
   BookMarked,
   MessageSquareQuote,
   CircleDollarSign,
@@ -27,6 +27,7 @@ import {
   FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { APP_NAME } from "@/lib/constants";
 
 const KB_SKU = (process.env.NEXT_PUBLIC_KB_SKU || "standard").toLowerCase();
 
@@ -66,8 +67,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           href="/"
           className="font-bold text-primary flex items-center gap-2"
         >
-          <CloudCog className="h-5 w-5 fill" />
-          <span>企业知识助手</span>
+          <BrainCircuit className="h-5 w-5" />
+          <span>{APP_NAME}</span>
         </Link>
         <span className="mx-3 text-outline-variant">/</span>
         <span className="text-sm text-on-surface-variant font-medium">

@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = "Enterprise Knowledge Assistant API"
+    app_name: str = "AI Team API"
     app_version: str = "1.0.0-kb-case"
     debug: bool = False
     app_env: str = "development"
@@ -103,7 +103,7 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = (
-        "http://localhost:3000,http://localhost:5173"
+        "http://localhost:13700,http://localhost:5173"
     )
 
     @property

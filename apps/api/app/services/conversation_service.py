@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _REF_DOC_RE = re.compile(r"\[ref_doc:([0-9a-fA-F-]{32,36})\]")
 
 # System prompt for conversational mode — KB-first answers with conclusion + plan.
-_CONVERSATION_SYSTEM_PROMPT = """你是企业知识库与方案问答助手，服务内部业务、销售、策划与项目经理。
+_CONVERSATION_SYSTEM_PROMPT = """你是 AI 团队平台的问答助手，服务内部业务、销售、策划与项目经理。
 
 你的任务是：基于【企业内部知识库命中】与（如有）【网络搜索命中】，给出**可直接使用的结论与方案建议**，而不是空泛建议。
 
@@ -1612,7 +1612,7 @@ class ConversationService:
             f"【网络搜索命中】\n{web_block}\n"
         )
         system_prompt = (
-            "你是售前方案工作台的文案撰写助手。用户正在「节点级对话」中，要你为画布上的单个节点撰写内容。\n"
+            "你是 AI 团队平台的画布节点编辑助手。用户正在「节点级对话」中，要你为画布上的单个节点撰写内容。\n"
             "硬性约束：\n"
             "1. 只为「当前节点」撰写内容，绝不要涉及其它节点。\n"
             "2. 直接输出该节点可用的成品售前文案——也就是用户采纳后能直接写进节点的内容。"
@@ -1754,7 +1754,7 @@ class ConversationService:
         """Courteous fixed reply for social greetings (no LLM, no workflow)."""
         msg = user_message.strip()
         if any(k in msg for k in ("你好", "您好", "嗨", "哈喽", "hi", "hello")):
-            reply = "你好！我是企业知识问答助手。你可以直接提问，或上传资料后基于内部知识库获得可追溯的回答。"
+            reply = "你好！我是 AI 团队平台的问答助手。你可以直接提问，或上传资料后基于内部知识库获得可追溯的回答。"
         elif any(k in msg for k in ("谢谢", "感谢", "thanks")):
             reply = "不客气！如有其他问题，继续提问即可。"
         elif any(k in msg for k in ("再见", "拜拜", "bye")):

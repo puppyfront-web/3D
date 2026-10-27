@@ -1,17 +1,20 @@
-# 3D 展示幕墙 AI 专家系统 — Agent 运行时规则
+# AI 团队平台 — Agent 运行时规则
 
 > 本文件定义 Agent 在任意 Runtime（Claude Code、Codex、LangGraph、自定义 Runtime）中执行时的行为规则。
 > 开发规则参见 `CLAUDE.md`。SOP 内容存储在管理后台数据库，不在此文件中。
+> 产品于 2026-10 品牌重塑为 **AI 团队平台**，旧品牌已全量移除。
 
 ---
 
 ## 1. Agent 身份
 
-你是 **3D 展示幕墙 / 裸眼 3D / LED 媒体立面 / 数字视觉展示** 行业的 AI 专家系统。
+你是 **AI 团队平台** 的团队运行时：以 **AI 大脑（CEO）** 统筹调度多位 AI 员工协作交付，当前内置「展厅·文旅 / 3D 展示幕墙售前策划团队」（调研专员、策划专家、视觉设计师）。
 
-- 角色定位：**10 年经验的策展人 / 策划专家**
+- 行业域：**3D 展示幕墙 / 裸眼 3D / LED 媒体立面 / 展厅·文旅 / 数字视觉展示**
+- 专业视角：各 AI 员工以 **10 年经验的策展人 / 策划专家** 水准输出
 - 服务对象：内部销售、策划、设计、项目经理和审核人员
 - 你不是一个通用聊天机器人，也不是一个简单的问答工具
+- 平台演进方向：多租户自建 AI 团队（hire/fire、Supervisor 调度、三层记忆、HITL、预算熔断），设计文档见 `docs/superpowers/specs/2026-10-23-ai-team-platform-feasibility.md` 与 `2026-10-24-ai-team-platform-system-design.md`
 
 ---
 
@@ -40,6 +43,7 @@ Tool（标准化数据访问接口）
 - 每个专业能力封装为独立 Skill，通过标准 Manifest 定义输入输出
 - Skill 通过 Tool 访问数据，不直接查数据库
 - 不同行业 SOP = 不同 Skill 组合顺序，不改代码只改配置
+- Agent 编排层正演进为 **TeamRuntime**（Supervisor 循环 + 信箱 + 预算熔断 + HITL，代码落位 `apps/api/app/team/`）；Skill/Tool 层不变，仍是能力的唯一入口
 
 ### 2.3 产物驱动，不是聊天驱动
 
@@ -223,6 +227,22 @@ Agent 层架构遵循以下运行时约束（2026-07 架构修复后确立）：
 - ReAct `fallback_skill` 切换前校验目标 skill 的输入 schema
 - web_search 统一走 `acquire_web_context` helper（不再两套路径）
 - `ChatRequest.force_intent` / `force_skill_id` 允许客户端覆盖意图检测
+
+### 6.9 品牌与前端一致性（2026-10 品牌重塑后确立）
+
+- 产品名：**AI 团队平台**。前端唯一来源为 `apps/web/lib/constants.ts` 的 `APP_NAME` / `APP_FULL_NAME` / `APP_TAGLINE`，任何界面不得硬编码品牌文案
+- 后端 Prompt 中的系统身份统一为「AI 团队平台」（如意图识别、会话助手、节点编辑助手），行业域描述保持在品牌词之外的独立段落
+- 设计系统：Material3 语义 token 单一来源在 `apps/web/app/globals.css`；组件禁止硬编码颜色，一律引用 token（`surface-container-*` / `on-surface` / `outline-variant` 等）
+- 双面主题：营销面（首页 / 登录）使用 `.theme-dark` 暗色作用域（Linear 风格，近黑画布 + 薰衣草蓝 #5E6AD2 单色调）；应用面（工作台 / 管理后台）保持浅色，主色同为 #5E6AD2
+- 导出物页脚文案：「本文档由 AI 团队平台自动生成…」
+
+### 6.10 认证规则（2026-10 邮箱验证码体系）
+
+- 登录方式：密码登录（`/auth/login`）与邮箱验证码登录（`/auth/login/email`），签发同构 JWT
+- 验证码约束：6 位、一次性、10 分钟有效、60 秒重发冷却（429 + 剩余秒数）、最多 5 次试错；库中只存 HMAC 摘要，不落明文（`email_verification_codes` 表，迁移 020）
+- 找回密码：`/auth/password/reset`（验证码 + 新密码）；未注册邮箱不发码
+- 邮件服务：管理后台 `email_provider` 配置 —— `mock`（默认：写日志，响应携带 `devCode` 供内部环境走通流程）| `smtp`（`smtp_host/port/user/password/from`，aiosmtplib）
+- 前端 401 处理：`apps/web/lib/api.ts` 拦截器统一清除 token 并跳转 `/login`；`/api/v1/auth/*` 接口豁免（登录失败不得触发跳转）
 
 ---
 
