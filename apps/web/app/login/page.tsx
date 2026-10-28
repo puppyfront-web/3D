@@ -19,10 +19,26 @@ import {
 } from "@/lib/api";
 import { setToken, setStoredUser, isAuthenticated } from "@/lib/auth";
 import { APP_NAME, APP_FULL_NAME, APP_TAGLINE } from "@/lib/constants";
+import { ThemeScope } from "@/components/layout/theme-scope";
+import {
+  emailField,
+  loginCodeForm,
+  loginPasswordForm,
+  resetPasswordForm,
+  zodFieldErrors,
+} from "@/lib/validators";
 
 type Mode = "password" | "code" | "reset";
 
 const RESEND_SECONDS = 60;
+
+/** fetch 网络层失败（CORS/后端未启动）时 err.message 是英文 "Failed to fetch"，翻译成人话 */
+function humanizeError(err: unknown, fallback: string): string {
+  if (err instanceof TypeError) {
+    return "无法连接服务器，请确认后端服务已启动后重试";
+  }
+  return err instanceof Error && err.message ? err.message : fallback;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,6 +49,7 @@ export default function LoginPage() {
   const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [devCode, setDevCode] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
 
@@ -53,24 +70,36 @@ export default function LoginPage() {
   function switchMode(next: Mode) {
     setMode(next);
     setError(null);
+    setFieldErrors({});
     setDevCode(null);
   }
 
+  function clearFieldError(key: string) {
+    setFieldErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   async function handleSendCode() {
-    if (!email.trim()) {
-      setError("请先输入邮箱");
+    const parsed = emailField.safeParse(email);
+    if (!parsed.success) {
+      setFieldErrors({ email: parsed.error.issues[0].message });
       return;
     }
     setError(null);
+    setFieldErrors({});
     setLoading(true);
     try {
       const purpose = mode === "reset" ? "reset" : "login";
-      const res = await sendEmailCode(email.trim(), purpose);
+      const res = await sendEmailCode(parsed.data, purpose);
       setCountdown(RESEND_SECONDS);
       setDevCode(res.devCode ?? null);
       toast.success("验证码已发送，请查收邮箱");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发送失败");
+      setError(humanizeError(err, "发送失败"));
     } finally {
       setLoading(false);
     }
@@ -87,33 +116,36 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
 
-    if (mode === "password" && (!email.trim() || !password.trim())) {
-      setError("请输入邮箱和密码");
+    const form =
+      mode === "password"
+        ? loginPasswordForm
+        : mode === "code"
+          ? loginCodeForm
+          : resetPasswordForm;
+    const values =
+      mode === "password"
+        ? { email, password }
+        : mode === "code"
+          ? { email, code }
+          : { email, code, newPassword };
+    const parsed = form.safeParse(values);
+    if (!parsed.success) {
+      setFieldErrors(zodFieldErrors(parsed.error));
       return;
     }
-    if (mode !== "password" && !email.trim()) {
-      setError("请输入邮箱");
-      return;
-    }
-    if (mode !== "password" && !code.trim()) {
-      setError("请输入邮箱验证码");
-      return;
-    }
-    if (mode === "reset" && newPassword.trim().length < 6) {
-      setError("新密码至少 6 位");
-      return;
-    }
+    setFieldErrors({});
+    const v = parsed.data as Record<string, string>;
 
     setLoading(true);
     try {
       if (mode === "password") {
-        const { token, user } = await login(email.trim(), password);
+        const { token, user } = await login(v.email, v.password);
         await completeLogin(token, user);
       } else if (mode === "code") {
-        const { token, user } = await loginWithEmailCode(email.trim(), code.trim());
+        const { token, user } = await loginWithEmailCode(v.email, v.code);
         await completeLogin(token, user);
       } else {
-        await resetPasswordWithEmailCode(email.trim(), code.trim(), newPassword);
+        await resetPasswordWithEmailCode(v.email, v.code, v.newPassword);
         toast.success("密码已重置，请使用新密码登录");
         setPassword("");
         setCode("");
@@ -121,18 +153,19 @@ export default function LoginPage() {
         switchMode("password");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "操作失败");
+      setError(humanizeError(err, "操作失败"));
     } finally {
       setLoading(false);
     }
   }
 
-  const inputCls =
-    "w-full px-4 py-3 bg-surface-container-low border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-on-surface-variant/50 caret-primary focus:ring-2 focus:ring-primary/60 focus:border-transparent outline-none transition-all";
+  const inputCls = (invalid?: boolean) =>
+    `w-full px-4 py-3 bg-surface-container-low border ${invalid ? "border-error" : "border-outline-variant"} rounded-lg text-sm text-on-surface placeholder:text-on-surface-variant/50 caret-primary focus:ring-2 ${invalid ? "focus:ring-error/50" : "focus:ring-primary/60"} focus:border-transparent outline-none transition-all`;
   const sendBtnDisabled = loading || countdown > 0 || !email.trim();
 
   return (
     <div className="theme-dark min-h-screen flex items-center justify-center bg-surface px-4">
+      <ThemeScope />
       <div className="w-full max-w-md">
         {/* Brand */}
         <div className="text-center mb-8">
@@ -186,24 +219,35 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-on-surface-variant">
+              <label htmlFor="login-email" className="text-sm font-medium text-on-surface-variant">
                 邮箱
               </label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  clearFieldError("email");
+                }}
                 placeholder="your@email.com"
-                className={inputCls}
+                className={inputCls(!!fieldErrors.email)}
                 disabled={loading}
                 autoComplete="email"
+                aria-invalid={!!fieldErrors.email}
+                aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
               />
+              {fieldErrors.email && (
+                <p id="login-email-error" className="text-xs text-error">
+                  {fieldErrors.email}
+                </p>
+              )}
             </div>
 
             {mode === "password" && (
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <label className="text-sm font-medium text-on-surface-variant">
+                  <label htmlFor="login-password" className="text-sm font-medium text-on-surface-variant">
                     密码
                   </label>
                   <button
@@ -215,36 +259,51 @@ export default function LoginPage() {
                   </button>
                 </div>
                 <input
+                  id="login-password"
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    clearFieldError("password");
+                  }}
                   placeholder="输入密码"
-                  className={inputCls}
+                  className={inputCls(!!fieldErrors.password)}
                   disabled={loading}
                   autoComplete="current-password"
                   autoFocus
+                  aria-invalid={!!fieldErrors.password}
+                  aria-describedby={fieldErrors.password ? "login-password-error" : undefined}
                 />
+                {fieldErrors.password && (
+                  <p id="login-password-error" className="text-xs text-error">
+                    {fieldErrors.password}
+                  </p>
+                )}
               </div>
             )}
 
             {mode !== "password" && (
               <>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-on-surface-variant">
+                  <label htmlFor="login-code" className="text-sm font-medium text-on-surface-variant">
                     邮箱验证码
                   </label>
                   <div className="flex gap-2">
                     <input
+                      id="login-code"
                       type="text"
                       value={code}
-                      onChange={(e) =>
-                        setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                      }
+                      onChange={(e) => {
+                        setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                        clearFieldError("code");
+                      }}
                       placeholder="6 位验证码"
-                      className={`${inputCls} font-mono tracking-[0.3em]`}
+                      className={`${inputCls(!!fieldErrors.code)} font-mono tracking-[0.3em]`}
                       disabled={loading}
                       inputMode="numeric"
                       autoFocus
+                      aria-invalid={!!fieldErrors.code}
+                      aria-describedby={fieldErrors.code ? "login-code-error" : undefined}
                     />
                     <button
                       type="button"
@@ -256,6 +315,11 @@ export default function LoginPage() {
                       {countdown > 0 ? `${countdown}s` : "发送验证码"}
                     </button>
                   </div>
+                  {fieldErrors.code && (
+                    <p id="login-code-error" className="text-xs text-error">
+                      {fieldErrors.code}
+                    </p>
+                  )}
                 </div>
 
                 {/* Mock-provider dev code — lets internal users finish the flow
@@ -272,18 +336,29 @@ export default function LoginPage() {
 
             {mode === "reset" && (
               <div className="space-y-2">
-                <label className="text-sm font-medium text-on-surface-variant">
+                <label htmlFor="login-new-password" className="text-sm font-medium text-on-surface-variant">
                   新密码
                 </label>
                 <input
+                  id="login-new-password"
                   type="password"
                   value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    clearFieldError("newPassword");
+                  }}
                   placeholder="至少 6 位"
-                  className={inputCls}
+                  className={inputCls(!!fieldErrors.newPassword)}
                   disabled={loading}
                   autoComplete="new-password"
+                  aria-invalid={!!fieldErrors.newPassword}
+                  aria-describedby={fieldErrors.newPassword ? "login-new-password-error" : undefined}
                 />
+                {fieldErrors.newPassword && (
+                  <p id="login-new-password-error" className="text-xs text-error">
+                    {fieldErrors.newPassword}
+                  </p>
+                )}
               </div>
             )}
 
