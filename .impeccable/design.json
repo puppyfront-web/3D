@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T00:00:00Z",
+  "title": "Design System: AI 团队平台",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "薰衣草蓝", "canonical": "#5e6ad2", "tonalRamp": ["#3c4399", "#4f55b8", "#5e6ad2", "#6c78e0", "#828fff", "#cdd3f4", "#e9eafb"] },
+      "secondary": { "role": "secondary", "displayName": "深青", "canonical": "#0f766e", "tonalRamp": ["#042f2e", "#0f766e", "#14b8a6", "#5eead4", "#99f6e4"] },
+      "tertiary": { "role": "tertiary", "displayName": "紫罗兰", "canonical": "#7c3aed", "tonalRamp": ["#2e1065", "#4c1d95", "#7c3aed", "#8b5cf6", "#ddd6fe", "#ede9fe"] },
+      "success": { "role": "semantic", "displayName": "深绿·完成", "canonical": "#006c46", "tonalRamp": ["#00381f", "#006c46", "#00875a", "#34d399", "#84f6bc"] },
+      "warning": { "role": "semantic", "displayName": "深棕·预警", "canonical": "#733500", "tonalRamp": ["#3b1a00", "#733500", "#e8740b", "#fdba74", "#ffdbc8"] },
+      "error": { "role": "semantic", "displayName": "深红·失败", "canonical": "#ba1a1a", "tonalRamp": ["#410002", "#690005", "#ba1a1a", "#ef4444", "#fca5a5", "#ffdad6"] },
+      "surface": { "role": "neutral", "displayName": "云白页面底", "canonical": "#f8f9fb", "tonalRamp": ["#191c1e", "#434654", "#6e7086", "#c9cbe0", "#e7e8ea", "#edeef0", "#f3f4f6", "#f8f9fb", "#ffffff"] },
+      "dark-canvas": { "role": "neutral", "displayName": "近黑画布（营销面）", "canonical": "#010102", "tonalRamp": ["#010102", "#0d0e10", "#0f1011", "#141516", "#18191a", "#202124", "#23252a"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "仅营销页 hero（56px，一年只用一次的字号）。" },
+      "headline": { "displayName": "Headline", "purpose": "营销页 section 标题。" },
+      "title": { "displayName": "Title", "purpose": "admin 页 h1 与卡片标题。" },
+      "body": { "displayName": "Body", "purpose": "产品面全部正文，14px。" },
+      "label": { "displayName": "Label", "purpose": "徽章、表头、辅助说明。" }
+    },
+    "shadows": [
+      { "name": "nav-shadow", "value": "0 1px 2px rgba(0,0,0,0.05)", "purpose": "sticky 顶栏（工作台变体）。" },
+      { "name": "overlay-shadow", "value": "0 8px 24px rgba(0,0,0,0.12)", "purpose": "dialog/dropdown 传送门悬浮层。" },
+      { "name": "hero-panel", "value": "0 25px 50px -12px rgba(0,0,0,0.4)", "purpose": "营销暗面 hero 输入面板（唯一大面积阴影）。" }
+    ],
+    "motion": [
+      { "name": "state-fast", "value": "150ms ease-out", "purpose": "hover/focus/按压等即时状态反馈。" },
+      { "name": "state-base", "value": "200ms ease-out", "purpose": "展开/抽屉/流式条目进入。" },
+      { "name": "reveal", "value": "700ms ease-out translate-y-5", "purpose": "仅营销页滚动进场；一律 motion-reduce 降级。" }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "主操作按钮：薰衣草蓝底白字，紧凑 32px 高。",
+      "html": "<button class=\"ds-btn-primary\">派发给 AI 团队</button>",
+      "css": ".ds-btn-primary { background: var(--color-primary, #5e6ad2); color: var(--color-on-primary, #fff); height: 32px; padding: 0 10px; border-radius: 8px; font-size: 14px; font-weight: 500; border: none; cursor: pointer; transition: background 150ms ease-out; } .ds-btn-primary:hover { background: var(--color-primary-container, #6c78e0); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-primary, #5e6ad2); outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "次级操作：白底 hairline 边。",
+      "html": "<button class=\"ds-btn-outline\">了解工作方式</button>",
+      "css": ".ds-btn-outline { background: var(--color-surface-container-lowest, #fff); color: var(--color-on-surface, #191c1e); height: 32px; padding: 0 12px; border-radius: 8px; font-size: 14px; font-weight: 500; border: 1px solid var(--color-outline-variant, #c9cbe0); cursor: pointer; transition: background 150ms ease-out; } .ds-btn-outline:hover { background: var(--color-surface-container-low, #f3f4f6); } .ds-btn-outline:focus-visible { outline: 2px solid var(--color-primary, #5e6ad2); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "标准输入框：白底 1px 边，focus 主色 ring，错误态红边。",
+      "html": "<input class=\"ds-input\" placeholder=\"your@email.com\" />",
+      "css": ".ds-input { width: 100%; height: 36px; padding: 0 12px; background: var(--color-surface-container-lowest, #fff); color: var(--color-on-surface, #191c1e); border: 1px solid var(--color-outline-variant, #c9cbe0); border-radius: 8px; font-size: 14px; outline: none; transition: border-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-input::placeholder { color: rgba(67,70,84,0.5); } .ds-input:focus { border-color: transparent; box-shadow: 0 0 0 2px rgba(94,106,210,0.6); } .ds-input[aria-invalid=\"true\"] { border-color: var(--color-error, #ba1a1a); box-shadow: 0 0 0 2px rgba(186,26,26,0.5); }"
+    },
+    {
+      "name": "Status Badge（六变体）",
+      "kind": "chip",
+      "refersTo": "status-badge",
+      "description": "全站唯一状态着色出口：颜色=语义状态族，文字=具体状态。",
+      "html": "<span class=\"ds-badge ds-badge-brand\">进行中</span> <span class=\"ds-badge ds-badge-info\">审核中</span> <span class=\"ds-badge ds-badge-success\">已通过</span> <span class=\"ds-badge ds-badge-warning\">预算预警</span> <span class=\"ds-badge ds-badge-error\">失败</span> <span class=\"ds-badge\">已归档</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--color-surface-container-high, #e7e8ea); color: var(--color-on-surface-variant, #434654); } .ds-badge-brand { background: var(--color-primary-fixed, #e9eafb); color: var(--color-on-primary-fixed, #3c4399); } .ds-badge-info { background: var(--color-tertiary-fixed, #ede9fe); color: var(--color-on-tertiary-fixed, #2e1065); } .ds-badge-success { background: var(--color-success-container, #84f6bc); color: var(--color-success, #006c46); } .ds-badge-warning { background: var(--color-warning-container, #ffdbc8); color: var(--color-warning, #733500); } .ds-badge-error { background: var(--color-error-container, #ffdad6); color: var(--color-error, #ba1a1a); }"
+    },
+    {
+      "name": "Surface Card",
+      "kind": "card",
+      "refersTo": "card-surface",
+      "description": "基础卡片：白底 12px 圆角 1px hairline 全周边框，静止无阴影。",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">调研专员</h3><p class=\"ds-card-body\">检索企业资料与行业案例，产出可溯源摘要。</p></div>",
+      "css": ".ds-card { background: var(--color-surface-container-lowest, #fff); border: 1px solid var(--color-outline-variant, #c9cbe0); border-radius: 12px; padding: 24px; } .ds-card-title { font-size: 20px; font-weight: 600; color: var(--color-on-surface, #191c1e); margin: 0 0 8px; } .ds-card-body { font-size: 14px; line-height: 1.6; color: var(--color-on-surface-variant, #434654); margin: 0; }"
+    },
+    {
+      "name": "Top Nav Link",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "工作台顶栏导航项：当前项主色 2px 下划线。",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-nav-link-active\" href=\"#\" aria-current=\"page\">团队工作台</a><a class=\"ds-nav-link\" href=\"#\">知识库</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 24px; align-items: center; } .ds-nav-link { font-size: 14px; color: var(--color-on-surface-variant, #434654); text-decoration: none; padding-bottom: 4px; border-bottom: 2px solid transparent; transition: color 150ms ease-out; } .ds-nav-link:hover { color: var(--color-on-surface, #191c1e); } .ds-nav-link-active { color: var(--color-on-surface, #191c1e); font-weight: 500; border-bottom-color: var(--color-primary, #5e6ad2); } .ds-nav-link:focus-visible { outline: 2px solid var(--color-primary, #5e6ad2); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Control Room（安静的控制室）",
+    "overview": "这是一个让人长时间注视而不疲劳的控制室：用户把任务交给 AI 团队后，界面安静地汇报每一位员工的工作，只在真正需要人类决策的时刻亮起。亮色产品面（工作台/admin）与近黑营销面共享同一支薰衣草蓝。产品面密度优先、hairline 分隔、动效只表达状态；营销面允许一次 56px 的大字与克制的 SVG 场景插画。",
+    "keyCharacteristics": [
+      "单一主色纪律：薰衣草蓝只出现在主操作、当前选中、「进行中」状态",
+      "语义色六变体状态徽章（StatusBadge）是全站唯一的状态着色出口",
+      "hairline 边框承担几乎全部分隔职责，阴影只属于悬浮层",
+      "全中文文案，动效全部提供 prefers-reduced-motion 降级"
+    ],
+    "rules": [
+      { "name": "The Token-Only Rule", "body": "业务代码禁止出现原生灰阶（gray-*）与硬编码 hex。一切颜色经 M3 token；状态着色只能经 StatusBadge 六变体。", "section": "colors" },
+      { "name": "The Two Faces Rule", "body": "暗色只属于营销面与登录页（.theme-dark 页级作用域）。工作台与 admin 永远亮色，不做全局暗色模式。", "section": "colors" },
+      { "name": "The -0.025em Floor Rule", "body": "Display 级字距最紧 -0.025em；禁止 tracking-tighter（-0.05em，56px 下字母相触）。", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "静止表面无阴影。出现阴影 = 该元素浮在内容之上（sticky/overlay），别无例外。", "section": "elevation" }
+    ],
+    "dos": [
+      "Do 状态着色一律经 StatusBadge 六变体，新语义先扩变体表。",
+      "Do 文本只使用 on-surface / on-surface-variant 两级；空态文案也必须 ≥4.5:1。",
+      "Do 全部表单校验走 lib/validators.ts（zod），错误显示在字段近旁。",
+      "Do 动效 150–250ms、只表达状态，全部带 motion-reduce 降级。",
+      "Do 移动端导航必须可用（抽屉已内建），触达目标 ≥44px。"
+    ],
+    "donts": [
+      "Don't 紫色渐变 hero、玻璃拟态卡片、AI 脉冲光球装饰。",
+      "Don't 在业务代码写 gray-* 或硬编码 hex。",
+      "Don't border-left/right > 1px 作彩色侧条纹。",
+      "Don't Display 字距紧于 -0.025em（tracking-tighter 违禁）。",
+      "Don't 工作台/admin 出现暗色主题。",
+      "Don't 无溯源的「AI 一键生成」演示内容；占位必须标注「示意」。"
+    ]
+  }
+}
