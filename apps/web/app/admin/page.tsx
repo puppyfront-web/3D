@@ -42,8 +42,8 @@ export default function AdminDashboardPage() {
   const [stats, setStats] = useState<StatItem[]>([
     { label: "活跃项目", value: "-", loading: true, icon: <FolderKanban className="h-5 w-5" />, color: "text-primary" },
     { label: "方案模板", value: "-", loading: true, icon: <FileText className="h-5 w-5" />, color: "text-primary" },
-    { label: "案例库", value: "-", loading: true, icon: <BookOpen className="h-5 w-5" />, color: "text-[#00875a]" },
-    { label: "资产总数", value: "-", loading: true, icon: <Package className="h-5 w-5" />, color: "text-[#e8740b]" },
+    { label: "案例库", value: "-", loading: true, icon: <BookOpen className="h-5 w-5" />, color: "text-success" },
+    { label: "资产总数", value: "-", loading: true, icon: <Package className="h-5 w-5" />, color: "text-warning" },
   ]);
 
   useEffect(() => {
@@ -101,30 +101,30 @@ export default function AdminDashboardPage() {
 
   const adminLinks = [
     { label: "资产管理", desc: "管理3D模型、图片、视频等素材资源", href: "/admin/assets", icon: <Package className="h-5 w-5 text-primary" /> },
-    { label: "案例库", desc: "管理成功案例，用于方案参考和素材复用", href: "/admin/cases", icon: <BookOpen className="h-5 w-5 text-[#00875a]" /> },
+    { label: "案例库", desc: "管理成功案例，用于方案参考和素材复用", href: "/admin/cases", icon: <BookOpen className="h-5 w-5 text-success" /> },
     { label: "行业资料", desc: "行业趋势、政策解读、对标分析等参考资料", href: "/admin/industry-materials", icon: <BookMarked className="h-5 w-5 text-primary" /> },
-    { label: "SOP工作流", desc: "配置方案生成的自动化工作流程", href: "/admin/sop-workflows", icon: <GitBranch className="h-5 w-5 text-[#8B5CF6]" /> },
+    { label: "SOP工作流", desc: "配置方案生成的自动化工作流程", href: "/admin/sop-workflows", icon: <GitBranch className="h-5 w-5 text-tertiary" /> },
     { label: "方案模板", desc: "管理方案文档模板和章节结构", href: "/admin/proposal-templates", icon: <FileText className="h-5 w-5 text-primary" /> },
     { label: "提示词模板", desc: "管理AI提示词模板和变量配置", href: "/admin/prompt-templates", icon: <MessageSquareCode className="h-5 w-5 text-surface-tint" /> },
     { label: "话术库", desc: "按场景沉淀售前话术，保持表达一致可追溯", href: "/admin/talking-points", icon: <MessageSquareQuote className="h-5 w-5 text-primary" /> },
-    { label: "视觉风格库", desc: "管理视觉风格预设和参数配置", href: "/admin/visual-styles", icon: <Palette className="h-5 w-5 text-[#EC4899]" /> },
-    { label: "技术规则", desc: "配置技术方案生成的约束规则", href: "/admin/technical-rules", icon: <Cpu className="h-5 w-5 text-[#e8740b]" /> },
+    { label: "视觉风格库", desc: "管理视觉风格预设和参数配置", href: "/admin/visual-styles", icon: <Palette className="h-5 w-5 text-secondary" /> },
+    { label: "技术规则", desc: "配置技术方案生成的约束规则", href: "/admin/technical-rules", icon: <Cpu className="h-5 w-5 text-warning" /> },
     { label: "质量标准", desc: "管理方案质量评估标准和评分规则", href: "/admin/quality-rules", icon: <ShieldCheck className="h-5 w-5 text-error" /> },
     { label: "报价经验", desc: "历史报价参考，正式报价须人工确认", href: "/admin/pricing-experiences", icon: <CircleDollarSign className="h-5 w-5 text-primary" /> },
     { label: "评估记录", desc: "查看方案质量评估历史和报告", href: "/admin/evaluations", icon: <ClipboardCheck className="h-5 w-5 text-primary" /> },
-    { label: "系统设置", desc: "配置AI服务提供商、模型参数和API密钥", href: "/admin/settings", icon: <Settings className="h-5 w-5 text-[#6B7280]" /> },
+    { label: "系统设置", desc: "配置AI服务提供商、模型参数和API密钥", href: "/admin/settings", icon: <Settings className="h-5 w-5 text-on-surface-variant" /> },
   ];
 
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-on-surface">系统管理</h1>
-        <p className="text-sm text-gray-500 mt-1">管理平台配置、模板、规则和资产资源</p>
+        <p className="text-sm text-on-surface-variant mt-1">管理平台配置、模板、规则和资产资源</p>
       </div>
 
       {KB_SKU !== "full" ? (
         <>
-          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">
+          <h2 className="text-sm font-medium text-on-surface-variant uppercase tracking-wider mb-4">
             交付验收快捷入口
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -133,13 +133,13 @@ export default function AdminDashboardPage() {
                 <Card className="border-primary/20 hover:border-primary/40 h-full">
                   <CardContent className="p-4">
                     <p className="text-sm font-medium text-on-surface">{link.label}</p>
-                    <p className="text-xs text-gray-500 mt-1">{link.desc}</p>
+                    <p className="text-xs text-on-surface-variant mt-1">{link.desc}</p>
                   </CardContent>
                 </Card>
               </Link>
             ))}
           </div>
-          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3 mt-2">
+          <h2 className="text-sm font-medium text-on-surface-variant uppercase tracking-wider mb-3 mt-2">
             首次交付引导
           </h2>
           <ol className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-8">
@@ -164,15 +164,15 @@ export default function AdminDashboardPage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (
-          <Card key={stat.label} className="border-gray-200">
+          <Card key={stat.label} className="border-outline-variant">
             <CardContent className="p-5 flex items-center gap-4">
               <div className="w-12 h-12 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
                 {stat.icon}
               </div>
               <div>
-                <p className="text-xs text-gray-500">{stat.label}</p>
+                <p className="text-xs text-on-surface-variant">{stat.label}</p>
                 {stat.loading ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-gray-300 mt-1" />
+                  <Loader2 className="h-5 w-5 animate-spin text-on-surface-variant mt-1" />
                 ) : (
                   <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
                 )}
@@ -183,20 +183,20 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Admin Links Grid */}
-      <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">管理模块</h2>
+      <h2 className="text-sm font-medium text-on-surface-variant uppercase tracking-wider mb-4">管理模块</h2>
       <div className="grid grid-cols-3 gap-4">
         {adminLinks.map((link) => (
           <Link key={link.href} href={link.href}>
-            <Card className="border-gray-200 hover:border-primary/30 hover:shadow-sm transition-all group cursor-pointer h-full">
+            <Card className="border-outline-variant hover:border-primary/30 hover:shadow-sm transition-all group cursor-pointer h-full">
               <CardContent className="p-5 flex items-start gap-4">
-                <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/5 transition-colors">
+                <div className="w-10 h-10 rounded-lg bg-surface-container-low flex items-center justify-center flex-shrink-0 group-hover:bg-primary/5 transition-colors">
                   {link.icon}
                 </div>
                 <div>
                   <p className="text-sm font-medium text-on-surface group-hover:text-primary transition-colors">
                     {link.label}
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">{link.desc}</p>
+                  <p className="text-xs text-on-surface-variant mt-1">{link.desc}</p>
                 </div>
               </CardContent>
             </Card>

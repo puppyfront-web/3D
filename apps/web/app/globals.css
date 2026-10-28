@@ -397,3 +397,17 @@
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Chrome autofill forces its own light-blue box + dark text on every
+   autofilled input, which inverts on dark-scoped forms (login). Repaint
+   the autofill surface with the token palette so it matches the input's
+   own background in both light and dark scopes. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:active,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--on-surface);
+  caret-color: var(--on-surface);
+  box-shadow: 0 0 0 1000px var(--surface-container-low) inset;
+  transition: background-color 9999s ease-out;
+}

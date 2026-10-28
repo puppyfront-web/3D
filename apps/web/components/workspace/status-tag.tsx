@@ -1,46 +1,37 @@
 "use client";
 
 import type { ProjectStatus, Priority } from "@/types";
+import {
+  StatusBadge,
+  type StatusBadgeVariant,
+} from "@/components/ui/status-badge";
 
-const statusConfig: Record<
-  ProjectStatus,
-  { label: string; color: string; bgColor: string }
-> = {
-  draft: { label: "草稿", color: "text-gray-600", bgColor: "bg-gray-100" },
-  in_progress: { label: "进行中", color: "text-[#3B82F6]", bgColor: "bg-blue-50" },
-  company_analysis: { label: "企业分析", color: "text-[#8B5CF6]", bgColor: "bg-purple-50" },
-  proposal_draft: { label: "方案撰写", color: "text-[#F59E0B]", bgColor: "bg-amber-50" },
-  visual_design: { label: "视觉设计", color: "text-[#EC4899]", bgColor: "bg-pink-50" },
-  review: { label: "审核中", color: "text-[#00D4FF]", bgColor: "bg-cyan-50" },
-  approved: { label: "已通过", color: "text-[#10B981]", bgColor: "bg-green-50" },
-  exported: { label: "已导出", color: "text-[#1E3A5F]", bgColor: "bg-blue-50" },
-  archived: { label: "已归档", color: "text-gray-500", bgColor: "bg-gray-100" },
+// 企业分析/方案撰写/视觉设计是 Canvas 时代的流水线阶段（已冻结），
+// 统一降为中性色，只保留语义状态（进行/审核/通过/归档）的彩色编码。
+const statusConfig: Record<ProjectStatus, { label: string; variant: StatusBadgeVariant }> = {
+  draft: { label: "草稿", variant: "neutral" },
+  in_progress: { label: "进行中", variant: "brand" },
+  company_analysis: { label: "企业分析", variant: "neutral" },
+  proposal_draft: { label: "方案撰写", variant: "neutral" },
+  visual_design: { label: "视觉设计", variant: "neutral" },
+  review: { label: "审核中", variant: "info" },
+  approved: { label: "已通过", variant: "success" },
+  exported: { label: "已导出", variant: "success" },
+  archived: { label: "已归档", variant: "neutral" },
 };
 
-const priorityConfig: Record<Priority, { label: string; color: string; bgColor: string }> = {
-  high: { label: "高", color: "text-[#EF4444]", bgColor: "bg-red-50" },
-  medium: { label: "中", color: "text-[#F59E0B]", bgColor: "bg-amber-50" },
-  low: { label: "低", color: "text-gray-500", bgColor: "bg-gray-100" },
+const priorityConfig: Record<Priority, { label: string; variant: StatusBadgeVariant }> = {
+  high: { label: "高", variant: "error" },
+  medium: { label: "中", variant: "warning" },
+  low: { label: "低", variant: "neutral" },
 };
 
 export function StatusTag({ status }: { status: ProjectStatus }) {
   const config = statusConfig[status] ?? statusConfig.draft;
-  return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.color} ${config.bgColor}`}
-    >
-      {config.label}
-    </span>
-  );
+  return <StatusBadge variant={config.variant}>{config.label}</StatusBadge>;
 }
 
 export function PriorityTag({ priority }: { priority: Priority }) {
   const config = priorityConfig[priority] ?? priorityConfig.low;
-  return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.color} ${config.bgColor}`}
-    >
-      {config.label}
-    </span>
-  );
+  return <StatusBadge variant={config.variant}>{config.label}</StatusBadge>;
 }

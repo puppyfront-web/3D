@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +16,11 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { WizardForm } from "@/components/workspace/wizard-form";
 import { createProject } from "@/lib/api";
+import {
+  projectWizardStep1,
+  projectWizardStep2,
+  zodFieldErrors,
+} from "@/lib/validators";
 import type { ProjectWizardData, Priority } from "@/types";
 
 const wizardSteps = [
@@ -80,12 +86,45 @@ export default function NewProjectPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<ProjectWizardData>(initialData);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  function handleStepChange(next: number) {
+    if (next > currentStep) {
+      if (currentStep === 0) {
+        const parsed = projectWizardStep1.safeParse({ projectName: data.step1.projectName });
+        if (!parsed.success) {
+          setFieldErrors(zodFieldErrors(parsed.error));
+          return;
+        }
+      }
+      if (currentStep === 1) {
+        const parsed = projectWizardStep2.safeParse({ companyWebsite: data.step2.companyWebsite });
+        if (!parsed.success) {
+          setFieldErrors(zodFieldErrors(parsed.error));
+          return;
+        }
+      }
+    }
+    setFieldErrors({});
+    setCurrentStep(next);
+  }
 
   const handleSubmit = async () => {
+    const parsed = projectWizardStep1.safeParse({ projectName: data.step1.projectName });
+    if (!parsed.success) {
+      setFieldErrors(zodFieldErrors(parsed.error));
+      setCurrentStep(0);
+      return;
+    }
+    setFieldErrors({});
     setIsSubmitting(true);
     const result = await createProject(data);
     if (result.success && result.data) {
       router.push(`/workspace/chat/${result.data.id}`);
+    } else {
+      toast.error("创建项目失败", {
+        description: result.message || "请检查网络后重试",
+      });
     }
     setIsSubmitting(false);
   };
@@ -95,28 +134,42 @@ export default function NewProjectPage() {
       <WizardForm
         steps={wizardSteps}
         currentStep={currentStep}
-        onStepChange={setCurrentStep}
+        onStepChange={handleStepChange}
         onSubmit={handleSubmit}
         isSubmitting={isSubmitting}
       >
         {currentStep === 0 && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-on-surface">基本信息</h2>
-            <p className="text-sm text-gray-500">填写工作区名称与问题描述，无需绑定特定企业</p>
+            <p className="text-sm text-on-surface-variant">填写工作区名称与问题描述，无需绑定特定企业</p>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2 col-span-2">
-                <Label>工作区名称 *</Label>
+                <Label htmlFor="wizard-name">工作区名称 *</Label>
                 <Input
+                  id="wizard-name"
                   value={data.step1.projectName}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setData((prev) => ({
                       ...prev,
                       step1: { ...prev.step1, projectName: e.target.value },
-                    }))
-                  }
+                    }));
+                    setFieldErrors((prev) => {
+                      if (!prev.projectName) return prev;
+                      const next = { ...prev };
+                      delete next.projectName;
+                      return next;
+                    });
+                  }}
                   placeholder="例如：产品手册检索、制度问答"
+                  aria-invalid={!!fieldErrors.projectName}
+                  aria-describedby={fieldErrors.projectName ? "wizard-name-error" : undefined}
                 />
+                {fieldErrors.projectName && (
+                  <p id="wizard-name-error" className="text-xs text-error">
+                    {fieldErrors.projectName}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>主题标签（可选）</Label>
@@ -222,18 +275,32 @@ export default function NewProjectPage() {
         {currentStep === 1 && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold text-on-surface">补充说明</h2>
-            <p className="text-sm text-gray-500">可选的背景资料与参考链接，帮助问答更精准（均非必填）</p>
+            <p className="text-sm text-on-surface-variant">可选的背景资料与参考链接，帮助问答更精准（均非必填）</p>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>参考链接</Label>
+                <Label htmlFor="wizard-website">参考链接</Label>
                 <Input
+                  id="wizard-website"
                   value={data.step2.companyWebsite}
-                  onChange={(e) =>
-                    setData((prev) => ({ ...prev, step2: { ...prev.step2, companyWebsite: e.target.value } }))
-                  }
+                  onChange={(e) => {
+                    setData((prev) => ({ ...prev, step2: { ...prev.step2, companyWebsite: e.target.value } }));
+                    setFieldErrors((prev) => {
+                      if (!prev.companyWebsite) return prev;
+                      const next = { ...prev };
+                      delete next.companyWebsite;
+                      return next;
+                    });
+                  }}
                   placeholder="https://www.example.com"
+                  aria-invalid={!!fieldErrors.companyWebsite}
+                  aria-describedby={fieldErrors.companyWebsite ? "wizard-website-error" : undefined}
                 />
+                {fieldErrors.companyWebsite && (
+                  <p id="wizard-website-error" className="text-xs text-error">
+                    {fieldErrors.companyWebsite}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>目标市场</Label>

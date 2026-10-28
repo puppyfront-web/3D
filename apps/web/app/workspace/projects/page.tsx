@@ -81,7 +81,7 @@ export default function ProjectsPage() {
           { label: "全部项目", count: statusCounts.all, color: "text-primary" },
           { label: "进行中", count: statusCounts.in_progress, color: "text-secondary" },
           { label: "审核中", count: statusCounts.review, color: "text-tertiary" },
-          { label: "已通过", count: statusCounts.approved, color: "text-[#00875a]" },
+          { label: "已通过", count: statusCounts.approved, color: "text-success" },
         ].map((stat) => (
           <Card key={stat.label} className="border-outline-variant">
             <CardContent className="p-4">

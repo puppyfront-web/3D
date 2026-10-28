@@ -123,7 +123,7 @@ export default function TalkingPointsPage() {
         <div className="flex items-center gap-2">
           <FileUploadButton accept=".json,.txt,.md" dialogTitle="导入话术" dialogDescription="支持 JSON / TXT / MD 格式" onUpload={handleImport} />
           <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}><Download className="h-3.5 w-3.5" />导出</Button>
-          <Button className="bg-primary hover:bg-primary gap-2" onClick={openCreate}><Plus className="h-4 w-4" />新建话术</Button>
+          <Button className="gap-2" onClick={openCreate}><Plus className="h-4 w-4" />新建话术</Button>
         </div>
       </div>
 
@@ -198,7 +198,7 @@ export default function TalkingPointsPage() {
               <Label>标签（逗号分隔）</Label>
               <Input placeholder="如：高客单价, 决策链长" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
             </div>
-            <Button className="w-full bg-primary hover:bg-primary" onClick={handleSubmit} disabled={submitting || !form.title.trim()}>
+            <Button className="w-full" onClick={handleSubmit} disabled={submitting || !form.title.trim()}>
               {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}{editingId ? "保存修改" : "创建"}
             </Button>
           </div>

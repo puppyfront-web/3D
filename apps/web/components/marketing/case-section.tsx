@@ -97,7 +97,7 @@ export function CaseSection() {
       <div className="max-w-container-max mx-auto px-margin-desktop">
         <div className="flex justify-between items-end mb-12">
           <div>
-            <h2 className="text-3xl md:text-[32px] font-bold text-on-background tracking-tight">
+            <h2 className="text-3xl md:text-[32px] font-semibold text-on-background tracking-tight">
               精选案例
             </h2>
             <p className="text-on-surface-variant text-sm mt-2">
@@ -106,7 +106,7 @@ export function CaseSection() {
           </div>
           <Link
             href="/admin/cases"
-            className="text-primary font-bold flex items-center gap-1 hover:underline"
+            className="text-primary font-medium flex items-center gap-1 hover:underline"
           >
             查看全部
             <ArrowRight className="h-4 w-4" />
