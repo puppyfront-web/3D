@@ -163,7 +163,7 @@ export function HeroSection() {
               <BrainCircuit className="h-3.5 w-3.5 text-primary" />
               AI 团队平台 · 多 Agent 协作
             </div>
-            <h1 className="text-4xl md:text-5xl lg:text-[56px] leading-[1.08] font-semibold text-on-background mb-6 tracking-tighter">
+            <h1 className="text-4xl md:text-5xl lg:text-[56px] leading-[1.08] font-semibold text-on-background mb-6 tracking-tight">
               组建你的 AI 团队
               <br />
               AI 大脑（CEO）统筹交付

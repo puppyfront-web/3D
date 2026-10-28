@@ -14,6 +14,7 @@ import { TeamRoster } from "@/components/marketing/team-roster";
 import { ValueStrip } from "@/components/marketing/value-strip";
 import { CaseSection } from "@/components/marketing/case-section";
 import { CtaBanner } from "@/components/marketing/cta-banner";
+import { ThemeScope } from "@/components/layout/theme-scope";
 import { APP_NAME, APP_FULL_NAME, APP_TAGLINE } from "@/lib/constants";
 
 const FOOTER_LINKS = [
@@ -26,6 +27,7 @@ const FOOTER_LINKS = [
 export default function HomePage() {
   return (
     <div className="theme-dark min-h-screen bg-surface flex flex-col">
+      <ThemeScope />
       <TopNav variant="marketing" activeHref="/" />
       <main className="w-full flex-1">
         <HeroSection />
