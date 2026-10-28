@@ -203,7 +203,7 @@ export default function ProposalTemplatesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-on-surface">方案模板管理</h1>
-          <p className="text-sm text-gray-500 mt-1">管理方案文档模板和章节结构</p>
+          <p className="text-sm text-on-surface-variant mt-1">管理方案文档模板和章节结构</p>
         </div>
         <div className="flex items-center gap-2">
           <FileUploadButton
@@ -216,7 +216,7 @@ export default function ProposalTemplatesPage() {
             <Download className="h-3.5 w-3.5" />
             导出
           </Button>
-          <Button className="bg-primary hover:bg-primary gap-2" onClick={openCreate}>
+          <Button className="gap-2" onClick={openCreate}>
             <Plus className="h-4 w-4" /> 新建模板
           </Button>
         </div>
@@ -224,18 +224,18 @@ export default function ProposalTemplatesPage() {
 
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
           <Input placeholder="搜索模板..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
         </div>
       </div>
 
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-          <FileText className="h-12 w-12 mb-3 text-gray-300" />
+        <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant">
+          <FileText className="h-12 w-12 mb-3 text-on-surface-variant" />
           <p className="text-sm">暂无方案模板</p>
         </div>
       ) : (
-        <Card className="border-gray-200">
+        <Card className="border-outline-variant">
           <CardContent className="p-0">
             <Table>
               <TableHeader>
@@ -262,11 +262,11 @@ export default function ProposalTemplatesPage() {
                         {tpl.category || "未分类"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-gray-500">{tpl.industry || "-"}</TableCell>
+                    <TableCell className="text-sm text-on-surface-variant">{tpl.industry || "-"}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{tpl.usageCount ?? 0} 次</Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-gray-500">{tpl.updatedAt || "-"}</TableCell>
+                    <TableCell className="text-sm text-on-surface-variant">{tpl.updatedAt || "-"}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleExportOne(tpl)}><Download className="h-3.5 w-3.5" /></Button>
@@ -323,7 +323,7 @@ export default function ProposalTemplatesPage() {
           </div>
           <DialogFooter className="mt-4 gap-2">
             <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
-            <Button className="bg-primary hover:bg-primary" onClick={handleCreate} disabled={saving || !formName.trim()}>
+            <Button onClick={handleCreate} disabled={saving || !formName.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 创建模板
             </Button>
           </DialogFooter>
@@ -369,7 +369,7 @@ export default function ProposalTemplatesPage() {
           </div>
           <DialogFooter className="mt-4 gap-2">
             <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
-            <Button className="bg-primary hover:bg-primary" onClick={handleUpdate} disabled={saving || !formName.trim()}>
+            <Button onClick={handleUpdate} disabled={saving || !formName.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 保存
             </Button>
           </DialogFooter>
@@ -382,7 +382,7 @@ export default function ProposalTemplatesPage() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-on-surface-variant">
             确定要删除模板「{selected?.name}」吗？此操作不可撤销。
           </p>
           <DialogFooter className="mt-4 gap-2">

@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -197,7 +198,7 @@ export default function QualityRulesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-on-surface">质量标准管理</h1>
-          <p className="text-sm text-gray-500 mt-1">管理方案质量评估标准和评分规则</p>
+          <p className="text-sm text-on-surface-variant mt-1">管理方案质量评估标准和评分规则</p>
         </div>
         <div className="flex items-center gap-2">
           <FileUploadButton
@@ -212,7 +213,7 @@ export default function QualityRulesPage() {
           </Button>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary gap-2">
+              <Button className="gap-2">
                 <Plus className="h-4 w-4" /> 新建标准
               </Button>
             </DialogTrigger>
@@ -239,7 +240,7 @@ export default function QualityRulesPage() {
                 <Label>通过分数线</Label>
                 <Input type="number" placeholder="80" value={formPassingScore} onChange={(e) => setFormPassingScore(e.target.value)} />
               </div>
-              <Button className="w-full bg-primary hover:bg-primary" onClick={handleCreate} disabled={submitting}>
+              <Button className="w-full" onClick={handleCreate} disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 创建标准
               </Button>
@@ -252,14 +253,14 @@ export default function QualityRulesPage() {
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          <span className="ml-2 text-sm text-gray-500">加载中...</span>
+          <span className="ml-2 text-sm text-on-surface-variant">加载中...</span>
         </div>
       ) : (
         <div className="space-y-4">
           {rules.map((rule) => {
             const totalWeight = rule.criteria.reduce((acc, c) => acc + c.weight, 0);
             return (
-              <Card key={rule.id} className="border-gray-200">
+              <Card key={rule.id} className="border-outline-variant">
                 <CardHeader
                   className="pb-3 cursor-pointer"
                   onClick={() => toggleExpand(rule.id)}
@@ -267,14 +268,14 @@ export default function QualityRulesPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       {expanded.includes(rule.id) ? (
-                        <ChevronDown className="h-4 w-4 text-gray-400" />
+                        <ChevronDown className="h-4 w-4 text-on-surface-variant" />
                       ) : (
-                        <ChevronRight className="h-4 w-4 text-gray-400" />
+                        <ChevronRight className="h-4 w-4 text-on-surface-variant" />
                       )}
                       <ShieldCheck className="h-5 w-5 text-primary" />
                       <div>
                         <CardTitle className="text-sm font-medium">{rule.name}</CardTitle>
-                        <p className="text-xs text-gray-500 mt-0.5">{rule.description}</p>
+                        <p className="text-xs text-on-surface-variant mt-0.5">{rule.description}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -282,11 +283,11 @@ export default function QualityRulesPage() {
                       <Badge variant="outline" className="text-xs">
                         通过线 {rule.passingScore}分
                       </Badge>
-                      <Badge className={`text-xs ${rule.isActive ? "bg-green-50 text-[#00875a]" : "bg-gray-100 text-gray-500"}`}>
+                      <StatusBadge variant={rule.isActive ? "success" : "neutral"}>
                         {rule.isActive ? "启用" : "停用"}
-                      </Badge>
+                      </StatusBadge>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleToggle(rule); }}>
-                        {rule.isActive ? <ToggleRight className="h-3.5 w-3.5 text-[#00875a]" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
+                        {rule.isActive ? <ToggleRight className="h-3.5 w-3.5 text-success" /> : <ToggleLeft className="h-3.5 w-3.5 text-on-surface-variant" />}
                       </Button>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-error" onClick={(e) => { e.stopPropagation(); openDelete(rule); }}>
                         <Trash2 className="h-3.5 w-3.5" />
@@ -304,31 +305,31 @@ export default function QualityRulesPage() {
                   <CardContent className="pt-0">
                     <Separator className="mb-4" />
                     <div className="ml-7">
-                      <div className="grid grid-cols-12 gap-3 text-xs font-medium text-gray-500 mb-2 px-3">
+                      <div className="grid grid-cols-12 gap-3 text-xs font-medium text-on-surface-variant mb-2 px-3">
                         <div className="col-span-5">评分标准</div>
                         <div className="col-span-2">权重</div>
                         <div className="col-span-5">评分指南</div>
                       </div>
                       {rule.criteria.length === 0 ? (
-                        <div className="px-3 py-3 text-xs text-gray-400">暂无评分标准</div>
+                        <div className="px-3 py-3 text-xs text-on-surface-variant">暂无评分标准</div>
                       ) : (
                         rule.criteria.map((criteria) => (
                           <div
                             key={criteria.id}
-                            className="grid grid-cols-12 gap-3 items-center px-3 py-2 bg-gray-50 rounded-lg mb-1.5"
+                            className="grid grid-cols-12 gap-3 items-center px-3 py-2 bg-surface-container-low rounded-lg mb-1.5"
                           >
                             <div className="col-span-5 text-sm text-on-surface">{criteria.description}</div>
                             <div className="col-span-2">
                               <div className="flex items-center gap-2">
                                 <Progress value={(criteria.weight / totalWeight) * 100} className="h-1.5 flex-1" />
-                                <span className="text-xs text-gray-600 font-medium">{criteria.weight}%</span>
+                                <span className="text-xs text-on-surface-variant font-medium">{criteria.weight}%</span>
                               </div>
                             </div>
-                            <div className="col-span-5 text-xs text-gray-500">{criteria.scoringGuide}</div>
+                            <div className="col-span-5 text-xs text-on-surface-variant">{criteria.scoringGuide}</div>
                           </div>
                         ))
                       )}
-                      <p className="text-xs text-gray-400 mt-2 px-3">评分标准暂不支持子项编辑</p>
+                      <p className="text-xs text-on-surface-variant mt-2 px-3">评分标准暂不支持子项编辑</p>
                     </div>
                   </CardContent>
                 )}
@@ -367,11 +368,11 @@ export default function QualityRulesPage() {
               <Label>权重 (0-1)</Label>
               <Input type="number" step="0.1" min="0" max="1" placeholder="0.0 - 1.0" value={formWeight} onChange={(e) => setFormWeight(e.target.value)} />
             </div>
-            <p className="text-xs text-gray-400">评分标准暂不支持子项编辑</p>
+            <p className="text-xs text-on-surface-variant">评分标准暂不支持子项编辑</p>
           </div>
           <DialogFooter className="mt-4 gap-2">
             <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
-            <Button className="bg-primary hover:bg-primary" onClick={handleUpdate} disabled={submitting || !formName.trim()}>
+            <Button onClick={handleUpdate} disabled={submitting || !formName.trim()}>
               {submitting && <Loader2 className="h-4 w-4 animate-spin mr-1" />} 保存
             </Button>
           </DialogFooter>
@@ -384,7 +385,7 @@ export default function QualityRulesPage() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-on-surface-variant">
             确定要删除质量标准「{selected?.name}」吗？此操作不可撤销。
           </p>
           <DialogFooter className="mt-4 gap-2">

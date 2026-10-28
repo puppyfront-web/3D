@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
@@ -287,7 +288,7 @@ export default function SOPWorkflowsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-on-surface">SOP工作流配置</h1>
-          <p className="text-sm text-gray-500 mt-1">配置方案生成的自动化工作流程和步骤</p>
+          <p className="text-sm text-on-surface-variant mt-1">配置方案生成的自动化工作流程和步骤</p>
         </div>
         <div className="flex items-center gap-2">
           <FileUploadButton
@@ -302,7 +303,7 @@ export default function SOPWorkflowsPage() {
           </Button>
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary gap-2">
+              <Button className="gap-2">
                 <Plus className="h-4 w-4" /> 新建工作流
               </Button>
             </DialogTrigger>
@@ -343,7 +344,7 @@ export default function SOPWorkflowsPage() {
                 />
               </div>
               <Button
-                className="w-full bg-primary hover:bg-primary"
+                className="w-full"
                 onClick={handleCreate}
                 disabled={creating || !createForm.name.trim()}
               >
@@ -363,27 +364,27 @@ export default function SOPWorkflowsPage() {
 
       <div className="space-y-4">
         {workflows.map((wf) => (
-          <Card key={wf.id} className="border-gray-200">
+          <Card key={wf.id} className="border-outline-variant">
             <CardHeader className="pb-3 cursor-pointer" onClick={() => toggleExpand(wf.id)}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {expanded.includes(wf.id) ? (
-                    <ChevronDown className="h-4 w-4 text-gray-400" />
+                    <ChevronDown className="h-4 w-4 text-on-surface-variant" />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-gray-400" />
+                    <ChevronRight className="h-4 w-4 text-on-surface-variant" />
                   )}
                   <GitBranch className="h-5 w-5 text-primary" />
                   <div>
                     <CardTitle className="text-sm font-medium">{wf.name}</CardTitle>
-                    <p className="text-xs text-gray-500 mt-0.5">{wf.description}</p>
+                    <p className="text-xs text-on-surface-variant mt-0.5">{wf.description}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Badge variant="secondary" className="text-xs">{wf.category}</Badge>
                   <Badge variant="outline" className="text-xs">{(wf.steps ?? []).length} 个步骤</Badge>
-                  <Badge className={`text-xs ${wf.isActive ? "bg-green-50 text-[#00875a]" : "bg-gray-100 text-gray-500"}`}>
+                  <StatusBadge variant={wf.isActive ? "success" : "neutral"}>
                     {wf.isActive ? "启用中" : "已停用"}
-                  </Badge>
+                  </StatusBadge>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -446,7 +447,7 @@ export default function SOPWorkflowsPage() {
                 {/* Pipeline Stages Overview */}
                 {wf.pipelineStages && wf.pipelineStages.length > 0 && (
                   <div className="ml-7 mb-5">
-                    <p className="text-xs font-medium text-gray-500 mb-2">
+                    <p className="text-xs font-medium text-on-surface-variant mb-2">
                       PIPELINE 阶段
                       {wf.boundAgent === "canvas" && (
                         <span className="ml-2 text-primary font-normal">
@@ -463,8 +464,8 @@ export default function SOPWorkflowsPage() {
                               className={
                                 "px-3 py-1.5 border rounded-lg text-xs flex items-center gap-2 " +
                                 (enabled
-                                  ? "bg-blue-50 border-blue-100"
-                                  : "bg-gray-50 border-gray-200 opacity-60")
+                                  ? "bg-primary-fixed border-primary-fixed-dim"
+                                  : "bg-surface-container-low border-outline-variant opacity-60")
                               }
                             >
                               {wf.boundAgent === "canvas" && (
@@ -476,15 +477,15 @@ export default function SOPWorkflowsPage() {
                                   disabled={togglingId === wf.id}
                                 />
                               )}
-                              <span className={"font-medium " + (enabled ? "text-primary" : "text-gray-400 line-through")}>
+                              <span className={"font-medium " + (enabled ? "text-primary" : "text-on-surface-variant line-through")}>
                                 {stage.name}
                               </span>
                               {stage.description && (
-                                <span className="text-gray-400 ml-1">— {stage.description}</span>
+                                <span className="text-on-surface-variant ml-1">— {stage.description}</span>
                               )}
                             </div>
                             {i < wf.pipelineStages!.length - 1 && (
-                              <ArrowRight className="h-3 w-3 text-gray-300" />
+                              <ArrowRight className="h-3 w-3 text-on-surface-variant" />
                             )}
                           </div>
                         );
@@ -501,15 +502,15 @@ export default function SOPWorkflowsPage() {
                           {i + 1}
                         </div>
                         {i < (wf.steps ?? []).length - 1 && (
-                          <div className="w-px h-8 bg-gray-200 mt-1" />
+                          <div className="w-px h-8 bg-surface-container-high mt-1" />
                         )}
                       </div>
-                      <div className="flex-1 p-3 bg-gray-50 rounded-lg">
+                      <div className="flex-1 p-3 bg-surface-container-low rounded-lg">
                         <div className="flex items-center justify-between mb-1">
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-medium text-on-surface">{step.name}</p>
                             {step.stage && (
-                              <Badge variant="secondary" className="text-[10px] bg-purple-50 text-purple-600">
+                              <Badge variant="secondary" className="text-[10px] bg-tertiary-fixed text-on-tertiary-fixed">
                                 {step.stage}
                               </Badge>
                             )}
@@ -523,8 +524,8 @@ export default function SOPWorkflowsPage() {
                             </Badge>
                           </div>
                         </div>
-                        <p className="text-xs text-gray-500 mb-2">{step.description}</p>
-                        <div className="flex gap-4 text-xs text-gray-400">
+                        <p className="text-xs text-on-surface-variant mb-2">{step.description}</p>
+                        <div className="flex gap-4 text-xs text-on-surface-variant">
                           <span>输入：{(step.requiredInputs ?? []).join("、")}</span>
                           <ArrowRight className="h-3 w-3" />
                           <span>输出：{(step.outputs ?? []).join("、")}</span>
@@ -532,15 +533,15 @@ export default function SOPWorkflowsPage() {
 
                         {/* Rules */}
                         {step.rules && step.rules.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-gray-100">
-                            <p className="text-[10px] font-medium text-gray-400 mb-1">规则</p>
+                          <div className="mt-2 pt-2 border-t border-outline-variant">
+                            <p className="text-[10px] font-medium text-on-surface-variant mb-1">规则</p>
                             <div className="space-y-1">
                               {step.rules.map((rule, ri) => (
                                 <div key={ri} className="flex items-start gap-1.5 text-[11px]">
-                                  <Badge variant="outline" className={`text-[10px] px-1 py-0 ${rule.type === "custom" ? "border-orange-200 text-orange-600" : "border-gray-200 text-gray-500"}`}>
+                                  <Badge variant="outline" className={`text-[10px] px-1 py-0 ${rule.type === "custom" ? "border-warning-container text-warning" : "border-outline-variant text-on-surface-variant"}`}>
                                     {rule.type === "custom" ? "定制" : "通用"}
                                   </Badge>
-                                  <span className="text-gray-600">{rule.description}</span>
+                                  <span className="text-on-surface-variant">{rule.description}</span>
                                 </div>
                               ))}
                             </div>
@@ -549,12 +550,12 @@ export default function SOPWorkflowsPage() {
 
                         {/* Prompts */}
                         {step.prompts && step.prompts.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-gray-100">
-                            <p className="text-[10px] font-medium text-gray-400 mb-1">分析问题</p>
+                          <div className="mt-2 pt-2 border-t border-outline-variant">
+                            <p className="text-[10px] font-medium text-on-surface-variant mb-1">分析问题</p>
                             <div className="space-y-1">
                               {step.prompts.map((p, pi) => (
-                                <div key={pi} className="text-[11px] text-gray-600">
-                                  <span className="text-gray-400 mr-1">{p.number}.</span>
+                                <div key={pi} className="text-[11px] text-on-surface-variant">
+                                  <span className="text-on-surface-variant mr-1">{p.number}.</span>
                                   {p.question}
                                 </div>
                               ))}
@@ -564,7 +565,7 @@ export default function SOPWorkflowsPage() {
 
                         {/* Dependencies */}
                         {step.dependencies && step.dependencies.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-gray-100 text-[11px] text-gray-400">
+                          <div className="mt-2 pt-2 border-t border-outline-variant text-[11px] text-on-surface-variant">
                             依赖：{step.dependencies.join("、")}
                           </div>
                         )}
@@ -666,15 +667,15 @@ export default function SOPWorkflowsPage() {
               </div>
               <div className="space-y-2">
                 {editSteps.length === 0 && (
-                  <p className="text-xs text-gray-400">暂无步骤，点击「添加步骤」创建。</p>
+                  <p className="text-xs text-on-surface-variant">暂无步骤，点击「添加步骤」创建。</p>
                 )}
                 {editSteps.map((step, i) => (
                   <div
                     key={i}
-                    className="rounded-lg border border-gray-200 p-3 space-y-2 bg-gray-50"
+                    className="rounded-lg border border-outline-variant p-3 space-y-2 bg-surface-container-low"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-gray-500">
+                      <span className="text-xs font-medium text-on-surface-variant">
                         步骤 {i + 1}
                       </span>
                       <div className="flex items-center gap-1">
@@ -734,7 +735,6 @@ export default function SOPWorkflowsPage() {
               <Button variant="outline">取消</Button>
             </DialogClose>
             <Button
-              className="bg-primary hover:bg-primary"
               onClick={handleEditSave}
               disabled={saving || !editForm.name.trim()}
             >
@@ -751,7 +751,7 @@ export default function SOPWorkflowsPage() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-on-surface-variant">
             确定要删除工作流「{deletingWf?.name}」吗？此操作不可撤销。
           </p>
           <DialogFooter className="mt-4 gap-2">

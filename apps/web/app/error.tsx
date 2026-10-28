@@ -26,17 +26,17 @@ export default function GlobalError({
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
       <div className="text-center space-y-2">
-        <h2 className="text-lg font-semibold text-gray-900">出了点问题</h2>
-        <p className="text-sm text-gray-500 max-w-md">
+        <h2 className="text-lg font-semibold text-on-surface">出了点问题</h2>
+        <p className="text-sm text-on-surface-variant max-w-md">
           {error.message || "页面发生了意外错误，请重试。"}
         </p>
         {error.digest && (
-          <p className="text-xs text-gray-400">错误ID: {error.digest}</p>
+          <p className="text-xs text-on-surface-variant">错误ID: {error.digest}</p>
         )}
       </div>
       <button
         onClick={reset}
-        className="px-4 py-2 text-sm bg-[#1A2B3C] text-white rounded-lg hover:bg-[#2A3B4C] transition-colors"
+        className="px-4 py-2 text-sm bg-primary text-on-primary rounded-lg hover:bg-primary/90 transition-colors"
       >
         重试
       </button>

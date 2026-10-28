@@ -182,7 +182,7 @@ export default function VisualStylesPage() {
             <Download className="h-3.5 w-3.5" />
             导出
           </Button>
-          <Button className="bg-primary hover:bg-primary gap-2" onClick={openCreate}>
+          <Button className="gap-2" onClick={openCreate}>
             <Plus className="h-4 w-4" /> 新建风格
           </Button>
         </div>
@@ -341,7 +341,7 @@ export default function VisualStylesPage() {
                 </div>
               </div>
             </div>
-            <Button className="w-full bg-primary hover:bg-primary" onClick={handleSubmit} disabled={submitting || !form.name.trim()}>
+            <Button className="w-full" onClick={handleSubmit} disabled={submitting || !form.name.trim()}>
               {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editingId ? "保存修改" : "创建风格"}
             </Button>

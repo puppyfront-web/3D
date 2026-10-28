@@ -80,10 +80,10 @@ const DOC_CATEGORIES = [
 ] as const;
 
 const typeIcons: Record<AssetType, React.ReactNode> = {
-  image: <ImageIcon className="h-4 w-4 text-green-500" />,
-  video: <Video className="h-4 w-4 text-purple-500" />,
-  document: <FileText className="h-4 w-4 text-blue-500" />,
-  template: <FileText className="h-4 w-4 text-amber-500" />,
+  image: <ImageIcon className="h-4 w-4 text-success" />,
+  video: <Video className="h-4 w-4 text-tertiary" />,
+  document: <FileText className="h-4 w-4 text-primary" />,
+  template: <FileText className="h-4 w-4 text-warning" />,
   model: <Package className="h-4 w-4 text-surface-tint" />,
 };
 
@@ -101,35 +101,35 @@ const statusConfig: Record<
 > = {
   uploaded: {
     label: "待入库",
-    color: "bg-amber-100 text-amber-700",
+    color: "bg-warning-container text-warning",
     icon: <Clock className="h-3 w-3" />,
   },
   indexed: {
     label: "已入库",
-    color: "bg-green-100 text-green-700",
+    color: "bg-success-container text-success",
     icon: <CheckCircle2 className="h-3 w-3" />,
   },
   error: {
     label: "入库失败",
-    color: "bg-red-100 text-red-700",
+    color: "bg-error-container text-error",
     icon: <AlertCircle className="h-3 w-3" />,
   },
   pending: {
     label: "处理中",
-    color: "bg-gray-100 text-gray-600",
+    color: "bg-surface-container text-on-surface-variant",
     icon: <Loader2 className="h-3 w-3 animate-spin" />,
   },
 };
 
 const parseStatusConfig: Record<string, { label: string; color: string }> = {
-  uploaded: { label: "待解析", color: "bg-gray-100 text-gray-600" },
-  parsing: { label: "解析中", color: "bg-blue-100 text-blue-700" },
-  parsed: { label: "已解析", color: "bg-green-100 text-green-700" },
-  parse_failed: { label: "解析失败", color: "bg-red-100 text-red-700" },
-  classified: { label: "已归类", color: "bg-purple-100 text-purple-700" },
-  pending_confirm: { label: "待确认", color: "bg-amber-100 text-amber-700" },
-  indexed: { label: "已解析", color: "bg-green-100 text-green-700" },
-  error: { label: "失败", color: "bg-red-100 text-red-700" },
+  uploaded: { label: "待解析", color: "bg-surface-container text-on-surface-variant" },
+  parsing: { label: "解析中", color: "bg-primary-fixed text-on-primary-fixed" },
+  parsed: { label: "已解析", color: "bg-success-container text-success" },
+  parse_failed: { label: "解析失败", color: "bg-error-container text-error" },
+  classified: { label: "已归类", color: "bg-tertiary-fixed text-on-tertiary-fixed" },
+  pending_confirm: { label: "待确认", color: "bg-warning-container text-warning" },
+  indexed: { label: "已解析", color: "bg-success-container text-success" },
+  error: { label: "失败", color: "bg-error-container text-error" },
 };
 
 function AssetsPageInner() {
@@ -350,7 +350,7 @@ function AssetsPageInner() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-on-surface">知识库资料管理</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-on-surface-variant mt-1">
             上传文档到知识库，自动解析入库供 RAG 检索使用 · 共 {total} 份
           </p>
         </div>
@@ -438,7 +438,7 @@ function AssetsPageInner() {
 
           <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary gap-2">
+              <Button className="gap-2">
                 <Upload className="h-4 w-4" /> 上传资料
               </Button>
             </DialogTrigger>
@@ -447,7 +447,7 @@ function AssetsPageInner() {
                 <DialogTitle>上传资料到知识库</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-4">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary transition-colors">
+                <div className="border-2 border-dashed border-outline rounded-lg p-8 text-center hover:border-primary transition-colors">
                   {uploading ? (
                     <>
                       <Loader2 className="h-8 w-8 mx-auto text-primary mb-2 animate-spin" />
@@ -455,9 +455,9 @@ function AssetsPageInner() {
                     </>
                   ) : (
                     <>
-                      <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-                      <p className="text-sm text-gray-500">点击选择文件上传</p>
-                      <p className="text-xs text-gray-400 mt-1">
+                      <Upload className="h-8 w-8 mx-auto text-on-surface-variant mb-2" />
+                      <p className="text-sm text-on-surface-variant">点击选择文件上传</p>
+                      <p className="text-xs text-on-surface-variant mt-1">
                         支持 PDF / PPTX / DOCX / XLSX / TXT / MD
                       </p>
                     </>
@@ -471,7 +471,7 @@ function AssetsPageInner() {
                   onChange={handleFileSelect}
                 />
                 <Button
-                  className="w-full bg-primary hover:bg-primary"
+                  className="w-full"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
                 >
@@ -486,7 +486,7 @@ function AssetsPageInner() {
       <div className="flex flex-col gap-3 mb-4">
         <form onSubmit={handleSearchSubmit} className="flex items-center gap-3 flex-wrap">
           <div className="relative flex-1 min-w-[200px] max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
             <Input
               placeholder="搜索文件名..."
               value={searchInput}
@@ -559,7 +559,7 @@ function AssetsPageInner() {
               variant={filterType === t ? "default" : "outline"}
               size="sm"
               onClick={() => setFilterType(t)}
-              className={filterType === t ? "bg-primary hover:bg-primary" : ""}
+
             >
               {t === "all" ? "全部类型" : typeLabels[t as AssetType] || t}
             </Button>
@@ -567,15 +567,15 @@ function AssetsPageInner() {
         </div>
       </div>
 
-      <Card className="border-gray-200">
+      <Card className="border-outline-variant">
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 text-primary animate-spin" />
-              <span className="ml-2 text-sm text-gray-500">加载中...</span>
+              <span className="ml-2 text-sm text-on-surface-variant">加载中...</span>
             </div>
           ) : filteredByType.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+            <div className="flex flex-col items-center justify-center py-12 text-on-surface-variant">
               <FileText className="h-8 w-8 mb-2" />
               <p className="text-sm">暂无资料，点击上传添加</p>
             </div>
@@ -638,12 +638,12 @@ function AssetsPageInner() {
                           {typeLabels[asset.type] || asset.type}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-gray-600">
+                      <TableCell className="text-xs text-on-surface-variant">
                         {asset.category && asset.category !== "document"
                           ? asset.category
                           : "—"}
                       </TableCell>
-                      <TableCell className="text-sm text-gray-500">{asset.size}</TableCell>
+                      <TableCell className="text-sm text-on-surface-variant">{asset.size}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className={`text-xs gap-1 ${status.color}`}>
                           {isIndexing ? (
@@ -659,16 +659,16 @@ function AssetsPageInner() {
                           {parseMeta.label}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-gray-500">
+                      <TableCell className="text-sm text-on-surface-variant">
                         {asset.status === "indexed" ? (
-                          <span className="text-green-600 font-medium">
+                          <span className="text-success font-medium">
                             {asset.chunk_count}
                           </span>
                         ) : (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-on-surface-variant">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm text-gray-500">
+                      <TableCell className="text-sm text-on-surface-variant">
                         {new Date(asset.uploadedAt).toLocaleDateString("zh-CN")}
                       </TableCell>
                       <TableCell className="text-right">
@@ -676,7 +676,7 @@ function AssetsPageInner() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 w-7 p-0 text-gray-500"
+                            className="h-7 w-7 p-0 text-on-surface-variant"
                             title="查看详情"
                             onClick={() => {
                               setDetailDocId(asset.id);
@@ -700,7 +700,7 @@ function AssetsPageInner() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 w-7 p-0 text-gray-400"
+                              className="h-7 w-7 p-0 text-on-surface-variant"
                               title="重新入库"
                               onClick={() => handleIndex(asset.id)}
                             >
@@ -728,7 +728,7 @@ function AssetsPageInner() {
       </Card>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4 text-sm text-gray-500">
+        <div className="flex items-center justify-between mt-4 text-sm text-on-surface-variant">
           <span>
             第 {page} / {totalPages} 页，共 {total} 条
           </span>
@@ -760,7 +760,7 @@ function AssetsPageInner() {
           <DialogHeader>
             <DialogTitle>确认批量删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-on-surface-variant">
             将删除所选 {selectedIds.size} 份资料及其知识库分块，删除后问答将不再引用这些内容。此操作不可撤销。
           </p>
           <DialogFooter className="mt-4 gap-2">
@@ -780,7 +780,7 @@ function AssetsPageInner() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-on-surface-variant">
             确定要删除资料「{selected?.name}」吗？此操作不可撤销。
           </p>
           <DialogFooter className="mt-4 gap-2">

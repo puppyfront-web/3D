@@ -31,7 +31,7 @@ export function WizardForm({
   return (
     <div className="flex flex-col h-full">
       {/* Step Indicator */}
-      <div className="border-b border-gray-200 bg-white px-8 py-5">
+      <div className="border-b border-outline-variant bg-surface-container-lowest px-8 py-5">
         <div className="flex items-center justify-between max-w-3xl mx-auto">
           {steps.map((step, index) => (
             <div key={index} className="flex items-center">
@@ -39,10 +39,10 @@ export function WizardForm({
                 <div
                   className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors ${
                     index < currentStep
-                      ? "bg-[#10B981] text-white"
+                      ? "bg-primary text-on-primary"
                       : index === currentStep
-                      ? "bg-primary text-white"
-                      : "bg-gray-100 text-gray-400"
+                      ? "bg-primary text-on-primary"
+                      : "bg-surface-container-high text-on-surface-variant"
                   }`}
                 >
                   {index < currentStep ? (
@@ -54,18 +54,18 @@ export function WizardForm({
                 <div className="hidden sm:block">
                   <p
                     className={`text-xs font-medium ${
-                      index <= currentStep ? "text-on-surface" : "text-gray-400"
+                      index <= currentStep ? "text-on-surface" : "text-on-surface-variant"
                     }`}
                   >
                     {step.title}
                   </p>
-                  <p className="text-xs text-gray-400">{step.description}</p>
+                  <p className="text-xs text-on-surface-variant">{step.description}</p>
                 </div>
               </div>
               {index < steps.length - 1 && (
                 <div
                   className={`w-16 h-px mx-3 ${
-                    index < currentStep ? "bg-[#10B981]" : "bg-gray-200"
+                    index < currentStep ? "bg-primary" : "bg-surface-container-high"
                   }`}
                 />
               )}
@@ -80,7 +80,7 @@ export function WizardForm({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-gray-200 bg-white px-8 py-4">
+      <div className="border-t border-outline-variant bg-surface-container-lowest px-8 py-4">
         <div className="flex items-center justify-between max-w-3xl mx-auto">
           <Button
             variant="outline"
@@ -91,14 +91,14 @@ export function WizardForm({
             <ChevronLeft className="h-4 w-4" />
             上一步
           </Button>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-on-surface-variant">
             第 {currentStep + 1} 步，共 {steps.length} 步
           </span>
           {isLast ? (
             <Button
               onClick={onSubmit}
               disabled={isSubmitting}
-              className="bg-primary hover:bg-primary gap-1"
+              className="gap-1"
             >
               {isSubmitting ? "创建中..." : "创建项目"}
               <Check className="h-4 w-4" />
@@ -106,7 +106,7 @@ export function WizardForm({
           ) : (
             <Button
               onClick={() => onStepChange(currentStep + 1)}
-              className="bg-primary hover:bg-primary gap-1"
+              className="gap-1"
             >
               下一步
               <ChevronRight className="h-4 w-4" />

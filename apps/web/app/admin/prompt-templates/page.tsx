@@ -186,7 +186,7 @@ export default function PromptTemplatesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-on-surface">提示词模板管理</h1>
-          <p className="text-sm text-gray-500 mt-1">管理AI提示词模板和变量配置</p>
+          <p className="text-sm text-on-surface-variant mt-1">管理AI提示词模板和变量配置</p>
         </div>
         <div className="flex items-center gap-2">
           <FileUploadButton
@@ -201,7 +201,7 @@ export default function PromptTemplatesPage() {
           </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary gap-2">
+              <Button className="gap-2">
                 <Plus className="h-4 w-4" /> 新建提示词
               </Button>
             </DialogTrigger>
@@ -246,9 +246,9 @@ export default function PromptTemplatesPage() {
                   onChange={(e) => setCreateForm((f) => ({ ...f, prompt: e.target.value }))}
                 />
               </div>
-              <p className="text-xs text-gray-400">使用双花括号 {`{{变量名}}`} 标记可替换变量</p>
+              <p className="text-xs text-on-surface-variant">使用双花括号 {`{{变量名}}`} 标记可替换变量</p>
               <Button
-                className="w-full bg-primary hover:bg-primary"
+                className="w-full"
                 onClick={handleCreate}
                 disabled={creating}
               >
@@ -263,12 +263,12 @@ export default function PromptTemplatesPage() {
 
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
           <Input placeholder="搜索提示词..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
         </div>
       </div>
 
-      <Card className="border-gray-200">
+      <Card className="border-outline-variant">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -285,13 +285,13 @@ export default function PromptTemplatesPage() {
               {loading ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" />
-                    <p className="text-sm text-gray-400 mt-2">加载中...</p>
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-on-surface-variant" />
+                    <p className="text-sm text-on-surface-variant mt-2">加载中...</p>
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-sm text-gray-400">
+                  <TableCell colSpan={6} className="text-center py-12 text-sm text-on-surface-variant">
                     暂无提示词模板
                   </TableCell>
                 </TableRow>
@@ -303,14 +303,14 @@ export default function PromptTemplatesPage() {
                         <MessageSquareCode className="h-4 w-4 text-surface-tint" />
                         <div>
                           <p className="text-sm font-medium text-on-surface">{tpl.name}</p>
-                          <p className="text-xs text-gray-400 mt-0.5 max-w-xs truncate">{tpl.description}</p>
+                          <p className="text-xs text-on-surface-variant mt-0.5 max-w-xs truncate">{tpl.description}</p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell><Badge variant="secondary" className="text-xs">{tpl.category}</Badge></TableCell>
-                    <TableCell className="text-sm text-gray-600">{tpl.variables.length} 个</TableCell>
+                    <TableCell className="text-sm text-on-surface-variant">{tpl.variables.length} 个</TableCell>
                     <TableCell><Badge variant="outline" className="text-xs">{tpl.usageCount} 次</Badge></TableCell>
-                    <TableCell className="text-sm text-gray-500">{tpl.createdAt}</TableCell>
+                    <TableCell className="text-sm text-on-surface-variant">{tpl.createdAt}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleExportOne(tpl)}><Download className="h-3.5 w-3.5" /></Button>
@@ -370,7 +370,7 @@ export default function PromptTemplatesPage() {
           </div>
           <DialogFooter className="mt-4 gap-2">
             <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
-            <Button className="bg-primary hover:bg-primary" onClick={handleUpdate} disabled={saving || !editForm.name || !editForm.prompt}>
+            <Button onClick={handleUpdate} disabled={saving || !editForm.name || !editForm.prompt}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null} 保存
             </Button>
           </DialogFooter>
@@ -383,7 +383,7 @@ export default function PromptTemplatesPage() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-on-surface-variant">
             确定要删除模板「{selected?.name}」吗？此操作不可撤销。
           </p>
           <DialogFooter className="mt-4 gap-2">

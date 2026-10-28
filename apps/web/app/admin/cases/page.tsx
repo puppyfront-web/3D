@@ -38,13 +38,14 @@ import { getCases, createCase, updateCase, deleteCase, importCases, exportCases,
 import { INDUSTRIES } from "@/lib/constants";
 import { downloadBlob } from "@/lib/download";
 import { FileUploadButton } from "@/components/admin/file-upload-button";
+import { StatusBadge } from "@/components/ui/status-badge";
 import type { CaseItem, ImportMode } from "@/types";
 
-const statusColor = {
-  published: "text-[#00875a] bg-green-50",
-  draft: "text-gray-500 bg-gray-100",
-  archived: "text-error bg-red-50",
-};
+const statusVariant = {
+  published: "success",
+  draft: "neutral",
+  archived: "neutral",
+} as const;
 
 const statusLabel = {
   published: "已发布",
@@ -222,7 +223,7 @@ export default function CasesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-on-surface">案例库管理</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-on-surface-variant mt-1">
             管理成功案例，用于方案参考和素材复用
           </p>
         </div>
@@ -239,7 +240,7 @@ export default function CasesPage() {
           </Button>
           <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary gap-2">
+              <Button className="gap-2">
                 <Plus className="h-4 w-4" /> 新建案例
               </Button>
             </DialogTrigger>
@@ -319,7 +320,7 @@ export default function CasesPage() {
                 />
               </div>
               <Button
-                className="w-full bg-primary hover:bg-primary"
+                className="w-full"
                 onClick={handleCreate}
                 disabled={submitting}
               >
@@ -336,7 +337,7 @@ export default function CasesPage() {
 
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
           <Input
             placeholder="搜索案例..."
             value={search}
@@ -346,15 +347,15 @@ export default function CasesPage() {
         </div>
       </div>
 
-      <Card className="border-gray-200">
+      <Card className="border-outline-variant">
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 text-primary animate-spin" />
-              <span className="ml-2 text-sm text-gray-500">加载中...</span>
+              <span className="ml-2 text-sm text-on-surface-variant">加载中...</span>
             </div>
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+            <div className="flex flex-col items-center justify-center py-12 text-on-surface-variant">
               <Eye className="h-8 w-8 mb-2" />
               <p className="text-sm">暂无案例，点击新建添加</p>
             </div>
@@ -378,7 +379,7 @@ export default function CasesPage() {
                     <TableCell className="text-sm font-medium text-on-surface">
                       {item.title}
                     </TableCell>
-                    <TableCell className="text-sm text-gray-600">
+                    <TableCell className="text-sm text-on-surface-variant">
                       {item.client}
                     </TableCell>
                     <TableCell>
@@ -386,10 +387,10 @@ export default function CasesPage() {
                         {item.industry}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-gray-500 max-w-xs truncate">
+                    <TableCell className="text-sm text-on-surface-variant max-w-xs truncate">
                       {item.outcome}
                     </TableCell>
-                    <TableCell className="text-sm text-gray-500">
+                    <TableCell className="text-sm text-on-surface-variant">
                       {item.createdAt}
                     </TableCell>
                     <TableCell>
@@ -398,7 +399,7 @@ export default function CasesPage() {
                           {item.referenceImages.slice(0, 3).map((img, i) => (
                             <div
                               key={i}
-                              className="relative w-6 h-6 rounded border border-white bg-gray-100 overflow-hidden"
+                              className="relative w-6 h-6 rounded border border-white bg-surface-container overflow-hidden"
                               title={img.caption || img.photo_type}
                             >
                               {img.url ? (
@@ -410,24 +411,22 @@ export default function CasesPage() {
                                   className="object-cover"
                                 />
                               ) : (
-                                <ImageIcon className="w-3 h-3 m-auto text-gray-300" />
+                                <ImageIcon className="w-3 h-3 m-auto text-on-surface-variant" />
                               )}
                             </div>
                           ))}
                           {item.referenceImages.length > 3 && (
-                            <span className="text-[10px] text-gray-400 ml-2">+{item.referenceImages.length - 3}</span>
+                            <span className="text-[10px] text-on-surface-variant ml-2">+{item.referenceImages.length - 3}</span>
                           )}
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-300">—</span>
+                        <span className="text-xs text-on-surface-variant">—</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusColor[item.status]}`}
-                      >
+                      <StatusBadge variant={statusVariant[item.status]}>
                         {statusLabel[item.status]}
-                      </span>
+                      </StatusBadge>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -596,7 +595,7 @@ export default function CasesPage() {
                 </Label>
                 <div className="grid grid-cols-3 gap-2">
                   {editingCase.referenceImages.map((img, i) => (
-                    <div key={i} className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+                    <div key={i} className="rounded-lg border border-outline-variant overflow-hidden bg-surface-container-low">
                       {img.url ? (
                         <div className="relative h-24 w-full">
                           <Image
@@ -609,11 +608,11 @@ export default function CasesPage() {
                         </div>
                       ) : (
                         <div className="w-full h-24 flex items-center justify-center">
-                          <ImageIcon className="h-6 w-6 text-gray-300" />
+                          <ImageIcon className="h-6 w-6 text-on-surface-variant" />
                         </div>
                       )}
                       <div className="p-1.5">
-                        <p className="text-[10px] text-gray-600 truncate">{img.caption || img.photo_type}</p>
+                        <p className="text-[10px] text-on-surface-variant truncate">{img.caption || img.photo_type}</p>
                         {img.style_label && (
                           <Badge variant="secondary" className="text-[9px] mt-0.5">{img.style_label}</Badge>
                         )}
@@ -621,7 +620,7 @@ export default function CasesPage() {
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-gray-400">提示：参考图片可通过 JSON 导入方式批量添加</p>
+                <p className="text-[10px] text-on-surface-variant">提示：参考图片可通过 JSON 导入方式批量添加</p>
               </div>
             )}
 
@@ -630,7 +629,6 @@ export default function CasesPage() {
                 <Button variant="outline">取消</Button>
               </DialogClose>
               <Button
-                className="bg-primary hover:bg-primary"
                 onClick={handleEdit}
                 disabled={submitting}
               >
@@ -650,7 +648,7 @@ export default function CasesPage() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-on-surface-variant">
             确定要删除案例「{deletingCase?.title}」吗？此操作不可撤销。
           </p>
           <DialogFooter className="mt-4 gap-2">

@@ -151,7 +151,7 @@ export default function SettingsPage() {
     defaultModels: string[],
     extra?: React.ReactNode,
   ) => (
-    <Card className="border-gray-200">
+    <Card className="border-outline-variant">
       <CardHeader className="pb-4">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           {icon}
@@ -197,7 +197,7 @@ export default function SettingsPage() {
             />
             <button
               type="button"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface-variant"
               onClick={() =>
                 setShowKeys((prev) => ({ ...prev, [keyName]: !prev[keyName] }))
               }
@@ -229,11 +229,11 @@ export default function SettingsPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-on-surface">系统设置</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-on-surface-variant mt-1">
             配置 AI 服务提供商和模型参数，保存后即时生效
           </p>
         </div>
-        <Settings className="h-5 w-5 text-gray-400" />
+        <Settings className="h-5 w-5 text-on-surface-variant" />
       </div>
 
       <div className="space-y-6">
@@ -267,7 +267,7 @@ export default function SettingsPage() {
 
         {renderServiceCard(
           "Image 图片生成",
-          <ImageIcon className="h-4 w-4 text-[#EC4899]" />,
+          <ImageIcon className="h-4 w-4 text-secondary" />,
           image,
           setImage,
           "image",
@@ -290,7 +290,7 @@ export default function SettingsPage() {
           </div>,
         )}
 
-        <Card className="border-gray-200">
+        <Card className="border-outline-variant">
           <CardHeader className="pb-4">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Search className="h-4 w-4 text-primary" />
@@ -298,7 +298,7 @@ export default function SettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-on-surface-variant">
               资料上传与入库仍在本地完成；此处仅配置<strong>检索</strong>走本地 pgvector 还是外部 FastGPT。
             </p>
             <div className="grid grid-cols-2 gap-4">
@@ -358,7 +358,7 @@ export default function SettingsPage() {
                 />
                 <button
                   type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant"
                   onClick={() => setShowFastgptKey((v) => !v)}
                 >
                   {showFastgptKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -371,7 +371,7 @@ export default function SettingsPage() {
 
       <div className="mt-6 flex items-center gap-3">
         <Button
-          className="bg-primary hover:bg-primary min-w-[120px]"
+          className="min-w-[120px]"
           onClick={handleSave}
           disabled={saving}
         >
@@ -387,7 +387,7 @@ export default function SettingsPage() {
             "保存设置"
           )}
         </Button>
-        <span className="text-xs text-gray-400">保存后即时生效，无需重启服务</span>
+        <span className="text-xs text-on-surface-variant">保存后即时生效，无需重启服务</span>
       </div>
     </div>
   );

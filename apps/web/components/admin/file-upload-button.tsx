@@ -117,13 +117,13 @@ export function FileUploadButton({
         </DialogHeader>
         <div className="space-y-4 mt-2">
           {dialogDescription && (
-            <p className="text-sm text-gray-500">{dialogDescription}</p>
+            <p className="text-sm text-on-surface-variant">{dialogDescription}</p>
           )}
 
           {/* Conflict mode — what happens when an imported record's natural key
               (e.g. name) already exists. Skip is the safe, non-destructive default. */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-600">冲突处理方式</label>
+            <label className="text-xs font-medium text-on-surface-variant">冲突处理方式</label>
             <Select value={mode} onValueChange={(v) => setMode(v as ImportMode)}>
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -140,7 +140,7 @@ export function FileUploadButton({
 
           {/* File input */}
           <div
-            className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center cursor-pointer hover:border-[#1E3A5F]/30 hover:bg-[#1E3A5F]/5 transition-colors"
+            className="border-2 border-dashed border-outline-variant rounded-lg p-8 text-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-colors"
             onClick={() => fileRef.current?.click()}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
@@ -155,42 +155,42 @@ export function FileUploadButton({
             />
             {uploading ? (
               <div className="flex flex-col items-center gap-2">
-                <Loader2 className="h-8 w-8 text-[#1E3A5F] animate-spin" />
-                <p className="text-sm text-gray-500">正在导入...</p>
+                <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                <p className="text-sm text-on-surface-variant">正在导入...</p>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2">
-                <Upload className="h-8 w-8 text-gray-300" />
-                <p className="text-sm text-gray-500">点击选择文件或拖拽到此处</p>
-                <p className="text-xs text-gray-400">支持格式: {accept}</p>
+                <Upload className="h-8 w-8 text-on-surface-variant" />
+                <p className="text-sm text-on-surface-variant">点击选择文件或拖拽到此处</p>
+                <p className="text-xs text-on-surface-variant">支持格式: {accept}</p>
               </div>
             )}
           </div>
 
           {/* Result */}
           {result && (
-            <div className="rounded-lg border border-gray-200 p-4 space-y-2">
+            <div className="rounded-lg border border-outline-variant p-4 space-y-2">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-[#10B981]" />
+                  <CheckCircle2 className="h-4 w-4 text-success" />
                   <span className="text-sm font-medium">
                     导入 {result.imported} 条
                   </span>
                 </div>
                 {!!result.skipped && result.skipped > 0 && (
-                  <span className="text-sm text-gray-500">跳过 {result.skipped}</span>
+                  <span className="text-sm text-on-surface-variant">跳过 {result.skipped}</span>
                 )}
                 {!!result.updated && result.updated > 0 && (
-                  <span className="text-sm text-[#1E3A5F]">更新 {result.updated}</span>
+                  <span className="text-sm text-primary">更新 {result.updated}</span>
                 )}
                 {result.failed > 0 && (
-                  <span className="text-sm text-[#EF4444]">{result.failed} 条失败</span>
+                  <span className="text-sm text-error">{result.failed} 条失败</span>
                 )}
               </div>
               {result.errors.length > 0 && (
                 <div className="mt-2 space-y-1">
                   {result.errors.map((err, i) => (
-                    <div key={i} className="flex items-start gap-1.5 text-xs text-[#EF4444]">
+                    <div key={i} className="flex items-start gap-1.5 text-xs text-error">
                       <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
                       {err}
                     </div>
@@ -201,7 +201,7 @@ export function FileUploadButton({
           )}
 
           {error && (
-            <div className="flex items-center gap-2 text-sm text-[#EF4444]">
+            <div className="flex items-center gap-2 text-sm text-error">
               <AlertCircle className="h-4 w-4" />
               {error}
             </div>

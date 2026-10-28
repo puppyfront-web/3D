@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Table,
   TableBody,
@@ -46,9 +47,9 @@ import { FileUploadButton } from "@/components/admin/file-upload-button";
 import type { TechnicalRule, ImportMode } from "@/types";
 
 const severityColor = {
-  critical: "text-error bg-red-50 border-red-200",
-  warning: "text-[#e8740b] bg-amber-50 border-amber-200",
-  info: "text-primary bg-blue-50 border-blue-200",
+  critical: "text-error bg-error-container",
+  warning: "text-warning bg-warning-container",
+  info: "text-primary bg-primary-fixed",
 };
 
 const severityLabel = {
@@ -204,7 +205,7 @@ export default function TechnicalRulesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-on-surface">技术规则配置</h1>
-          <p className="text-sm text-gray-500 mt-1">配置技术方案生成的约束规则和检查标准</p>
+          <p className="text-sm text-on-surface-variant mt-1">配置技术方案生成的约束规则和检查标准</p>
         </div>
         <div className="flex items-center gap-2">
           <FileUploadButton
@@ -219,7 +220,7 @@ export default function TechnicalRulesPage() {
           </Button>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary gap-2">
+              <Button className="gap-2">
                 <Plus className="h-4 w-4" /> 新建规则
               </Button>
             </DialogTrigger>
@@ -267,7 +268,7 @@ export default function TechnicalRulesPage() {
                 <Label>规则表达式</Label>
                 <Input placeholder="例如：model.faceCount <= 5000000" className="font-mono text-sm" value={formRule} onChange={(e) => setFormRule(e.target.value)} />
               </div>
-              <Button className="w-full bg-primary hover:bg-primary" onClick={handleCreate} disabled={submitting}>
+              <Button className="w-full" onClick={handleCreate} disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 创建规则
               </Button>
@@ -279,17 +280,17 @@ export default function TechnicalRulesPage() {
 
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-on-surface-variant" />
           <Input placeholder="搜索规则..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
         </div>
       </div>
 
-      <Card className="border-gray-200">
+      <Card className="border-outline-variant">
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <span className="ml-2 text-sm text-gray-500">加载中...</span>
+              <span className="ml-2 text-sm text-on-surface-variant">加载中...</span>
             </div>
           ) : (
             <Table>
@@ -313,22 +314,22 @@ export default function TechnicalRulesPage() {
                       </div>
                     </TableCell>
                     <TableCell><Badge variant="secondary" className="text-xs">{rule.category}</Badge></TableCell>
-                    <TableCell className="text-sm text-gray-500 max-w-xs truncate">{rule.description}</TableCell>
+                    <TableCell className="text-sm text-on-surface-variant max-w-xs truncate">{rule.description}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={`text-xs ${severityColor[rule.severity]}`}>
                         {severityLabel[rule.severity]}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className={`text-xs ${rule.isActive ? "bg-green-50 text-[#00875a]" : "bg-gray-100 text-gray-500"}`}>
+                      <StatusBadge variant={rule.isActive ? "success" : "neutral"}>
                         {rule.isActive ? "启用" : "停用"}
-                      </Badge>
+                      </StatusBadge>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleExportOne(rule)}><Download className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleToggle(rule)}>
-                          {rule.isActive ? <ToggleRight className="h-4 w-4 text-[#00875a]" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                          {rule.isActive ? <ToggleRight className="h-4 w-4 text-success" /> : <ToggleLeft className="h-4 w-4 text-on-surface-variant" />}
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(rule)}><Edit3 className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-error" onClick={() => openDelete(rule)}><Trash2 className="h-3.5 w-3.5" /></Button>
@@ -391,7 +392,7 @@ export default function TechnicalRulesPage() {
           </div>
           <DialogFooter className="mt-4 gap-2">
             <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
-            <Button className="bg-primary hover:bg-primary" onClick={handleUpdate} disabled={submitting || !formName.trim()}>
+            <Button onClick={handleUpdate} disabled={submitting || !formName.trim()}>
               {submitting && <Loader2 className="h-4 w-4 animate-spin mr-1" />} 保存
             </Button>
           </DialogFooter>
@@ -404,7 +405,7 @@ export default function TechnicalRulesPage() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-on-surface-variant">
             确定要删除规则「{selected?.name}」吗？此操作不可撤销。
           </p>
           <DialogFooter className="mt-4 gap-2">
